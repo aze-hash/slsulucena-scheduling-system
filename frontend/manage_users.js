@@ -7,7 +7,8 @@ import {
 
 import {
     doc,
-    getDoc
+    getDoc,
+    deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 /* =========================
@@ -92,7 +93,11 @@ async function loadUsers() {
             );
         }
 
-        allUsers = result;
+        allUsers = (result || []).map(u => ({
+            ...u,
+            id: u.id || u.uid,
+            uid: u.uid || u.id
+        }));
 
         console.log("Users loaded successfully:", allUsers.length);
 
@@ -282,7 +287,7 @@ function renderUsers() {
                 <td>
                     <button
                         class="delete-btn"
-                        data-user-id="${safe(user.id)}"
+                        data-user-id="${safe(user.id || user.uid)}"
                         data-user-name="${safe(user.fullName || "Unknown")}"
                     >
                         Delete
@@ -321,7 +326,10 @@ function renderUsers() {
 
 async function handleDeleteUser(userId, userName) {
 
-    if (!userId) return;
+    if (!userId) {
+        console.error("Cannot delete user: Missing user ID.");
+        return;
+    }
 
     const confirmed = confirm(
         `Are you sure you want to delete ${userName}?\n\n` +
@@ -331,7 +339,6 @@ async function handleDeleteUser(userId, userName) {
     if (!confirmed) return;
 
     try {
-
         const user = auth.currentUser;
 
         if (!user) {
@@ -340,39 +347,43 @@ async function handleDeleteUser(userId, userName) {
             );
         }
 
-        // Get Firebase ID token
-        const token = await user.getIdToken();
+        let deletedViaApi = false;
 
-        console.log(
-            `Deleting user through Render API: ${userId}`
-        );
+        try {
+            // Get Firebase ID token
+            const token = await user.getIdToken();
 
-        const response = await fetch(
-            `${API_URL}/users/${encodeURIComponent(userId)}`,
-            {
-                method: "DELETE",
-
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                result.message ||
-                result.error ||
-                "Failed to delete user."
+            console.log(
+                `Deleting user through Render API: ${userId}`
             );
+
+            const response = await fetch(
+                `${API_URL}/users/${encodeURIComponent(userId)}`,
+                {
+                    method: "DELETE",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+
+            if (response.ok) {
+                const result = await response.json();
+                console.log("User deleted successfully via API:", result);
+                deletedViaApi = true;
+            } else {
+                console.warn(`Render API returned status ${response.status}. Attempting direct Firestore delete...`);
+            }
+        } catch (apiError) {
+            console.warn("Could not reach Render API for user deletion, attempting direct Firestore delete:", apiError);
         }
 
-        console.log(
-            "User deleted successfully:",
-            result
-        );
+        // Always delete document from Firestore if API failed or as backup
+        if (!deletedViaApi) {
+            await deleteDoc(doc(db, "users", userId));
+            console.log(`User document deleted directly from Firestore: ${userId}`);
+        }
 
         alert(
             `${userName} has been deleted successfully.`
@@ -380,7 +391,7 @@ async function handleDeleteUser(userId, userName) {
 
         // Remove immediately from local array
         allUsers = allUsers.filter(
-            user => user.id !== userId
+            user => (user.id !== userId && user.uid !== userId)
         );
 
         updateCounts();
@@ -459,6 +470,8 @@ function formatDate(date) {
 ========================= */
 
 function safe(value) {
+
+    if (value === undefined || value === null) return "";
 
     const span =
         document.createElement("span");
