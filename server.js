@@ -163,11 +163,21 @@ app.get("/users", async (req, res) => {
   try {
     const snapshot = await usersRef.get();
 
-    const users = snapshot.docs.map((doc) => ({
-      ...doc.data(),
-      uid: doc.id,
-      id: doc.id,
-    }));
+    const users = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      let createdAt = data.createdAt;
+      if (createdAt?.toDate) {
+        createdAt = createdAt.toDate().toISOString();
+      } else if (createdAt?._seconds) {
+        createdAt = new Date(createdAt._seconds * 1000).toISOString();
+      }
+      return {
+        ...data,
+        createdAt,
+        uid: doc.id,
+        id: doc.id,
+      };
+    });
 
     return res.status(200).json(users);
   } catch (error) {

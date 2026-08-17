@@ -439,41 +439,46 @@ function getInitials(name) {
         .join("");
 }
 
-/* =========================
-   DATE
-========================= */
-
 function getDate(data) {
+    if (!data) return new Date(0);
 
     const value =
         data.createdAt ||
+        data.registeredAt ||
         data.updatedAt ||
         data.dateCreated ||
         data.timestamp;
 
-    if (value?.toDate) {
+    if (!value) return new Date(0);
+
+    if (typeof value.toDate === "function") {
         return value.toDate();
     }
 
-    const date = new Date(value || 0);
+    if (typeof value._seconds === "number") {
+        return new Date(value._seconds * 1000);
+    }
 
-    return Number.isNaN(date.getTime())
-        ? new Date(0)
-        : date;
+    if (typeof value.seconds === "number") {
+        return new Date(value.seconds * 1000);
+    }
+
+    if (typeof value === "number") {
+        return new Date(value < 10000000000 ? value * 1000 : value);
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
 function formatDate(date) {
+    if (!date || !date.getTime || date.getTime() === 0) return "—";
 
-    return date.getTime()
-        ? date.toLocaleDateString(
-            undefined,
-            {
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-            }
-        )
-        : "—";
+    return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+    });
 }
 
 /* =========================
