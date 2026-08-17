@@ -1577,7 +1577,7 @@ async function exportExamPdf() {
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();
     renderSavedExams();
     renderClassSchedules();
-    await loadAndRenderExamArchive();
+    await loadExamArchiveData();
 
     if (exportedGroupsCount > 0) {
         showToast(`Successfully exported and archived ${exportedGroupsCount} exam schedule PDF(s).`);
