@@ -7,10 +7,18 @@ import {
 
 import {
     doc,
-    getDoc,
-    collection,
-    onSnapshot
+    getDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+/* =========================
+   API
+========================= */
+
+const API_URL = "https://slsulucena-scheduling-system.onrender.com";
+
+/* =========================
+   STATE
+========================= */
 
 let allUsers = [];
 let currentTab = "Student";
@@ -18,46 +26,98 @@ let searchTerm = "";
 let programFilter = "";
 let majorFilter = "";
 
+/* =========================
+   AUTHENTICATION
+========================= */
+
 onAuthStateChanged(auth, async user => {
     if (!user) {
         location.href = "login.html";
         return;
     }
 
-    const profile = await getDoc(doc(db, "users", user.uid));
+    try {
+        const profile = await getDoc(doc(db, "users", user.uid));
 
-    if (!profile.exists() || profile.data().role !== "Admin") {
-        location.href = "login.html";
-        return;
+        if (!profile.exists() || profile.data().role !== "Admin") {
+            location.href = "login.html";
+            return;
+        }
+
+        document.getElementById("adminName").textContent =
+            profile.data().fullName || "SLSU Admin";
+
+        // Load users through the secure Render API
+        await loadUsers();
+
+    } catch (error) {
+        console.error("Authentication/profile error:", error);
+
+        document.getElementById("usersNotice").textContent =
+            "Unable to verify administrator access.";
     }
-
-    document.getElementById("adminName").textContent =
-        profile.data().fullName || "SLSU Admin";
-
-    watchUsers();
 });
 
-function watchUsers() {
-    onSnapshot(
-        collection(db, "users"),
-        snapshot => {
-            allUsers = snapshot.docs.map(document => ({
-                id: document.id,
-                ...document.data()
-            }));
+/* =========================
+   LOAD USERS FROM RENDER API
+========================= */
 
-            updateCounts();
-            renderUsers();
-        },
-        error => {
-            console.error("Could not watch users:", error);
-            document.getElementById("usersNotice").textContent =
-                "Unable to load users. Check your Firestore rules.";
-            document.getElementById("usersTableBody").innerHTML =
-                `<tr><td colspan="4">Unable to load users.</td></tr>`;
+async function loadUsers() {
+    try {
+        const user = auth.currentUser;
+
+        if (!user) {
+            console.error("No authenticated user.");
+            return;
         }
-    );
+
+        // Get Firebase ID token
+        const token = await user.getIdToken();
+
+        const response = await fetch(`${API_URL}/users`, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+            }
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                result.message ||
+                result.error ||
+                "Failed to load users."
+            );
+        }
+
+        allUsers = result;
+
+        console.log("Users loaded successfully:", allUsers.length);
+
+        updateCounts();
+        renderUsers();
+
+    } catch (error) {
+        console.error("Could not load users:", error);
+
+        document.getElementById("usersNotice").textContent =
+            "Unable to load users. Please try again.";
+
+        document.getElementById("usersTableBody").innerHTML = `
+            <tr>
+                <td colspan="5" class="empty-state">
+                    Unable to load users.
+                </td>
+            </tr>
+        `;
+    }
 }
+
+/* =========================
+   UPDATE COUNTS
+========================= */
 
 function updateCounts() {
     const studentCount = allUsers.filter(user =>
@@ -68,8 +128,11 @@ function updateCounts() {
         String(user.role || "").toLowerCase() === "faculty"
     ).length;
 
-    document.getElementById("studentCountBadge").textContent = studentCount;
-    document.getElementById("facultyCountBadge").textContent = facultyCount;
+    document.getElementById("studentCountBadge").textContent =
+        studentCount;
+
+    document.getElementById("facultyCountBadge").textContent =
+        facultyCount;
 
     const totalCount = studentCount + facultyCount;
 
@@ -77,11 +140,18 @@ function updateCounts() {
         `Showing ${totalCount} total registered user${totalCount === 1 ? "" : "s"}.`;
 }
 
+/* =========================
+   FILTER USERS
+========================= */
+
 function getFilteredUsers() {
     const role = currentTab.toLowerCase();
 
     return allUsers
-        .filter(user => String(user.role || "").toLowerCase() === role)
+        .filter(user =>
+            String(user.role || "").toLowerCase() === role
+        )
+
         .filter(user => {
             if (!searchTerm) return true;
 
@@ -89,36 +159,59 @@ function getFilteredUsers() {
             const email = String(user.email || "").toLowerCase();
             const term = searchTerm.toLowerCase();
 
-            return name.includes(term) || email.includes(term);
+            return (
+                name.includes(term) ||
+                email.includes(term)
+            );
         })
+
         .filter(user => {
             if (!programFilter) return true;
-            return String(user.program || "").toLowerCase() === programFilter.toLowerCase();
+
+            return (
+                String(user.program || "").toLowerCase() ===
+                programFilter.toLowerCase()
+            );
         })
+
         .filter(user => {
             if (!majorFilter) return true;
-            return String(user.major || "").toLowerCase() === majorFilter.toLowerCase();
+
+            return (
+                String(user.major || "").toLowerCase() ===
+                majorFilter.toLowerCase()
+            );
         })
+
         .sort((a, b) => {
-            const nameA = String(a.fullName || "").toUpperCase();
-            const nameB = String(b.fullName || "").toUpperCase();
+            const nameA =
+                String(a.fullName || "").toUpperCase();
+
+            const nameB =
+                String(b.fullName || "").toUpperCase();
+
             return nameA.localeCompare(nameB);
         });
 }
+
+/* =========================
+   RENDER USERS
+========================= */
 
 function renderUsers() {
     const body = document.getElementById("usersTableBody");
     const users = getFilteredUsers();
 
-    const title = currentTab === "Student"
-        ? "Registered Students"
-        : "Registered Faculty";
+    const title =
+        currentTab === "Student"
+            ? "Registered Students"
+            : "Registered Faculty";
 
     document.getElementById("tableTitle").textContent = title;
 
     const isStudent = currentTab === "Student";
 
-    // Show/hide the Program / Major column
+    // Show/hide Program / Major column
     document.getElementById("programMajorHeader").style.display =
         isStudent ? "" : "none";
 
@@ -130,90 +223,206 @@ function renderUsers() {
                 </td>
             </tr>
         `;
+
         return;
     }
 
     body.innerHTML = users.map(user => {
         const initials = getInitials(user.fullName);
-        const program = user.program ? `<span class="program-tag">${safe(user.program)}</span>` : "";
-        const major = user.major ? `<span class="major-tag">${safe(user.major)}</span>` : "";
+
+        const program = user.program
+            ? `<span class="program-tag">${safe(user.program)}</span>`
+            : "";
+
+        const major = user.major
+            ? `<span class="major-tag">${safe(user.major)}</span>`
+            : "";
+
         const programMajor = (program || major)
             ? `<div>${program}${major}</div>`
             : `<span class="date-text">—</span>`;
 
-        const roleClass = isStudent ? "role-student" : "role-faculty";
+        const roleClass =
+            isStudent
+                ? "role-student"
+                : "role-faculty";
 
         return `
             <tr>
                 <td>
                     <div class="user-cell">
-                        <div class="user-avatar">${safe(initials)}</div>
+                        <div class="user-avatar">
+                            ${safe(initials)}
+                        </div>
+
                         <div>
-                            <div class="user-name">${safe(user.fullName || "Unknown")}</div>
-                            <div class="user-email">${safe(user.email || "—")}</div>
+                            <div class="user-name">
+                                ${safe(user.fullName || "Unknown")}
+                            </div>
+
+                            <div class="user-email">
+                                ${safe(user.email || "—")}
+                            </div>
                         </div>
                     </div>
                 </td>
+
                 <td>
-                    <span class="role-badge ${roleClass}">${safe(currentTab)}</span>
+                    <span class="role-badge ${roleClass}">
+                        ${safe(currentTab)}
+                    </span>
                 </td>
+
                 ${isStudent ? `<td>${programMajor}</td>` : ""}
-                <td class="date-text">${safe(formatDate(getDate(user)))}</td>
+
+                <td class="date-text">
+                    ${safe(formatDate(getDate(user)))}
+                </td>
+
                 <td>
-                    <button class="delete-btn" data-user-id="${safe(user.id)}" data-user-name="${safe(user.fullName || "Unknown")}">Delete</button>
+                    <button
+                        class="delete-btn"
+                        data-user-id="${safe(user.id)}"
+                        data-user-name="${safe(user.fullName || "Unknown")}"
+                    >
+                        Delete
+                    </button>
                 </td>
             </tr>
         `;
     }).join("");
 
+    /* =========================
+       DELETE BUTTONS
+    ========================= */
+
     body.querySelectorAll(".delete-btn").forEach(button => {
+
         button.addEventListener("click", () => {
-            const userId = button.dataset.userId;
-            const userName = button.dataset.userName;
-            handleDeleteUser(userId, userName);
+
+            const userId =
+                button.dataset.userId;
+
+            const userName =
+                button.dataset.userName;
+
+            handleDeleteUser(
+                userId,
+                userName
+            );
         });
+
     });
 }
 
+/* =========================
+   DELETE USER
+========================= */
+
 async function handleDeleteUser(userId, userName) {
+
     if (!userId) return;
 
     const confirmed = confirm(
-        `Are you sure you want to delete ${userName}?\n\nThis will permanently remove their account and all associated data.`
+        `Are you sure you want to delete ${userName}?\n\n` +
+        `This will permanently remove their account and all associated data.`
     );
 
     if (!confirmed) return;
 
     try {
-        const response = await fetch(`http://localhost:3000/users/${userId}`, {
-            method: "DELETE"
-        });
+
+        const user = auth.currentUser;
+
+        if (!user) {
+            throw new Error(
+                "You are not authenticated."
+            );
+        }
+
+        // Get Firebase ID token
+        const token = await user.getIdToken();
+
+        console.log(
+            `Deleting user through Render API: ${userId}`
+        );
+
+        const response = await fetch(
+            `${API_URL}/users/${encodeURIComponent(userId)}`,
+            {
+                method: "DELETE",
+
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
 
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.error || "Failed to delete user.");
+            throw new Error(
+                result.message ||
+                result.error ||
+                "Failed to delete user."
+            );
         }
 
-        alert(`${userName} has been deleted successfully.`);
+        console.log(
+            "User deleted successfully:",
+            result
+        );
+
+        alert(
+            `${userName} has been deleted successfully.`
+        );
+
+        // Remove immediately from local array
+        allUsers = allUsers.filter(
+            user => user.id !== userId
+        );
+
+        updateCounts();
+        renderUsers();
+
     } catch (error) {
-        console.error("Could not delete user:", error);
-        alert(`Failed to delete ${userName}. Please try again.`);
+
+        console.error(
+            "Could not delete user:",
+            error
+        );
+
+        alert(
+            `Failed to delete ${userName}.\n\n${error.message}`
+        );
     }
 }
 
+/* =========================
+   INITIALS
+========================= */
+
 function getInitials(name) {
+
     if (!name) return "?";
 
     return name
         .split(" ")
         .filter(part => part.length > 0)
         .slice(0, 2)
-        .map(part => part[0].toUpperCase())
+        .map(part =>
+            part[0].toUpperCase()
+        )
         .join("");
 }
 
+/* =========================
+   DATE
+========================= */
+
 function getDate(data) {
+
     const value =
         data.createdAt ||
         data.updatedAt ||
@@ -232,18 +441,30 @@ function getDate(data) {
 }
 
 function formatDate(date) {
+
     return date.getTime()
-        ? date.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric"
-        })
+        ? date.toLocaleDateString(
+            undefined,
+            {
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+            }
+        )
         : "—";
 }
 
+/* =========================
+   HTML SAFETY
+========================= */
+
 function safe(value) {
-    const span = document.createElement("span");
+
+    const span =
+        document.createElement("span");
+
     span.textContent = value;
+
     return span.innerHTML;
 }
 
@@ -251,75 +472,140 @@ function safe(value) {
    TAB SWITCHING
 ========================= */
 
-document.getElementById("tabStudents").addEventListener("click", () => {
-    currentTab = "Student";
-    document.getElementById("tabStudents").classList.add("active");
-    document.getElementById("tabFaculty").classList.remove("active");
-    document.getElementById("programFilter").style.display = "";
-    document.getElementById("majorFilter").style.display = "";
-    renderUsers();
-});
+document
+    .getElementById("tabStudents")
+    .addEventListener("click", () => {
 
-document.getElementById("tabFaculty").addEventListener("click", () => {
-    currentTab = "Faculty";
-    document.getElementById("tabFaculty").classList.add("active");
-    document.getElementById("tabStudents").classList.remove("active");
-    document.getElementById("programFilter").style.display = "none";
-    document.getElementById("majorFilter").style.display = "none";
-    renderUsers();
-});
+        currentTab = "Student";
+
+        document
+            .getElementById("tabStudents")
+            .classList.add("active");
+
+        document
+            .getElementById("tabFaculty")
+            .classList.remove("active");
+
+        document
+            .getElementById("programFilter")
+            .style.display = "";
+
+        document
+            .getElementById("majorFilter")
+            .style.display = "";
+
+        renderUsers();
+    });
+
+document
+    .getElementById("tabFaculty")
+    .addEventListener("click", () => {
+
+        currentTab = "Faculty";
+
+        document
+            .getElementById("tabFaculty")
+            .classList.add("active");
+
+        document
+            .getElementById("tabStudents")
+            .classList.remove("active");
+
+        document
+            .getElementById("programFilter")
+            .style.display = "none";
+
+        document
+            .getElementById("majorFilter")
+            .style.display = "none";
+
+        renderUsers();
+    });
 
 /* =========================
    SEARCH
 ========================= */
 
-document.getElementById("searchInput").addEventListener("input", event => {
-    searchTerm = event.target.value.trim();
-    renderUsers();
-});
+document
+    .getElementById("searchInput")
+    .addEventListener("input", event => {
+
+        searchTerm =
+            event.target.value.trim();
+
+        renderUsers();
+    });
 
 /* =========================
    PROGRAM & MAJOR FILTERS
 ========================= */
 
-const programFilterEl = document.getElementById("programFilter");
-const majorFilterEl = document.getElementById("majorFilter");
+const programFilterEl =
+    document.getElementById("programFilter");
 
-programFilterEl.addEventListener("change", () => {
-    programFilter = programFilterEl.value;
-    majorFilter = "";
-    majorFilterEl.innerHTML = `<option value="">All Majors</option>`;
+const majorFilterEl =
+    document.getElementById("majorFilter");
 
-    if (programFilter === "BIT" || programFilter === "BINDTECH") {
-        majorFilterEl.innerHTML += `<option value="CPT">CPT</option>`;
+programFilterEl.addEventListener(
+    "change",
+    () => {
+
+        programFilter =
+            programFilterEl.value;
+
+        majorFilter = "";
+
+        majorFilterEl.innerHTML =
+            `<option value="">All Majors</option>`;
+
+        if (
+            programFilter === "BIT" ||
+            programFilter === "BINDTECH"
+        ) {
+            majorFilterEl.innerHTML +=
+                `<option value="CPT">CPT</option>`;
+        }
+
+        if (
+            programFilter === "BTVTED"
+        ) {
+            majorFilterEl.innerHTML += `
+                <option value="AT">AT</option>
+                <option value="MT">MT</option>
+                <option value="CP">CP</option>
+                <option value="FSM">FSM</option>
+                <option value="CT">CT</option>
+                <option value="ELT">ELT</option>
+                <option value="ELX">ELX</option>
+            `;
+        }
+
+        renderUsers();
     }
+);
 
-    if (programFilter === "BTVTED") {
-        majorFilterEl.innerHTML += `
-            <option value="AT">AT</option>
-            <option value="MT">MT</option>
-            <option value="CP">CP</option>
-            <option value="FSM">FSM</option>
-            <option value="CT">CT</option>
-            <option value="ELT">ELT</option>
-            <option value="ELX">ELX</option>
-        `;
+majorFilterEl.addEventListener(
+    "change",
+    () => {
+
+        majorFilter =
+            majorFilterEl.value;
+
+        renderUsers();
     }
-
-    renderUsers();
-});
-
-majorFilterEl.addEventListener("change", () => {
-    majorFilter = majorFilterEl.value;
-    renderUsers();
-});
+);
 
 /* =========================
    LOGOUT
 ========================= */
 
-document.getElementById("logoutLink").addEventListener("click", async event => {
-    event.preventDefault();
-    await signOut(auth);
-    location.href = "login.html";
-});
+document
+    .getElementById("logoutLink")
+    .addEventListener("click", async event => {
+
+        event.preventDefault();
+
+        await signOut(auth);
+
+        location.href = "login.html";
+    });
