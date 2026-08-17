@@ -164,8 +164,9 @@ app.get("/users", async (req, res) => {
     const snapshot = await usersRef.get();
 
     const users = snapshot.docs.map((doc) => ({
-      uid: doc.id,
       ...doc.data(),
+      uid: doc.id,
+      id: doc.id,
     }));
 
     return res.status(200).json(users);
@@ -197,8 +198,9 @@ app.get("/users/:uid", async (req, res) => {
     }
 
     return res.status(200).json({
-      uid: snapshot.id,
       ...snapshot.data(),
+      uid: snapshot.id,
+      id: snapshot.id,
     });
   } catch (error) {
     console.error("Error loading user:", error);
@@ -236,20 +238,9 @@ app.delete("/users/:uid", async (req, res) => {
     // ----------------------------------
     try {
       await auth.deleteUser(uid);
-
-      console.log(
-        `Firebase Authentication user deleted: ${uid}`
-      );
+      console.log(`Firebase Authentication user deleted: ${uid}`);
     } catch (authError) {
-      // If the Auth account does not exist,
-      // continue deleting the Firestore document.
-      if (authError.code === "auth/user-not-found") {
-        console.log(
-          `Auth user not found: ${uid}. Continuing...`
-        );
-      } else {
-        throw authError;
-      }
+      console.log(`Auth delete note for ${uid}: ${authError.message}. Proceeding to delete Firestore document...`);
     }
 
     // ----------------------------------

@@ -8,6 +8,8 @@ import {
 import {
     doc,
     getDoc,
+    getDocs,
+    collection,
     deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
@@ -60,10 +62,12 @@ onAuthStateChanged(auth, async user => {
 });
 
 /* =========================
-   LOAD USERS FROM RENDER API
+   LOAD USERS FROM RENDER API / FIRESTORE
 ========================= */
 
 async function loadUsers() {
+    let rawUsers = [];
+
     try {
         const user = auth.currentUser;
 
@@ -83,41 +87,48 @@ async function loadUsers() {
             }
         });
 
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                result.message ||
-                result.error ||
-                "Failed to load users."
-            );
+        if (response.ok) {
+            rawUsers = await response.json();
+        } else {
+            throw new Error(`API GET /users returned status ${response.status}`);
         }
-
-        allUsers = (result || []).map(u => ({
-            ...u,
-            id: u.id || u.uid,
-            uid: u.uid || u.id
-        }));
-
-        console.log("Users loaded successfully:", allUsers.length);
-
-        updateCounts();
-        renderUsers();
-
-    } catch (error) {
-        console.error("Could not load users:", error);
-
-        document.getElementById("usersNotice").textContent =
-            "Unable to load users. Please try again.";
-
-        document.getElementById("usersTableBody").innerHTML = `
-            <tr>
-                <td colspan="5" class="empty-state">
-                    Unable to load users.
-                </td>
-            </tr>
-        `;
+    } catch (apiError) {
+        console.warn("Could not load users via API, trying direct Firestore load:", apiError);
+        try {
+            const snapshot = await getDocs(collection(db, "users"));
+            rawUsers = snapshot.docs.map(docSnap => ({
+                ...docSnap.data(),
+                id: docSnap.id,
+                uid: docSnap.id
+            }));
+        } catch (fsError) {
+            console.error("Could not load users from Firestore fallback:", fsError);
+            document.getElementById("usersNotice").textContent =
+                "Unable to load users. Please try again.";
+            document.getElementById("usersTableBody").innerHTML = `
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        Unable to load users.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
     }
+
+    allUsers = (rawUsers || []).map(u => {
+        const docId = u.id || u.uid || u.docId || u._id;
+        return {
+            ...u,
+            id: docId,
+            uid: docId
+        };
+    });
+
+    console.log("Users loaded successfully:", allUsers.length);
+
+    updateCounts();
+    renderUsers();
 }
 
 /* =========================
