@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faculty Proctoring</title>
+    <link rel="stylesheet" href="report.css">
+    <style>
+        .proctoring-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .proctoring-filters select,
+        .proctoring-filters input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #c9c1b0;
+            border-radius: 10px;
+            background: white;
+            color: #1a1a1a;
+            outline: none;
+            font-size: 14px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+
+        .proctoring-filters select:focus,
+        .proctoring-filters input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(46,125,50,.15);
+        }
+
+        .faculty-name-cell {
+            font-weight: bold;
+            color: var(--dark);
+        }
+
+        .table-container {
+            max-height: 520px;
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+
+        table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #d8e0ce;
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Chairperson Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="proctoring.html" class="active"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="home.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+    <div class="header">
+        <h1>Faculty Proctoring Dashboard</h1>
+        <p>View and manage faculty proctoring exam schedule assignments and PDFs.</p>
+    </div>
+
+    <!-- Main Card: Faculty Proctoring Exam Schedules -->
+    <div class="card" id="proctoringSection">
+        <div class="section-header">
+            <h3>Faculty Proctoring Exam Schedules</h3>
+            <button type="button" class="delete-all-card-btn" id="deleteAllProctoringBtn">Delete All</button>
+        </div>
+
+        <div class="proctoring-filters">
+            <input type="text" id="proctorSearchName" placeholder="⌕ Search Faculty Name...">
+            <select id="proctorAcademicYear">
+                <option value="">All Academic Years</option>
+            </select>
+            <select id="proctorSemester">
+                <option value="">All Semesters</option>
+                <option value="1st Semester">1st Semester</option>
+                <option value="2nd Semester">2nd Semester</option>
+            </select>
+            <select id="proctorSection">
+                <option value="">All Sections</option>
+            </select>
+            <select id="proctorExamType">
+                <option value="">All Exam Types</option>
+                <option value="Preliminary">Preliminary</option>
+                <option value="Midterm">Midterm</option>
+                <option value="Final">Final</option>
+            </select>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Faculty Name</th>
+                        <th>Academic Year</th>
+                        <th>Semester</th>
+                        <th>Section</th>
+                        <th>Exam Type</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="proctoringTableBody"></tbody>
+            </table>
+        </div>
+
+        <p id="emptyProctoringNote" class="empty-note" style="text-align:center; padding:16px; color:#777;">No faculty proctoring exam schedules found matching the selected filters.</p>
+    </div>
+
+</div>
+
+<!-- Custom Notification Toast -->
+<div id="customToast" class="custom-toast" style="display:none;">
+    <div class="custom-toast-content">
+        <span id="customToastMessage"></span>
+        <button id="customToastClose" class="custom-toast-close">&times;</button>
+    </div>
+</div>
+
+<script type="module" src="proctoring.js"></script>
+
+</body>
+</html>

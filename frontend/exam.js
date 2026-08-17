@@ -1214,16 +1214,18 @@ async function saveExamSchedules() {
     saveExamBtn.disabled = true;
     saveExamBtn.textContent = "Saving...";
 
-    const saved = readStorage(EXAM_SCHEDULES_KEY);
+    /* Query fresh exam schedules directly from Firestore */
+    const freshFirestoreExamSchedules = await loadExamSchedulesFromFirestore();
+    writeStorage(EXAM_SCHEDULES_KEY, freshFirestoreExamSchedules);
+
+    const saved = [...freshFirestoreExamSchedules];
     const schedulesToSave = [];
 
     for (const generated of generatedExamSchedules) {
-        /* Duplicate prevention: match on Academic Year + Semester + Section + Exam Type.
-           The same section can have Preliminary, Midterm, and Final separately.
-           The same section can also have Preliminary in a different semester. */
+        /* Duplicate prevention: match on Academic Year + Semester + Section + Exam Type. */
         const existingIndex = saved.findIndex(schedule =>
-            (schedule.academicYear || "") === (generated.academicYear || "") &&
-            (schedule.semester || "") === (generated.semester || "") &&
+            (schedule.academicYear || "").trim() === (generated.academicYear || "").trim() &&
+            (schedule.semester || "").trim().toLowerCase() === (generated.semester || "").trim().toLowerCase() &&
             normalise(schedule.section) === normalise(generated.section) &&
             schedule.examType === generated.examType
         );
@@ -1746,6 +1748,92 @@ window.addEventListener("click", event => {
 document.getElementById("exportExamPdfBtn")?.addEventListener("click", exportExamPdf);
 document.getElementById("deleteAllExamBtn")?.addEventListener("click", deleteAllSavedExams);
 document.getElementById("savedExamSchedules")?.addEventListener("click", deleteSavedExam);
+document.getElementById("deleteAllClassSchedulesBtn")?.addEventListener("click", deleteAllClassSchedules);
+
+async function deleteAllClassSchedules() {
+    try {
+        /* Query all class schedule documents from Firestore */
+        const firestoreSnapshot = await getDocs(collection(db, "classSchedules"));
+        const firestoreClassSchedules = firestoreSnapshot.docs.map(docSnap => ({
+            id: docSnap.id,
+            ...docSnap.data()
+        }));
+
+        const localSchedules = readStorage(CLASS_SCHEDULES_KEY);
+
+        /* Gather all saved class schedule records from Firestore, localStorage, and in-memory state */
+        const allSavedClassSchedules = [...firestoreClassSchedules];
+
+        for (const local of localSchedules) {
+            const docId = local.id || local.firestoreDocId || "";
+            if (docId) {
+                if (!allSavedClassSchedules.some(item => item.id === docId)) {
+                    allSavedClassSchedules.push(local);
+                }
+            } else if (!allSavedClassSchedules.some(item => item.section === local.section && item.academicYear === local.academicYear && item.semester === local.semester)) {
+                allSavedClassSchedules.push(local);
+            }
+        }
+
+        for (const disp of displayedClassSchedules) {
+            const docId = disp.id || disp.firestoreDocId || "";
+            if (docId) {
+                if (!allSavedClassSchedules.some(item => item.id === docId)) {
+                    allSavedClassSchedules.push(disp);
+                }
+            } else if (!allSavedClassSchedules.some(item => item.section === disp.section && item.academicYear === disp.academicYear && item.semester === disp.semester)) {
+                allSavedClassSchedules.push(disp);
+            }
+        }
+
+        if (allSavedClassSchedules.length === 0) {
+            showToast("There are no saved class schedules to delete.");
+            return;
+        }
+
+        const confirmed = await showConfirm("Are you sure you want to delete all saved class schedules?");
+        if (!confirmed) return;
+
+        /* Delete all documents in classSchedules collection using actual Firestore doc.id */
+        const docIdsToDelete = new Set();
+        firestoreSnapshot.docs.forEach(docSnap => docIdsToDelete.add(docSnap.id));
+        allSavedClassSchedules.forEach(item => {
+            if (item.id) docIdsToDelete.add(item.id);
+            if (item.firestoreDocId) docIdsToDelete.add(item.firestoreDocId);
+        });
+
+        if (docIdsToDelete.size > 0) {
+            const deletePromises = Array.from(docIdsToDelete).map(async docId => {
+                try {
+                    await deleteDoc(doc(db, "classSchedules", docId));
+                } catch (err) {
+                    console.warn(`Could not delete class schedule doc ${docId}:`, err);
+                }
+            });
+            await Promise.all(deletePromises);
+        }
+
+        /* Clear local storage key for saved class schedules */
+        writeStorage(CLASS_SCHEDULES_KEY, []);
+
+        /* Update in-memory state */
+        displayedClassSchedules = [];
+        groupedSections = [];
+        filteredSections = [];
+        selectedAcademicYear = "";
+        selectedSemester = "";
+        if (academicYearFilter) academicYearFilter.value = "";
+        if (semesterFilter) semesterFilter.value = "";
+
+        /* Refresh UI */
+        renderClassSchedules();
+
+        showToast("All saved class schedules have been deleted successfully.");
+    } catch (error) {
+        console.error("Could not delete saved class schedules:", error);
+        showToast("Failed to delete saved class schedules. Please try again.");
+    }
+}
 
 // Automatically add the selected date as soon as a date is picked
 examDateInput?.addEventListener("change", () => {

@@ -867,67 +867,109 @@ if (!selected && isActivity) {
 }
 
 saveScheduleBtn.addEventListener("click", async () => {
-    if (!generatedSchedule) return;
+    if (!generatedSchedule || saveScheduleBtn.disabled) return;
 
-    const schedules = getSavedSchedules();
+    const setButtonLoading = () => {
+        saveScheduleBtn.disabled = true;
+        saveScheduleBtn.classList.add("loading");
+        saveScheduleBtn.innerHTML = '<span class="btn-spinner"></span> Saving...';
+    };
 
-    const existingIndex = schedules.findIndex(schedule =>
-        schedule.section === generatedSchedule.section &&
-        schedule.academicYear === generatedSchedule.academicYear &&
-        schedule.semester === generatedSchedule.semester &&
-        schedule.program === generatedSchedule.program &&
-        schedule.major === generatedSchedule.major &&
-        schedule.yearLevel === generatedSchedule.yearLevel
-    );
+    const resetButtonState = () => {
+        saveScheduleBtn.disabled = false;
+        saveScheduleBtn.classList.remove("loading");
+        saveScheduleBtn.innerHTML = 'Save Schedule';
+    };
 
-    if (
-        existingIndex >= 0 &&
-        !await showConfirm(`A schedule for ${generatedSchedule.section} already exists for A.Y. ${generatedSchedule.academicYear}, ${generatedSchedule.semester}. Replace it?`)
-    ) {
-        return;
-    }
+    const triggerButtonShake = () => {
+        saveScheduleBtn.classList.add("btn-shake");
+        setTimeout(() => saveScheduleBtn.classList.remove("btn-shake"), 450);
+    };
 
-    /* Use the stable Firestore document ID as the schedule ID so that
-       deleting from localStorage also deletes the correct Firestore doc. */
-    generatedSchedule.id = scheduleDocId(generatedSchedule);
-    generatedSchedule.status = "active";
+    // 1. Immediately disable and set loading state
+    setButtonLoading();
 
-    /* Save to localStorage first */
-    if (existingIndex >= 0) {
-        schedules[existingIndex] = generatedSchedule;
-    } else {
-        schedules.unshift(generatedSchedule);
-    }
-
-    setSavedSchedules(schedules);
-    renderSavedSchedules();
-    renderArchive();
-
-    /* Then persist to Firestore so the dashboard sees it */
     try {
+        /* Perform a fresh query against Firestore to check for existing saved schedules */
+        const firestoreSchedules = await loadSchedulesFromFirestore();
+        setSavedSchedules(firestoreSchedules);
+        renderSavedSchedules();
+
+        const schedules = firestoreSchedules;
+
+        const existingIndex = schedules.findIndex(schedule =>
+            (schedule.section || "").trim().toLowerCase() === (generatedSchedule.section || "").trim().toLowerCase() &&
+            (schedule.academicYear || "").trim() === (generatedSchedule.academicYear || "").trim() &&
+            (schedule.semester || "").trim().toLowerCase() === (generatedSchedule.semester || "").trim().toLowerCase()
+        );
+
+        if (existingIndex >= 0) {
+            // Re-enable button while user reviews confirmation modal
+            resetButtonState();
+
+            const confirmed = await showConfirm(`A schedule for ${generatedSchedule.section} already exists for A.Y. ${generatedSchedule.academicYear}, ${generatedSchedule.semester}. Replace it?`);
+            if (!confirmed) {
+                return;
+            }
+
+            // Re-apply loading state for the save operation
+            setButtonLoading();
+        }
+
+        /* Use the stable Firestore document ID as the schedule ID */
+        const docId = scheduleDocId(generatedSchedule);
+        generatedSchedule.id = docId;
+        generatedSchedule.status = "active";
+
+        const updatedSchedules = schedules.filter(s =>
+            s.id !== docId && !(
+                (s.section || "").trim().toLowerCase() === (generatedSchedule.section || "").trim().toLowerCase() &&
+                (s.academicYear || "").trim() === (generatedSchedule.academicYear || "").trim() &&
+                (s.semester || "").trim().toLowerCase() === (generatedSchedule.semester || "").trim().toLowerCase()
+            )
+        );
+        updatedSchedules.unshift(generatedSchedule);
+
+        /* Persist to Firestore */
         await saveScheduleToFirestore(generatedSchedule);
         console.log("Schedule saved to Firestore:", generatedSchedule.name);
+
+        /* Update local storage and UI */
+        setSavedSchedules(updatedSchedules);
+        renderSavedSchedules();
+        if (typeof renderArchive === "function") renderArchive();
+
+        /* Close modal using smooth fade-out and scale-down animation */
+        const modalContent = modal.querySelector(".modal-content");
+        if (modalContent) modalContent.classList.add("scale-down");
+        modal.classList.add("fade-out");
+
+        setTimeout(() => {
+            modal.style.display = "none";
+            modal.classList.remove("fade-out");
+            if (modalContent) modalContent.classList.remove("scale-down");
+            resetButtonState();
+        }, 300);
+
+        /* Show the saved success overlay with checkmark animation */
+        savedOverlay.classList.remove("fade-out");
+        savedOverlay.style.display = "flex";
+
+        setTimeout(() => {
+            savedOverlay.classList.add("fade-out");
+        }, 1200);
+
+        setTimeout(() => {
+            savedOverlay.style.display = "none";
+            savedOverlay.classList.remove("fade-out");
+        }, 1600);
+
     } catch (error) {
         console.error("Could not save schedule to Firestore:", error);
-        showToast(`The schedule was saved locally but could not be saved to the database: ${error.message}`);
+        resetButtonState();
+        triggerButtonShake();
+        showToast("Failed to save schedule. Please try again.");
     }
-
-    saveScheduleBtn.disabled = true;
-    modal.style.display = "none";
-
-    /* Show the saved success overlay with the animated checkmark,
-       then fade it out and hide it after 1 second. */
-    savedOverlay.classList.remove("fade-out");
-    savedOverlay.style.display = "flex";
-
-    setTimeout(() => {
-        savedOverlay.classList.add("fade-out");
-    }, 1000);
-
-    setTimeout(() => {
-        savedOverlay.style.display = "none";
-        savedOverlay.classList.remove("fade-out");
-    }, 1400);
 });
 
 function renderSavedSchedules() {
@@ -1033,43 +1075,58 @@ savedSchedulesList.addEventListener("click", async event => {
 })();
 
 document.getElementById("deleteAllBtn").addEventListener("click", async () => {
-    /* Delete All only affects ACTIVE schedules.  Archived schedules are
-       historical records and are preserved. */
-    const schedules = getSavedSchedules().filter(
-        schedule => (schedule.status || "active") !== "archived"
-    );
+    /* Fetch fresh class schedule documents from Firestore */
+    const firestoreSnapshot = await getDocs(collection(db, SCHEDULES_COLLECTION));
+    const firestoreSchedules = firestoreSnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+    }));
 
-    if (!schedules.length) {
+    const localSchedules = getSavedSchedules();
+
+    /* Combine Firestore active schedules and local active schedules */
+    const activeDocIds = new Set();
+    firestoreSnapshot.docs.forEach(d => {
+        if ((d.data().status || "active") !== "archived") {
+            activeDocIds.add(d.id);
+        }
+    });
+
+    localSchedules.forEach(s => {
+        if ((s.status || "active") !== "archived") {
+            if (s.id) activeDocIds.add(s.id);
+            const docId = scheduleDocId(s);
+            if (docId) activeDocIds.add(docId);
+        }
+    });
+
+    if (activeDocIds.size === 0) {
         showToast("There are no active saved schedules to delete.");
         return;
     }
 
-    const confirmed = await showConfirm(`Are you sure you want to delete all ${schedules.length} active saved schedule(s)? This action cannot be undone.`);
+    const confirmed = await showConfirm(`Are you sure you want to delete all active saved schedule(s)? This action cannot be undone.`);
     if (!confirmed) {
         return;
     }
 
-    const scheduleIds = new Set(schedules.map(schedule => schedule.id));
-
-    /* Delete each schedule from Firestore using its stable document ID */
-    for (const schedule of schedules) {
+    /* Delete each active schedule document from Firestore using its document ID */
+    const deletePromises = Array.from(activeDocIds).map(async docId => {
         try {
-            const firestoreDocId = scheduleDocId(schedule);
-            
-            await deleteScheduleFromFirestore(firestoreDocId);
-            console.log("Schedule deleted from Firestore:", firestoreDocId);
+            await deleteScheduleFromFirestore(docId);
         } catch (error) {
-            console.error("Could not delete schedule from Firestore:", error);
+            console.warn(`Could not delete schedule ${docId}:`, error);
         }
-    }
+    });
+    await Promise.all(deletePromises);
 
-    /* Remove only the deleted active schedules from localStorage,
-       preserving the archive records. */
-    const remaining = getSavedSchedules().filter(
-        schedule => !scheduleIds.has(schedule.id)
-    );
-    setSavedSchedules(remaining);
+    /* Fetch updated list from Firestore after deletion and sync local storage */
+    const remainingSchedules = await loadSchedulesFromFirestore();
+    setSavedSchedules(remainingSchedules);
     renderSavedSchedules();
+    if (typeof renderArchive === "function") renderArchive();
+
+    showToast("All active saved schedules have been deleted successfully.");
 });
 
 document.getElementById("exportPdfBtn").addEventListener("click", async () => {

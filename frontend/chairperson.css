@@ -109,7 +109,7 @@ nav ul li a.active{
 
 .header h1{
     font-size:32px;
-    color:var(--dark);
+    color:black;
 }
 
 .header p{
