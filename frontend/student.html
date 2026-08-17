@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard</title>
+    <link rel="stylesheet" href="student.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Student Dashboard</h2>
+    </div>
+
+    <div class="nav-right">
+        <div class="nav-profile">
+            <strong id="navStudentName">Student</strong>
+            <span id="navStudentProgramMajor">Program • Major</span>
+        </div>
+        <ul>
+            <li><a href="student.html" class="active">Home</a></li>
+            <li><button id="logoutBtn" class="nav-logout-btn" type="button">Logout</button></li>
+        </ul>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>My Schedule</h1>
+            <p>Only your program and major schedules are shown here.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h3>Class Schedule</h3>
+        </div>
+        <div id="classScheduleContainer" class="schedule-container"></div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h3>Exam Schedule</h3>
+        </div>
+        <div id="examScheduleContainer" class="schedule-container"></div>
+    </div>
+</div>
+
+<script type="module" src="student.js"></script>
+</body>
+</html>

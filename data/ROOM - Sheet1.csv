@@ -1,0 +1,38 @@
+roomCode,roomName,roomType,capacity,building,floor,status
+A101,Room A101,Lecture Room,50,Building A,1,AVAILABLE
+A102,Room A102,Lecture Room,50,Building A,1,AVAILABLE
+A103,Room A103,Special Room,50,Building A,1,AVAILABLE
+A104,Room A104,Special Room,50,Building A,1,AVAILABLE
+A201,Room A201,Lecture Room,50,Building A,2,AVAILABLE
+A202,Room A202,Lecture Room,50,Building A,2,AVAILABLE
+A203,Room A203,Lecture Room,50,Building A,2,AVAILABLE
+A204,Room A204,Lecture Room,50,Building A,2,AVAILABLE
+A301,Room A301,Lecture Room,50,Building A,3,AVAILABLE
+A302,Room A302,Lecture Room,50,Building A,3,AVAILABLE
+A303,Room A303,Lecture Room,50,Building A,3,AVAILABLE
+A304,Room A304,Lecture Room,50,Building A,3,AVAILABLE
+B101,Room B101,Lecture Room,50,Building B,1,AVAILABLE
+B102,Room B102,Lecture Room,50,Building B,1,AVAILABLE
+B103,Room B103,Lecture Room,50,Building B,1,AVAILABLE
+B201,Room B201,Lecture Room,50,Building B,2,AVAILABLE
+B202,Room B202,Lecture Room,50,Building B,2,AVAILABLE
+B203,Room B203,Lecture Room,50,Building B,2,AVAILABLE
+B204,Room B204,Laboratory,50,Building B,2,AVAILABLE
+B301,Room B301,Lecture Room,50,Building B,3,AVAILABLE
+B302,Room B302,Avr,50,Building B,3,AVAILABLE
+B303,Room B303,Avr,50,Building B,3,AVAILABLE
+B304,Room B304,Lecture Room,50,Building B,3,AVAILABLE
+ADM204,Room 204,Lecture Room,50,Admin Building,2,AVAILABLE
+ADM205,Room 205,Lecture Room,50,Admin Building,2,AVAILABLE
+ADM206,Room 206,Lecture Room,50,Admin Building,2,AVAILABLE
+ADM207,Room 207,Lecture Room,50,Admin Building,2,AVAILABLE
+CET01,CET Center,Laboratory,50,Admin Building,2,AVAILABLE
+CET02,CET Shop,Laboratory,50,Admin Building,2,AVAILABLE
+FSML01,FSM Laboratory,FSM Laboratory,40,Building A,1,AVAILABLE
+ATL01,AT Laboratory,AT Laboratory,40,Building A,1,AVAILABLE
+MTL01,MT Laboratory,MT Laboratory,40,Building A,1,AVAILABLE
+CTL01,CT Laboratory,CT Laboratory,40,Building A,1,AVAILABLE
+ELTL01,ELT Laboratory,ELT Laboratory,40,Building A,1,AVAILABLE
+ELXL01,ELX Laboratory,ELX Laboratory,40,Building A,1,AVAILABLE
+CPL01,CP Laboratory,CP Laboratory,40,Building A,1,AVAILABLE
+CPTL01,CPT Laboratory,CPT Laboratory,40,Building A,1,AVAILABLE

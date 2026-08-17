@@ -1,0 +1,59 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+GEC01,Life and Works of Rizal,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC08,"Science, Technology and Society",BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC10,Kontekstuwalisadong Komunikasyon sa Filipino,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC13,Literature of the Philippines,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PED01,The Child and Adolescent Learner and Learning Principles,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC01,Introduction to Industrial Arts,BTVTED,ELT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit01,Movement Skill Training,BTVTED,ELT,1,1,2,2,0,Minor,Gymnasium,,Activity
+GEC02,Understanding the Self,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in the Philippine History,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in Modern World,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC11,Filipino sa Iba't Ibang Disiplina,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PED02,The Teaching Profession,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC03,Introduction to Agriculture and Fishery Arts,BTVTED,ELT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit02,Fitness and Wellness Activities,BTVTED,ELT,1,2,2,2,0,Minor,Gymnasium,,Activity
+PED05a,Facilitating Learner-centered Teaching: The Learner-centered Approaches with Emphasis on Trainers Methodology 1,BTVTED,ELT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED08,Technology for Teaching and Learning 1,BTVTED,ELT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED10a,Building and Enhancing New Literacies across the Curriculum with Emphasis on the 21st Century Skills,BTVTED,ELT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED06,Assessment in Learning 1,BTVTED,ELT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+HEO01,Home Economics Literacy,BTVTED,ELT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+ELT01,Occupational Health and Safety Practices,BTVTED,ELT,2,1,1,1,0,Minor,Lecture Room,,Lecture
+ELT02,Fundamentals of Electricity,BTVTED,ELT,2,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT03,Electrical and Electronics Devices,BTVTED,ELT,2,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT05,Direct Current Machines,BTVTED,ELT,2,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+PATHFit03,Rhythmic Activities and/or Sports,BTVTED,ELT,2,1,2,2,0,Minor,Gymnasium,,Activity
+PED03a,The Teacher and the Community School Culture and Organizational Leadership with Focus on the Philippine TVET System,BTVTED,ELT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED15,Technology for Teaching and Learning 2 (TLE),BTVTED,ELT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED12,Curriculum Development and Evaluation with Emphasis on Trainers Methodology 2,BTVTED,ELT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED07a,Assessment in Learning 2 with Focus on Trainers Methodology 1 and 2,BTVTED,ELT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC02,Teaching ICT as an Exploratory Course,BTVTED,ELT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+ELT04,"Electrical Wirings, Signal and Communication Systems and Design",BTVTED,ELT,2,2,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT06,Alternating Currect Machines,BTVTED,ELT,2,2,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT07,Industrial Electronics Circuits and Devices,BTVTED,ELT,2,2,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+PATHFit04,Recreational Activities,BTVTED,ELT,2,2,2,2,0,Minor,Gymnasium,,Activity
+GEC04,The Contemporary World,BTVTED,ELT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+RES01,Technology Research 1 (Methods of Research),BTVTED,ELT,3,1,3,3,0,Research,Lecture Room,,Lecture
+TIC04,Teaching Common Competencies in Industrial Arts,BTVTED,ELT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC06,Teaching Common Competencies in Information and Communication Technology,BTVTED,ELT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED04,Foundation of Special and Inclusive Education,BTVTED,ELT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED13,The Andragogy of Learning including Principles of Trainers Methodology 1,BTVTED,ELT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+ELT08,Logic Circuit Controller,BTVTED,ELT,3,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT09,Industrial Motor Controller,BTVTED,ELT,3,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+ELT10,Pneumatic and Hydraulic Application,BTVTED,ELT,3,1,3,2,1,Major,ELT Laboratory,,Lecture+Laboratory
+GEC07,Art Appreciation,BTVTED,ELT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+RES02,Technology Research 2 (Undergraduate Thesis/Research Paper/Research Project),BTVTED,ELT,3,2,3,3,0,Research,Lecture Room,,Lecture
+TIC07,Teaching Common Competencies in Agriculture and Fishery Arts,BTVTED,ELT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC05,Teaching Common Competencies in Home Economics,BTVTED,ELT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+ENT01,Entrepreneurship,BTVTED,ELT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+ELT11,PLC System and Programming,BTVTED,ELT,3,2,3,2,1,Major,ELT Laboratory,,Lecture
+ELT12,Industrial Process Controller,BTVTED,ELT,3,2,3,2,1,Major,ELT Laboratory,,Lecture
+ELT13,Automation Control System,BTVTED,ELT,3,2,3,2,1,Major,ELT Laboratory,,Lecture
+PED14,Work-based Learning with Emphasis on Trainers Methodology,BTVTED,ELT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+AMC01,Supervised Industrial Training (240 Hours),BTVTED,ELT,4,1,3,0,0,OJT,,,OJT
+FSO01,Field Study 1,BTVTED,ELT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+FSO02,Field Study 2,BTVTED,ELT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+PED11,Teaching Internship (480 hours),BTVTED,ELT,4,2,6,0,0,OJT,,,OJT
+TCC01,Integrative Course,BTVTED,ELT,4,2,3,3,0,Minor,Lecture Room,,Lecture

@@ -1,0 +1,57 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+GEC02,Understanding the Self,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in Philippine History,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in Modern World,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC07,Art Appreciation,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC10,Kontekstuwalisadong Komunikasyon sa Filipino,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PED01,The Child and Adolescent Learner and Learning Principles,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC01,Introduction to Industrial Arts,BTVTED,FSM,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit01,Movement Skill Training,BTVTED,FSM,1,1,2,2,0,Minor,Gymnasium,,Activity
+GEC01,Life and Works of Rizal,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC04,The Contemporary World,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC08,"Science, Technology and Society",BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC11,Filipino sa Iba't Ibang Disiplina,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC13,Literature of the Philippines,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PED02,The Teaching Profession,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC03,Introduction to Agriculture and Fishery Arts,BTVTED,FSM,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit02,Fitness and Wellness Activities,BTVTED,FSM,1,2,2,2,0,Minor,Gymnasium,,Activity
+PED05a,Facilitating Learner-centered Teaching: The Learner-centered Approaches with Emphasis on Trainers Methodology 1,BTVTED,FSM,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED08,Technology for Teaching and Learning 1,BTVTED,FSM,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED10a,Building and Enhancing New Literacies across the Curriculum with Emphasis on the 21st Century Skills,BTVTED,FSM,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED06,Assessment in Learning 1,BTVTED,FSM,2,1,3,3,0,Minor,Lecture Room,,Lecture
+HEO01,Home Economics Literacy,BTVTED,FSM,2,1,3,3,0,Minor,Lecture Room,,Lecture
+FSM01,Occupational Health and Safety Practices,BTVTED,FSM,2,1,1,1,0,Minor,Lecture Room,,Lecture
+FSM02,Food Selection and Preparation,BTVTED,FSM,2,1,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+FSM03,Meal Management,BTVTED,FSM,2,1,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+PATHFit03,Rhythmic Activities and/or Sports,BTVTED,FSM,2,1,2,2,0,Minor,Gymnasium,,Activity
+PED03a,The Teacher and the Community School Culture and Organizational Leadership with Focus on the Philippine TVET System,BTVTED,FSM,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED15,Technology for Teaching and Learning 2 (TLE),BTVTED,FSM,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED12,"Curriculum Development and 
+Evaluation with Emphasis on Trainers Methodology 2",BTVTED,FSM,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED07a,Assessment in Learning 2 with Focus on Trainers Methodology 1 and 2,BTVTED,FSM,2,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC02,Teaching ICT as an Exploratory Course,BTVTED,FSM,2,2,3,3,0,Minor,Lecture Room,,Lecture
+FSM04,"Food Processing, Packaging and Labeling",BTVTED,FSM,2,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+FSM05,Basic Baking,BTVTED,FSM,2,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+PATHFit04,Recreational Activities,BTVTED,FSM,2,2,2,2,0,Minor,Gymnasium,,Activity
+RES01,Technology Research 1 (Methods of Research),BTVTED,FSM,3,1,3,3,0,Research,Lecture Room,,Lecture
+TIC04,Teaching Common Competencies in Industrial Arts,BTVTED,FSM,3,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC06,Teaching Common Competencies in Information and Communication Technology,BTVTED,FSM,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED04,Foundation of Special and Inclusive Education,BTVTED,FSM,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED13,The Andragogy of Learning including Principles of Trainers Methodology 1,BTVTED,FSM,3,1,3,3,0,Minor,Lecture Room,,Lecture
+ENT01,Entrepreneurship,BTVTED,FSM,3,1,3,3,0,Minor,Lecture Room,,Lecture
+FSM06,International Cuisine,BTVTED,FSM,3,1,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+FSM08,Advanced Baking,BTVTED,FSM,3,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+RES02,Technology Research 2 (Undergraduate Thesis/Research Paper/Research Project),BTVTED,FSM,3,2,3,3,0,Research,Lecture Room,,Lecture
+TIC07,Teaching Common Competencies in Agriculture and Fishery Arts,BTVTED,FSM,3,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC05,Teaching Common Competencies in Home Economics,BTVTED,FSM,3,2,3,3,0,Minor,Lecture Room,,Lecture
+FSM07,Quantity Cookery,BTVTED,FSM,3,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+FSM09,Cafeteria and Catering Management,BTVTED,FSM,3,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+FSM10,Bartending and Bar Management,BTVTED,FSM,3,2,4,2,2,Major,FSM Laboratory,,Lecture+Laboratory
+PED14,Work-based Learning with Emphasis on Trainers Methodology,BTVTED,FSM,3,2,3,3,0,Minor,Lecture Room,,Lecture
+AMC01,Supervised Industrial Training (240 Hours),BTVTED,FSM,4,1,3,0,0,OJT,,,OJT
+FSO01,Field Study 1,BTVTED,FSM,4,1,3,3,0,Minor,Lecture Room,,Lecture
+FSO02,Field Study 2,BTVTED,FSM,4,1,3,3,0,Minor,Lecture Room,,Lecture
+PED11,Teaching Internship (480 hours),BTVTED,FSM,4,2,6,0,0,OJT,,,OJT
+TCC01,Integrative Course,BTVTED,FSM,4,2,3,3,0,Minor,Lecture Room,,Lecture

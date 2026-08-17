@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About - Automated Scheduling System</title>
+
+  <style>
+    :root {
+      --primary: #2e7d32;
+      --secondary: #4caf50;
+      --dark: #1b5e20;
+      --light: #f0f9f4;
+      --white: #ffffff;
+      --shadow: rgba(0, 0, 0, 0.18);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--light);
+      color: #333;
+      overflow-x: hidden;
+    }
+
+    /* Navbar */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(27, 94, 32, 0.95);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 4%;
+      min-height: 62px;
+      z-index: 1000;
+      box-shadow: 0 4px 12px var(--shadow);
+    }
+
+    .logo-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .logo-box img {
+      height: 40px;
+      width: 40px;
+      object-fit: contain;
+      border-radius: 50%;
+      background: white;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+
+    .logo-box h2 {
+      color: white;
+      font-size: 1rem;
+      line-height: 1.25;
+      text-align: left;
+    }
+
+    .logo-box h2 .campus {
+      display: block;
+      font-size: 0.75em;
+      font-weight: bold;
+      color: #c8e6c9;
+    }
+
+    nav ul {
+      display: flex;
+      list-style: none;
+      gap: 16px;
+    }
+
+    nav ul li a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+      transition: 0.3s;
+      padding: 8px 10px;
+      border-radius: 8px;
+      display: block;
+      font-size: 0.95rem;
+    }
+
+    nav ul li a:hover {
+      color: #c8e6c9;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    nav ul li a.active {
+      color: #c8e6c9;
+      border-bottom: 2px solid #c8e6c9;
+      padding-bottom: 3px;
+    }
+
+    /* Hamburger menu */
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      cursor: pointer;
+      background: none;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 8px;
+      padding: 6px 8px;
+      z-index: 1001;
+    }
+
+    .hamburger span {
+      width: 22px;
+      height: 2px;
+      background: white;
+      margin: 3px 0;
+      border-radius: 3px;
+      transition: 0.3s;
+    }
+
+    .hamburger.active span:nth-child(1) {
+      transform: translateY(5px) rotate(45deg);
+    }
+
+    .hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .hamburger.active span:nth-child(3) {
+      transform: translateY(-5px) rotate(-45deg);
+    }
+
+    /* Page Header */
+    .page-header {
+      min-height: 55vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 140px 6% 60px;
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .page-header::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(
+          rgba(27, 94, 32, 0.30),
+          rgba(46, 125, 50, 0.25)
+        ),
+        url("home.png") no-repeat center center;
+      background-size: cover;
+      z-index: 0;
+    }
+
+    .page-header::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.20);
+      z-index: 1;
+    }
+
+    .page-header-content {
+      position: relative;
+      z-index: 2;
+      max-width: 700px;
+      background: rgba(27, 94, 32, 0.80);
+      border: 1px solid rgba(76, 175, 80, 0.3);
+      padding: 45px;
+      border-radius: 24px;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.25);
+      color: #ffffff;
+      width: 100%;
+    }
+
+    .page-header-content h1 {
+      font-size: 2.8rem;
+      line-height: 1.2;
+      margin-bottom: 18px;
+    }
+
+    .page-header-content p {
+      font-size: 1.1rem;
+      line-height: 1.8;
+    }
+
+    /* About Content */
+    .about-section {
+      padding: 100px 6%;
+      text-align: center;
+    }
+
+    .about-section h2 {
+      font-size: 2.5rem;
+      color: var(--dark);
+      margin-bottom: 15px;
+    }
+
+    .about-section > p.subtitle {
+      font-size: 1.15rem;
+      color: #555;
+      margin-bottom: 50px;
+      max-width: 750px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.8;
+    }
+
+    .mission-vision {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      max-width: 1100px;
+      margin: 0 auto 50px;
+    }
+
+    .mv-card {
+      background: white;
+      padding: 40px 30px;
+      border-radius: 20px;
+      box-shadow: 0 8px 18px var(--shadow);
+      transition: 0.3s;
+      border-top: 5px solid var(--secondary);
+    }
+
+    .mv-card:hover {
+      transform: translateY(-8px);
+    }
+
+    .mv-card .icon {
+      font-size: 2.8rem;
+      margin-bottom: 18px;
+    }
+
+    .mv-card h3 {
+      font-size: 1.5rem;
+      color: var(--primary);
+      margin-bottom: 15px;
+    }
+
+    .mv-card p {
+      line-height: 1.8;
+      font-size: 1.02rem;
+      color: #444;
+    }
+
+    /* Team / Values */
+    .values {
+      background: white;
+      padding: 80px 60px;
+      text-align: center;
+    }
+
+    .values h2 {
+      font-size: 2.5rem;
+      color: var(--dark);
+      margin-bottom: 50px;
+    }
+
+    .values-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .value-card {
+      background: var(--light);
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 8px 18px var(--shadow);
+      transition: 0.3s;
+    }
+
+    .value-card:hover {
+      transform: translateY(-8px);
+    }
+
+    .value-card .icon {
+      font-size: 2.4rem;
+      margin-bottom: 15px;
+    }
+
+    .value-card h3 {
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+
+    .value-card p {
+      line-height: 1.7;
+      color: #555;
+    }
+
+    /* Technology section */
+    .tech-section {
+      padding: 80px 6%;
+      text-align: center;
+    }
+
+    .tech-section h2 {
+      font-size: 2.5rem;
+      color: var(--dark);
+      margin-bottom: 50px;
+    }
+
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 24px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .tech-card {
+      background: white;
+      padding: 28px 20px;
+      border-radius: 20px;
+      box-shadow: 0 8px 18px var(--shadow);
+      transition: 0.3s;
+    }
+
+    .tech-card:hover {
+      transform: translateY(-8px);
+    }
+
+    .tech-card .icon {
+      font-size: 2.2rem;
+      margin-bottom: 15px;
+    }
+
+    .tech-card h3 {
+      color: var(--primary);
+      margin-bottom: 10px;
+    }
+
+    .tech-card p {
+      line-height: 1.6;
+      color: #555;
+    }
+
+    /* CTA Section */
+    .cta-section {
+      background: var(--dark);
+      color: white;
+      text-align: center;
+      padding: 80px 6%;
+    }
+
+    .cta-section h2 {
+      font-size: 2.2rem;
+      margin-bottom: 18px;
+    }
+
+    .cta-section p {
+      font-size: 1.1rem;
+      margin-bottom: 30px;
+      color: #e0e0e0;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 13px 26px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: 0.3s;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn-primary {
+      background: var(--secondary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary);
+      transform: translateY(-3px);
+    }
+
+    .btn-secondary {
+      background: white;
+      color: var(--dark);
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-3px);
+    }
+
+    /* Footer */
+    footer {
+      background: var(--dark);
+      color: white;
+      text-align: center;
+      padding: 24px;
+    }
+
+    footer a {
+      color: #c8e6c9;
+      text-decoration: none;
+      margin: 0 8px;
+    }
+
+    /* ===== Responsive Styles ===== */
+
+    /* Tablet & below */
+    @media (max-width: 900px) {
+      nav {
+        padding: 12px 4%;
+      }
+
+      .page-header {
+        padding: 120px 4% 50px;
+      }
+
+      .page-header-content {
+        max-width: 100%;
+        padding: 35px;
+      }
+
+      .page-header-content h1 {
+        font-size: 2.2rem;
+      }
+
+      .mission-vision {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .about-section {
+        padding: 80px 4%;
+      }
+
+      .values {
+        padding: 60px 4%;
+      }
+
+      .tech-section {
+        padding: 60px 4%;
+      }
+
+      .cta-section {
+        padding: 60px 4%;
+      }
+    }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      nav {
+        padding: 8px 4%;
+        min-height: 54px;
+      }
+
+      .logo-box h2 {
+        font-size: 0.9rem;
+      }
+
+      .logo-box img {
+        height: 36px;
+        width: 36px;
+      }
+
+      .hamburger {
+        display: flex;
+      }
+
+      nav ul {
+        position: fixed;
+        top: 54px;
+        left: 0;
+        right: 0;
+        width: 100%;
+        height: auto;
+        background: var(--dark);
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 0;
+        transition: max-height 0.4s ease, opacity 0.3s ease;
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        border-radius: 0 0 12px 12px;
+      }
+
+      nav ul.open {
+        max-height: 300px;
+        opacity: 1;
+      }
+
+      nav ul li {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      nav ul li:last-child {
+        border-bottom: none;
+      }
+
+      nav ul li a {
+        font-size: 0.95rem;
+        padding: 14px 24px;
+        text-align: center;
+        border-radius: 0;
+        display: block;
+      }
+
+      nav ul li a:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      nav ul li a.active {
+        border-bottom: 2px solid #c8e6c9;
+        padding-bottom: 3px;
+      }
+
+      .page-header {
+        padding: 100px 4% 40px;
+        min-height: 50vh;
+      }
+
+      .page-header-content {
+        padding: 30px 20px;
+        border-radius: 18px;
+      }
+
+      .page-header-content h1 {
+        font-size: 1.8rem;
+      }
+
+      .page-header-content p {
+        font-size: 1rem;
+        line-height: 1.7;
+      }
+
+      .about-section {
+        padding: 60px 4%;
+      }
+
+      .about-section h2 {
+        font-size: 1.8rem;
+        margin-bottom: 12px;
+      }
+
+      .about-section > p.subtitle {
+        font-size: 1rem;
+        margin-bottom: 30px;
+      }
+
+      .mission-vision {
+        gap: 16px;
+        margin-bottom: 30px;
+      }
+
+      .mv-card {
+        padding: 28px 20px;
+      }
+
+      .mv-card h3 {
+        font-size: 1.3rem;
+      }
+
+      .mv-card p {
+        font-size: 0.98rem;
+      }
+
+      .values {
+        padding: 50px 4%;
+      }
+
+      .values h2 {
+        font-size: 1.8rem;
+        margin-bottom: 30px;
+      }
+
+      .values-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .value-card {
+        padding: 24px 18px;
+      }
+
+      .tech-section {
+        padding: 50px 4%;
+      }
+
+      .tech-section h2 {
+        font-size: 1.8rem;
+        margin-bottom: 30px;
+      }
+
+      .tech-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .tech-card {
+        padding: 24px 18px;
+      }
+
+      .cta-section {
+        padding: 50px 4%;
+      }
+
+      .cta-section h2 {
+        font-size: 1.7rem;
+      }
+
+      .cta-section p {
+        font-size: 1rem;
+      }
+
+      .btn {
+        padding: 12px 22px;
+        font-size: 0.95rem;
+        width: 100%;
+      }
+
+      .btn-group {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      footer {
+        padding: 20px 4%;
+        font-size: 0.9rem;
+      }
+
+      footer a {
+        display: inline-block;
+        margin: 4px 6px;
+      }
+    }
+
+    /* Small phones */
+    @media (max-width: 400px) {
+      .logo-box h2 {
+        font-size: 0.8rem;
+      }
+
+      .logo-box img {
+        height: 32px;
+        width: 32px;
+      }
+
+      .page-header-content h1 {
+        font-size: 1.5rem;
+      }
+
+      .page-header-content p {
+        font-size: 0.95rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="logo-box">
+      <img src="logo (1).png" alt="SLSU Logo">
+      <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
+    </div>
+
+    <button class="hamburger" id="hamburger" aria-label="Toggle navigation">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <ul id="nav-menu">
+      <li><a href="home.html">Home</a></li>
+      <li><a href="feature.html">Features</a></li>
+      <li><a href="about.html" class="active">About</a></li>
+    </ul>
+  </nav>
+
+  <section class="page-header">
+    <div class="page-header-content">
+      <h1>About the System</h1>
+      <p>
+        Learn about the Automated Scheduling System of Southern Luzon State University —
+        how it began, what drives it, and how it serves our academic community.
+      </p>
+    </div>
+  </section>
+
+  <section class="about-section">
+    <h2>Who We Are</h2>
+    <p>
+      The Automated Scheduling System is a university-wide platform developed to address
+      the challenges of manual timetable creation. By automating class and examination
+      scheduling, the system ensures that faculty, rooms, and students are assigned
+      efficiently — reducing conflicts, saving time, and improving academic planning.
+    </p>
+
+    <div class="mission-vision">
+      <div class="mv-card">
+        <div class="icon">🎯</div>
+        <h3>Our Mission</h3>
+        <p>
+          To provide a reliable, efficient, and user-friendly scheduling platform that
+          supports the academic operations of Southern Luzon State University, enabling
+          faculty, chairpersons, and administrators to focus more on education and less
+          on administrative burden.
+        </p>
+      </div>
+      <div class="mv-card">
+        <div class="icon">🔭</div>
+        <h3>Our Vision</h3>
+        <p>
+          To become the standard automated scheduling solution across the university,
+          known for accuracy, innovation, and excellence in academic resource management.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="values">
+    <h2>Our Core Values</h2>
+    <div class="values-grid">
+      <div class="value-card">
+        <div class="icon">✅</div>
+        <h3>Efficiency</h3>
+        <p>We automate repetitive tasks so that time can be spent on higher-value academic work.</p>
+      </div>
+      <div class="value-card">
+        <div class="icon">🎓</div>
+        <h3>Service</h3>
+        <p>We put the needs of students, faculty, and staff at the center of every design decision.</p>
+      </div>
+      <div class="value-card">
+        <div class="icon">💡</div>
+        <h3>Innovation</h3>
+        <p>We embrace modern tools and technologies to continuously improve the scheduling experience.</p>
+      </div>
+      <div class="value-card">
+        <div class="icon">🤝</div>
+        <h3>Collaboration</h3>
+        <p>We work hand-in-hand with academic departments to ensure the system meets real needs.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="tech-section">
+    <h2>Built on Modern Technology</h2>
+    <div class="tech-grid">
+      <div class="tech-card">
+        <div class="icon">🌐</div>
+        <h3>Web-Based Platform</h3>
+        <p>Accessible from any device with a modern browser — no installation required.</p>
+      </div>
+      <div class="tech-card">
+        <div class="icon">🔐</div>
+        <h3>Secure Authentication</h3>
+        <p>Role-based access controls safeguard sensitive scheduling information.</p>
+      </div>
+      <div class="tech-card">
+        <div class="icon">🚀</div>
+        <h3>Real-Time Updates</h3>
+        <p>Schedule changes are reflected immediately for all users.</p>
+      </div>
+      <div class="tech-card">
+        <div class="icon">📄</div>
+        <h3>Report Generation</h3>
+        <p>Detailed records and reports are produced with ease for planning and compliance.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-section">
+    <h2>Experience the Difference</h2>
+    <p>Join the future of academic scheduling at Southern Luzon State University.</p>
+    <div class="btn-group">
+      <a href="login.html" class="btn btn-primary">Get Started</a>
+      <a href="feature.html" class="btn btn-secondary">View Features</a>
+    </div>
+  </section>
+
+  <footer>
+    <p>&copy; 2026 SLSU Automated Scheduling System | All Rights Reserved</p>
+    <p>
+      <a href="#">Privacy Policy</a> |
+      <a href="#">Terms of Service</a>
+    </p>
+  </footer>
+
+  <script>
+    const hamburger = document.getElementById('hamburger');
+    const navMenu = document.getElementById('nav-menu');
+
+    hamburger.addEventListener('click', () => {
+      hamburger.classList.toggle('active');
+      navMenu.classList.toggle('open');
+    });
+
+    // Close menu when a link is clicked
+    navMenu.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        hamburger.classList.remove('active');
+        navMenu.classList.remove('open');
+      });
+    });
+  </script>
+
+</body>
+</html>

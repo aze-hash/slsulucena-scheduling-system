@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Users</title>
+    <link rel="stylesheet" href="chairperson.css">
+    <style>
+        /* =========================
+           MANAGE USERS SPECIFIC STYLES
+        ========================= */
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, .7);
+            color: var(--dark);
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            transition: .3s;
+            box-shadow: 0 4px 10px var(--shadow);
+        }
+
+        .tab-btn:hover {
+            background: var(--secondary);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .tab-btn .count-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, .25);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-left: 6px;
+        }
+
+        .tab-btn.active .count-badge {
+            background: rgba(255, 255, 255, .3);
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .search-bar input {
+            flex: .3;
+            min-width: 200px;
+            padding: 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 10px;
+            background: white;
+            color: #1a1a1a;
+            outline: none;
+            font-size: 14px;
+        }
+
+        .search-bar input:focus {
+            border-color: var(--primary);
+        }
+
+        .search-bar select {
+            padding: 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 10px;
+            background: white;
+            color: #1a1a1a;
+            outline: none;
+            font-size: 14px;
+            min-width: 150px;
+            cursor: pointer;
+        }
+
+        .search-bar select:focus {
+            border-color: var(--primary);
+        }
+
+        .role-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .role-student {
+            background: #e3f2fd;
+            color: #0d47a1;
+        }
+
+        .role-faculty {
+            background: #e8f5e9;
+            color: #1b5e20;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #777;
+            font-size: 15px;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .user-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-cell .user-name {
+            font-weight: bold;
+            color: var(--dark);
+        }
+
+        .user-cell .user-email {
+            font-size: 12px;
+            opacity: .7;
+        }
+
+        .program-tag {
+            display: inline-block;
+            background: #f3e5f5;
+            color: #6a1b9a;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .major-tag {
+            display: inline-block;
+            background: #fff3e0;
+            color: #e65100;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .date-text {
+            font-size: 13px;
+            color: #555;
+        }
+
+        @media (max-width: 768px) {
+            .tabs {
+                flex-direction: column;
+            }
+
+            .tab-btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            .search-bar {
+                flex-direction: column;
+            }
+
+            .search-bar input {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Chairperson Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="manage_users.html" class="active"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<main class="container">
+    <header class="header">
+        <div>
+            <h1>Manage Users</h1>
+            <p>View all registered students and faculty members.</p>
+        </div>
+
+        <div class="admin-profile">
+            <strong id="adminName">SLSU Admin</strong>
+            <span>Administrator / Chairperson</span>
+        </div>
+    </header>
+
+    <div class="notice" id="usersNotice">
+        Loading registered users...
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tabStudents">
+            Students <span class="count-badge" id="studentCountBadge">0</span>
+        </button>
+        <button class="tab-btn" id="tabFaculty">
+            Faculty <span class="count-badge" id="facultyCountBadge">0</span>
+        </button>
+    </div>
+
+    <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="⌕ Search by name or email...">
+        <select id="programFilter" style="display:none;">
+            <option value="">All Programs</option>
+            <option value="BIT">BIT</option>
+            <option value="BINDTECH">BINDTECH</option>
+            <option value="BTVTED">BTVTED</option>
+        </select>
+        <select id="majorFilter" style="display:none;">
+            <option value="">All Majors</option>
+        </select>
+    </div>
+
+    <section class="card">
+        <div class="section-header">
+            <h3 id="tableTitle">Registered Students</h3>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th id="programMajorHeader">Program / Major</th>
+                        <th>Registered Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script type="module" src="manage_users.js"></script>
+
+</body>
+</html>

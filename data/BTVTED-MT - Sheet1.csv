@@ -1,0 +1,64 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+GEC02,Understanding the Self,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in Philippine History,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in Modern World,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC10,Kontekstuwalisadong Komunikasyon sa Filipino,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PED01,The Child and Adolescent Learner and Learning Principles,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC01,Introduction to Industrial Arts,BTVTED,MT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit01,Movement Skill Training,BTVTED,MT,1,1,2,2,0,Minor,Gymnasium,,Activity
+GEC01,Life and Works of Rizal,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC08,"Science, Technology and Society",BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC11,Filipino sa Iba't Ibang Disiplina,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC13,Literature of the Philippines,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PED02,The Teaching Profession,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC03,Introduction to Agriculture and Fishery Arts,BTVTED,MT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit02,Fitness and Wellness Activities,BTVTED,MT,1,2,2,2,0,Minor,Gymnasium,PATHFit01,Activity
+PED05a,"Facilitating Learner-centered 
+Teaching: The Learner-centered Approaches with Emphasis on Trainers Methodology 1",BTVTED,MT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED08,Technology for Teaching and Learning 1,BTVTED,MT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED10a,Building and Enhancing New Literacies across the Curriculum with Emphasis on the 21st Century Skills,BTVTED,MT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED06,Assesment in Learning 1,BTVTED,MT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+HEO01,Home Economics Literacy,BTVTED,MT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+MET01,Occupational Health and Safety Practices,BTVTED,MT,2,1,1,1,0,Major,Lecture Room,,Lecture
+MET02,Basic Machine Tools,BTVTED,MT,2,1,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET03,Lathe Machine Operations,BTVTED,MT,2,1,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET04,Heat Treatment,BTVTED,MT,2,1,2,1,1,Major,MT Laboratory,,Lecture+Laboratory
+PATHFit03,Rhythmic Activities and/or Sports,BTVTED,MT,2,1,2,2,0,Minor,Gymnasium,PATHFit02,Activity
+PED03a,The Teacher and the Community School Culture and Organizational Leadership with Focus on the Philippine TVET System,BTVTED,MT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED15,Technology for Teaching and Learning 2 (TLE),BTVTED,MT,2,2,3,3,0,Minor,Lecture Room,PED08,Lecture
+PED12,"Curriculum Development and 
+Evaluation with Emphasis on Trainers Methodology 2",BTVTED,MT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED07a,Assessment in Learning 2 with Focus on Trainers Methodology 1 and 2,BTVTED,MT,2,2,3,3,0,Minor,Lecture Room,PED06,Lecture
+TIC02,Teaching ICT as an Exploratory Course,BTVTED,MT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+MET05,Metrology and Applied Mechanical Mathematics,BTVTED,MT,2,2,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET06,Advanced Bench Work,BTVTED,MT,2,2,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET07,Milling Machine Operations,BTVTED,MT,2,2,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+PATHFit04,Recreational Activities,BTVTED,MT,2,2,2,2,0,Minor,Gymnasium,PATHFit01 PATHFit02,Activity
+GEC04,The Contemporary World,BTVTED,MT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+RES01,Technology Research 1 (Methods of Research),BTVTED,MT,3,1,3,3,0,Research,Lecture Room,,Lecture
+TIC04,Teaching Common Competencies in Industrial Arts,BTVTED,MT,3,1,3,3,0,Minor,Lecture Room,TIC01,Lecture
+TIC06,Teaching Common Competencies in Information and Communication Technology,BTVTED,MT,3,1,3,3,0,Minor,Lecture Room,TIC02,Lecture
+PED04,Foundation of Special and Inclusive Education,BTVTED,MT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED13,The Andragogy of Learning including Principles of Trainers Methodology 1,BTVTED,MT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+MET08,Grinding Machine Operations,BTVTED,MT,3,1,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET09,Mechanical Auto-CAD and Blueprint Reading,BTVTED,MT,3,1,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET10,"Jigs and Fixtures, Tool and Die Designing and Making",BTVTED,MT,3,1,3,2,1,Major,MT Laboratory,"MET04, 
+MET03, 
+MET05, MET07",Lecture+Laboratory
+GEC07,Art Appreciation,BTVTED,MT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+RES02,"Technology Research 2 
+(Undergraduate Thesis/Research Paper/Research Project)",BTVTED,MT,3,2,3,3,0,Research,Lecture Room,RES01,Lecture
+TIC07,Teaching Common Competencies in Agriculture and Fishery Arts,BTVTED,MT,3,2,3,3,0,Minor,Lecture Room,TIC03,Lecture
+TIC05,Teaching Common Competencies in Home Economics,BTVTED,MT,3,2,3,3,0,Minor,Lecture Room,HEO01,Lecture
+ENT01,Entrepreneurship,BTVTED,MT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+MET11,Corrective and Preventive Maintenance,BTVTED,MT,3,2,3,2,1,Major,MT Laboratory,,Lecture+Laboratory
+MET12,Electrically Discharge Machining (EDM),BTVTED,MT,3,2,3,2,1,Major,MT Laboratory,MET10,Lecture+Laboratory
+MET13,Computer-Aided Design and Manufacturing (CAD/CAM),BTVTED,MT,3,2,3,2,1,Major,MT Laboratory,MET09,Lecture+Laboratory
+PED14,Work-based Learning with Emphasis on Trainers Methodology,BTVTED,MT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+AMC01,Supervised Industrial Training (240 Hours),BTVTED,MT,4,1,3,0,0,OJT,,,OJT
+FSO01,Field Study 1,BTVTED,MT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+FSO02,Field Study 2,BTVTED,MT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+PED11,Teaching Internship (480 hours),BTVTED,MT,4,2,6,0,0,OJT,,,OJT
+TCC01,Integrative Course,BTVTED,MT,4,2,3,3,3,Major,MT Laboratory,,Lecture+Laboratory

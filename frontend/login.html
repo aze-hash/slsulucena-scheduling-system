@@ -1,0 +1,510 @@
+<!-- login.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLSU Login System</title>
+
+<style>
+:root{
+  --primary:#2e7d32;
+  --secondary:#4caf50;
+  --dark:#1b5e20;
+  --cream:#F5F1E6;
+  --beige:#E8DDC7;
+  --shadow:rgba(0,0,0,.15);
+}
+
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:Arial,sans-serif;
+  scroll-behavior:smooth;
+}
+
+body{
+  min-height:100vh;
+  background:var(--cream);
+  overflow-x:hidden;
+}
+
+/* Navbar */
+nav{
+  position:fixed;
+  top:0;
+  width:100%;
+  background:rgba(27,94,32,.95);
+  backdrop-filter:blur(12px);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 4%;
+  min-height:62px;
+  z-index:1000;
+  box-shadow:0 4px 12px var(--shadow);
+}
+
+.logo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.logo img{
+  width:40px;
+  height:40px;
+  object-fit:contain;
+  border-radius:50%;
+  background:white;
+  padding:3px;
+  flex-shrink:0;
+}
+
+.logo h2{
+  color:white;
+  font-size:1rem;
+  line-height:1.25;
+  text-align:left;
+}
+
+.logo h2 .campus{
+  display:block;
+  font-size:.75em;
+  font-weight:bold;
+  color:#c8e6c9;
+}
+
+nav ul{
+  display:flex;
+  list-style:none;
+  gap:16px;
+}
+
+nav ul li a{
+  color:white;
+  text-decoration:none;
+  font-weight:bold;
+  transition:.3s;
+  padding:8px 10px;
+  border-radius:8px;
+  display:block;
+  font-size:.95rem;
+}
+
+nav ul li a:hover{
+  color:#c8e6c9;
+  background:rgba(255,255,255,.1);
+}
+
+/* Hamburger menu */
+.hamburger{
+  display:none;
+  flex-direction:column;
+  cursor:pointer;
+  background:none;
+  border:2px solid rgba(255,255,255,.4);
+  border-radius:8px;
+  padding:6px 8px;
+  z-index:1001;
+}
+
+.hamburger span{
+  width:22px;
+  height:2px;
+  background:white;
+  margin:3px 0;
+  border-radius:3px;
+  transition:.3s;
+}
+
+.hamburger.active span:nth-child(1){
+  transform:translateY(5px) rotate(45deg);
+}
+
+.hamburger.active span:nth-child(2){
+  opacity:0;
+}
+
+.hamburger.active span:nth-child(3){
+  transform:translateY(-5px) rotate(-45deg);
+}
+
+/* Responsive */
+@media (max-width:768px){
+  nav{
+    padding:8px 4%;
+    min-height:54px;
+  }
+
+  .logo h2{
+    font-size:.9rem;
+  }
+
+  .logo img{
+    height:36px;
+    width:36px;
+  }
+
+  .hamburger{
+    display:flex;
+  }
+
+  nav ul{
+    position:fixed;
+    top:54px;
+    left:0;
+    right:0;
+    width:100%;
+    height:auto;
+    background:var(--dark);
+    flex-direction:column;
+    align-items:stretch;
+    gap:0;
+    padding:0;
+    transition:max-height .4s ease, opacity .3s ease;
+    max-height:0;
+    opacity:0;
+    overflow:hidden;
+    box-shadow:0 8px 16px rgba(0,0,0,.2);
+    border-radius:0 0 12px 12px;
+  }
+
+  nav ul.open{
+    max-height:300px;
+    opacity:1;
+  }
+
+  nav ul li{
+    border-bottom:1px solid rgba(255,255,255,.1);
+  }
+
+  nav ul li:last-child{
+    border-bottom:none;
+  }
+
+  nav ul li a{
+    font-size:.95rem;
+    padding:14px 24px;
+    text-align:center;
+    border-radius:0;
+    display:block;
+  }
+
+  nav ul li a:hover{
+    background:rgba(255,255,255,.08);
+  }
+}
+
+@media (max-width:400px){
+  .logo h2{
+    font-size:.8rem;
+  }
+
+  .logo img{
+    height:32px;
+    width:32px;
+  }
+}
+
+.login-container{
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:100px 20px 30px;
+}
+
+.login-box{
+  width:380px;
+  background:var(--beige);
+  border:1px solid #d6cbb8;
+  border-radius:20px;
+  padding:30px;
+  box-shadow:0 10px 25px var(--shadow);
+  text-align:center;
+  color:#1a1a1a;
+}
+
+.login-box img{
+  width:70px;
+  height:70px;
+  margin-bottom:10px;
+  border-radius:50%;
+  background:white;
+  padding:5px;
+}
+
+.login-box h2{
+  margin-bottom:20px;
+  color:black;
+}
+
+.input-box{
+  margin-bottom:15px;
+}
+
+.input-box input,
+.input-box select{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
+  border:1px solid #cbbfa6;
+  outline:none;
+  background:#fff;
+}
+
+.btn{
+  width:100%;
+  padding:12px;
+  background:var(--primary);
+  border:none;
+  border-radius:10px;
+  color:white;
+  font-size:16px;
+  cursor:pointer;
+  transition:.3s;
+}
+
+.btn:hover{
+  background:var(--dark);
+  transform:translateY(-2px);
+}
+
+.btn:disabled{
+  opacity:.7;
+  cursor:not-allowed;
+  transform:none;
+}
+
+.forgot{
+  margin-top:10px;
+  font-size:13px;
+}
+
+.forgot a{
+  color:var(--dark);
+  text-decoration:none;
+}
+
+.forgot a:hover{
+  text-decoration:underline;
+}
+
+.register-link{
+  margin-top:10px;
+  font-size:15px;
+}
+
+.register-link a{
+  color:var(--dark);
+  text-decoration:none;
+}
+
+.register-link a:hover{
+  text-decoration:underline;
+}
+
+.small{
+  margin-top:10px;
+  font-size:12px;
+  opacity:.8;
+}
+
+.message{
+  min-height:18px;
+  margin-top:12px;
+  font-size:13px;
+  color:#a11;
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+  <div class="logo">
+    <img src="logo (1).png" alt="SLSU Logo">
+    <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
+  </div>
+
+  <button class="hamburger" id="hamburger" aria-label="Toggle navigation">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <ul id="nav-menu">
+    <li><a href="home.html">Home</a></li>
+    <li><a href="feature.html">Features</a></li>
+    <li><a href="about.html">About</a></li>
+  </ul>
+</nav>
+
+<div class="login-container">
+  <div class="login-box">
+
+    <img src="logo (1).png" alt="SLSU Logo">
+
+    <h2>Login</h2>
+
+    <form id="loginForm">
+      <div class="input-box">
+        <input id="loginEmail" type="email" placeholder="Email" required>
+      </div>
+
+      <div class="input-box">
+        <input id="loginPassword" type="password" placeholder="Password" required>
+      </div>
+
+      <div class="input-box">
+        <select id="loginRole" required>
+          <option value="">Select Role</option>
+          <option value="Admin">Admin / Chairperson</option>
+          <option value="Faculty">Faculty</option>
+          <option value="Student">Student</option>
+        </select>
+      </div>
+
+      <button class="btn" id="loginBtn" type="submit">
+        Login
+      </button>
+    </form>
+
+    <p id="loginMessage" class="message"></p>
+
+    <div class="register-link">
+      Don't have an account? <a href="register.html">Sign Up</a>
+    </div>
+
+    <div class="forgot">
+      <a href="#" id="forgotPasswordLink">Forgot Password?</a>
+    </div>
+
+    <div class="small">
+      Automated Class & Examination Scheduling System
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const hamburger = document.getElementById('hamburger');
+  const navMenu = document.getElementById('nav-menu');
+
+  hamburger.addEventListener('click', () => {
+    hamburger.classList.toggle('active');
+    navMenu.classList.toggle('open');
+  });
+
+  navMenu.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      hamburger.classList.remove('active');
+      navMenu.classList.remove('open');
+    });
+  });
+</script>
+
+<script type="module">
+import { auth, db } from "../firebase.js";
+
+import {
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+
+import {
+  doc,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+const loginForm = document.getElementById("loginForm");
+const loginButton = document.getElementById("loginBtn");
+const loginMessage = document.getElementById("loginMessage");
+
+const rolePages = {
+  Admin: "chairperson.html",
+  Faculty: "faculty.html",
+  Student: "student.html"
+};
+
+loginForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const selectedRole = document.getElementById("loginRole").value;
+
+  if (!email || !password || !selectedRole) {
+    loginMessage.textContent = "Please enter email, password, and role.";
+    return;
+  }
+
+  loginButton.disabled = true;
+  loginButton.textContent = "Logging in...";
+  loginMessage.textContent = "";
+
+  try {
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+    const userSnapshot = await getDoc(
+      doc(db, "users", credential.user.uid)
+    );
+
+    if (!userSnapshot.exists()) {
+      throw new Error("User profile was not found.");
+    }
+
+    const userData = userSnapshot.data();
+
+    if (userData.role !== selectedRole) {
+      loginMessage.textContent = "The selected role does not match this account.";
+      loginButton.disabled = false;
+      loginButton.textContent = "Login";
+      return;
+    }
+
+    window.location.href = rolePages[userData.role];
+
+  } catch (error) {
+    console.error(error);
+
+    loginMessage.textContent =
+      error.code === "auth/invalid-credential"
+        ? "Invalid email or password."
+        : error.message;
+
+    loginButton.disabled = false;
+    loginButton.textContent = "Login";
+  }
+});
+
+document.getElementById("forgotPasswordLink").addEventListener("click", async event => {
+  event.preventDefault();
+
+  const email = document.getElementById("loginEmail").value.trim();
+
+  if (!email) {
+    loginMessage.textContent = "Enter your email first.";
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    loginMessage.style.color = "#1b5e20";
+    loginMessage.textContent = "Password reset email sent.";
+  } catch (error) {
+    loginMessage.style.color = "#a11";
+    loginMessage.textContent = error.message;
+  }
+});
+</script>
+
+</body>
+</html>

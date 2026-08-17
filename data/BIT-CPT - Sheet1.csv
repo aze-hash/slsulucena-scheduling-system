@@ -1,0 +1,45 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+CPT01,Introduction to Computer Science and Electronics,BIT,CPT,1,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT02,Logic and Switching Theory,BIT,CPT,1,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+OHS01,Occupational Health and Safety,BIT,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC01,Life and Works of Rizal,BIT,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC02,Understanding the Self,BIT,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BIT,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit01,Movement Skill Training,BIT,CPT,1,1,2,2,0,Minor,Gymnasium,,Activity
+CPT03,Computer Fundamentals and System Hardware,BIT,CPT,1,2,3,2,1,Major,Laboratory,CPT01,Lecture+Laboratory
+CPT04,EDP Organization and Flowchart,BIT,CPT,1,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+DRW01,Technical Drawing 1,BIT,CPT,1,2,1,1,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in the Philippine History,BIT,CPT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in the Modern World,BIT,CPT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC10,Kontekstuwalisadong Komunikasyon sa Filipino,BIT,CPT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit02,Fitness and Wellness Activities,BIT,CPT,1,2,2,2,0,Minor,Gymnasium,PATHFit01,Activity
+CPT05,Computer Programming 1,BIT,CPT,2,1,3,2,1,Major,Laboratory,CPT04,Lecture+Laboratory
+CPT06,Computer Maintenance and Troubleshooting,BIT,CPT,2,1,3,2,1,Major,Laboratory,CPT03,Lecture+Laboratory
+DRW02,Technical Drawing 2 (AutoCAD),BIT,CPT,2,1,1,1,0,Minor,Lecture Room,DRW01,Lecture
+GEC08,"Science, Technology and Society",BIT,CPT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BIT,CPT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC11,Filipino sa Iba't-Ibang Disiplina,BIT,CPT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit03,Rhythmic Activities and/or Sports,BIT,CPT,2,1,2,2,0,Minor,Gymnasium,PATHFit02,Activity
+CPT07,Computer Programming 2,BIT,CPT,2,2,3,2,1,Major,Laboratory,CPT05,Lecture+Laboratory
+CPT08,Computer Networking and Installation,BIT,CPT,2,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+GEC04,Contemporary World,BIT,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC07,Art Appreciation,BIT,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC13,Literature of the Philippines,BIT,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit04,Recreational Activities,BIT,CPT,2,2,2,2,0,Minor,Gymnasium,,Activity
+CPT09,Advanced Microcontroller,BIT,CPT,3,1,3,2,1,Major,Laboratory,CPT01,Lecture+Laboratory
+CPT10,Data Structure and Algorithm,BIT,CPT,3,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT11,Web Development,BIT,CPT,3,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT12,Seminar in Information Trends and Specialized Technology,BIT,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+CPT13,Specialized Technology 1,BIT,CPT,3,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+STA01,Basic Statistics,BIT,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+MGT03,Industrial Management,BIT,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+CPT14,Object Oriented Programming,BIT,CPT,3,2,3,2,1,Major,Laboratory,CPT07,Lecture+Laboratory
+CPT15,Specialized Technology 2,BIT,CPT,3,2,3,2,1,Major,Laboratory,CPT13,Lecture+Laboratory
+CPT16,Computer Numerically Controlled Machines,BIT,CPT,3,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+MGT02,Technopreneurship,BIT,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+MGT01,Industrial Economics,BIT,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+RES01,Methods of Research,BIT,CPT,3,2,3,3,0,Research,Lecture Room,All major subjects,Lecture
+IPR01,Intellectual Property Rights,BIT,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+RES02,Capstone Project 1,BIT,CPT,4,1,3,3,0,Capstone,Lecture Room,RES01,Lecture
+OJT01,On-the-Job Training 1,BIT,CPT,4,1,9,0,0,OJT,,,OJT
+OJT02,On-the-Job Training 2,BIT,CPT,4,2,18,0,0,OJT,,OJT01,OJT

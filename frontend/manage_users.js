@@ -1,0 +1,325 @@
+import { auth, db } from "../firebase.js";
+
+import {
+    onAuthStateChanged,
+    signOut
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+
+import {
+    doc,
+    getDoc,
+    collection,
+    onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+let allUsers = [];
+let currentTab = "Student";
+let searchTerm = "";
+let programFilter = "";
+let majorFilter = "";
+
+onAuthStateChanged(auth, async user => {
+    if (!user) {
+        location.href = "login.html";
+        return;
+    }
+
+    const profile = await getDoc(doc(db, "users", user.uid));
+
+    if (!profile.exists() || profile.data().role !== "Admin") {
+        location.href = "login.html";
+        return;
+    }
+
+    document.getElementById("adminName").textContent =
+        profile.data().fullName || "SLSU Admin";
+
+    watchUsers();
+});
+
+function watchUsers() {
+    onSnapshot(
+        collection(db, "users"),
+        snapshot => {
+            allUsers = snapshot.docs.map(document => ({
+                id: document.id,
+                ...document.data()
+            }));
+
+            updateCounts();
+            renderUsers();
+        },
+        error => {
+            console.error("Could not watch users:", error);
+            document.getElementById("usersNotice").textContent =
+                "Unable to load users. Check your Firestore rules.";
+            document.getElementById("usersTableBody").innerHTML =
+                `<tr><td colspan="4">Unable to load users.</td></tr>`;
+        }
+    );
+}
+
+function updateCounts() {
+    const studentCount = allUsers.filter(user =>
+        String(user.role || "").toLowerCase() === "student"
+    ).length;
+
+    const facultyCount = allUsers.filter(user =>
+        String(user.role || "").toLowerCase() === "faculty"
+    ).length;
+
+    document.getElementById("studentCountBadge").textContent = studentCount;
+    document.getElementById("facultyCountBadge").textContent = facultyCount;
+
+    const totalCount = studentCount + facultyCount;
+
+    document.getElementById("usersNotice").textContent =
+        `Showing ${totalCount} total registered user${totalCount === 1 ? "" : "s"}.`;
+}
+
+function getFilteredUsers() {
+    const role = currentTab.toLowerCase();
+
+    return allUsers
+        .filter(user => String(user.role || "").toLowerCase() === role)
+        .filter(user => {
+            if (!searchTerm) return true;
+
+            const name = String(user.fullName || "").toLowerCase();
+            const email = String(user.email || "").toLowerCase();
+            const term = searchTerm.toLowerCase();
+
+            return name.includes(term) || email.includes(term);
+        })
+        .filter(user => {
+            if (!programFilter) return true;
+            return String(user.program || "").toLowerCase() === programFilter.toLowerCase();
+        })
+        .filter(user => {
+            if (!majorFilter) return true;
+            return String(user.major || "").toLowerCase() === majorFilter.toLowerCase();
+        })
+        .sort((a, b) => {
+            const nameA = String(a.fullName || "").toUpperCase();
+            const nameB = String(b.fullName || "").toUpperCase();
+            return nameA.localeCompare(nameB);
+        });
+}
+
+function renderUsers() {
+    const body = document.getElementById("usersTableBody");
+    const users = getFilteredUsers();
+
+    const title = currentTab === "Student"
+        ? "Registered Students"
+        : "Registered Faculty";
+
+    document.getElementById("tableTitle").textContent = title;
+
+    const isStudent = currentTab === "Student";
+
+    // Show/hide the Program / Major column
+    document.getElementById("programMajorHeader").style.display =
+        isStudent ? "" : "none";
+
+    if (!users.length) {
+        body.innerHTML = `
+            <tr>
+                <td colspan="${isStudent ? 5 : 4}" class="empty-state">
+                    No ${currentTab.toLowerCase()} users found.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    body.innerHTML = users.map(user => {
+        const initials = getInitials(user.fullName);
+        const program = user.program ? `<span class="program-tag">${safe(user.program)}</span>` : "";
+        const major = user.major ? `<span class="major-tag">${safe(user.major)}</span>` : "";
+        const programMajor = (program || major)
+            ? `<div>${program}${major}</div>`
+            : `<span class="date-text">—</span>`;
+
+        const roleClass = isStudent ? "role-student" : "role-faculty";
+
+        return `
+            <tr>
+                <td>
+                    <div class="user-cell">
+                        <div class="user-avatar">${safe(initials)}</div>
+                        <div>
+                            <div class="user-name">${safe(user.fullName || "Unknown")}</div>
+                            <div class="user-email">${safe(user.email || "—")}</div>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <span class="role-badge ${roleClass}">${safe(currentTab)}</span>
+                </td>
+                ${isStudent ? `<td>${programMajor}</td>` : ""}
+                <td class="date-text">${safe(formatDate(getDate(user)))}</td>
+                <td>
+                    <button class="delete-btn" data-user-id="${safe(user.id)}" data-user-name="${safe(user.fullName || "Unknown")}">Delete</button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+
+    body.querySelectorAll(".delete-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            const userId = button.dataset.userId;
+            const userName = button.dataset.userName;
+            handleDeleteUser(userId, userName);
+        });
+    });
+}
+
+async function handleDeleteUser(userId, userName) {
+    if (!userId) return;
+
+    const confirmed = confirm(
+        `Are you sure you want to delete ${userName}?\n\nThis will permanently remove their account and all associated data.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch(`http://localhost:3000/users/${userId}`, {
+            method: "DELETE"
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || "Failed to delete user.");
+        }
+
+        alert(`${userName} has been deleted successfully.`);
+    } catch (error) {
+        console.error("Could not delete user:", error);
+        alert(`Failed to delete ${userName}. Please try again.`);
+    }
+}
+
+function getInitials(name) {
+    if (!name) return "?";
+
+    return name
+        .split(" ")
+        .filter(part => part.length > 0)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("");
+}
+
+function getDate(data) {
+    const value =
+        data.createdAt ||
+        data.updatedAt ||
+        data.dateCreated ||
+        data.timestamp;
+
+    if (value?.toDate) {
+        return value.toDate();
+    }
+
+    const date = new Date(value || 0);
+
+    return Number.isNaN(date.getTime())
+        ? new Date(0)
+        : date;
+}
+
+function formatDate(date) {
+    return date.getTime()
+        ? date.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+        })
+        : "—";
+}
+
+function safe(value) {
+    const span = document.createElement("span");
+    span.textContent = value;
+    return span.innerHTML;
+}
+
+/* =========================
+   TAB SWITCHING
+========================= */
+
+document.getElementById("tabStudents").addEventListener("click", () => {
+    currentTab = "Student";
+    document.getElementById("tabStudents").classList.add("active");
+    document.getElementById("tabFaculty").classList.remove("active");
+    document.getElementById("programFilter").style.display = "";
+    document.getElementById("majorFilter").style.display = "";
+    renderUsers();
+});
+
+document.getElementById("tabFaculty").addEventListener("click", () => {
+    currentTab = "Faculty";
+    document.getElementById("tabFaculty").classList.add("active");
+    document.getElementById("tabStudents").classList.remove("active");
+    document.getElementById("programFilter").style.display = "none";
+    document.getElementById("majorFilter").style.display = "none";
+    renderUsers();
+});
+
+/* =========================
+   SEARCH
+========================= */
+
+document.getElementById("searchInput").addEventListener("input", event => {
+    searchTerm = event.target.value.trim();
+    renderUsers();
+});
+
+/* =========================
+   PROGRAM & MAJOR FILTERS
+========================= */
+
+const programFilterEl = document.getElementById("programFilter");
+const majorFilterEl = document.getElementById("majorFilter");
+
+programFilterEl.addEventListener("change", () => {
+    programFilter = programFilterEl.value;
+    majorFilter = "";
+    majorFilterEl.innerHTML = `<option value="">All Majors</option>`;
+
+    if (programFilter === "BIT" || programFilter === "BINDTECH") {
+        majorFilterEl.innerHTML += `<option value="CPT">CPT</option>`;
+    }
+
+    if (programFilter === "BTVTED") {
+        majorFilterEl.innerHTML += `
+            <option value="AT">AT</option>
+            <option value="MT">MT</option>
+            <option value="CP">CP</option>
+            <option value="FSM">FSM</option>
+            <option value="CT">CT</option>
+            <option value="ELT">ELT</option>
+            <option value="ELX">ELX</option>
+        `;
+    }
+
+    renderUsers();
+});
+
+majorFilterEl.addEventListener("change", () => {
+    majorFilter = majorFilterEl.value;
+    renderUsers();
+});
+
+/* =========================
+   LOGOUT
+========================= */
+
+document.getElementById("logoutLink").addEventListener("click", async event => {
+    event.preventDefault();
+    await signOut(auth);
+    location.href = "login.html";
+});

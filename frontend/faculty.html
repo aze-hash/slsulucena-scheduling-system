@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faculty Dashboard</title>
+    <link rel="stylesheet" href="faculty.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Faculty Dashboard</h2>
+    </div>
+
+    <div class="nav-right">
+        <div class="nav-profile">
+            <strong id="navFacultyName">Faculty</strong>
+            <span id="navFacultyRole">Instructor</span>
+        </div>
+        <ul>
+            <li><a href="faculty.html" class="active">Home</a></li>
+            <li><button id="logoutBtn" class="nav-logout-btn" type="button">Logout</button></li>
+        </ul>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>Welcome, Faculty!</h1>
+            <p>All class schedules are visible. Exam schedules are limited to your assigned proctoring sections.</p>
+        </div>
+
+        <div class="header-actions">
+            <div class="action-buttons">
+                <button id="openRescheduleModalBtn" class="request-btn" type="button">Request Reschedule</button>
+                <button id="openNotificationsModalBtn" class="notification-btn" type="button" title="Notifications">
+                    <span class="notification-bell">🔔</span>
+                    <span id="notificationBadge" class="notification-badge" hidden>0</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="schedules-stack">
+        <div class="card">
+            <div class="section-header">
+                <h3>Assigned Exam Schedule</h3>
+            </div>
+            <div id="examScheduleContainer" class="schedule-container"></div>
+        </div>
+
+        <div class="card">
+            <div class="section-header">
+                <h3>All Class Schedules</h3>
+            </div>
+            <div class="search-bar">
+                <input type="text" id="classSearchInput" placeholder="⌕ Search by section, program, or major..." />
+            </div>
+            <div id="classScheduleContainer" class="schedule-container"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Reschedule Request Modal -->
+<div id="rescheduleModal" class="modal-overlay" hidden>
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Request Exam Reschedule</h3>
+            <button id="closeRescheduleModalBtn" class="modal-close-btn" type="button">&times;</button>
+        </div>
+        <p class="form-note">Only submit if you are unavailable on the assigned exam date.</p>
+
+        <form id="rescheduleForm" class="reschedule-form">
+            <div class="form-group">
+                <label for="sectionSelect">Select Section</label>
+                <select id="sectionSelect" required>
+                    <option value="">-- Select the section you are assigned to --</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="reasonInput">Reason for Unavailability</label>
+                <textarea id="reasonInput" rows="4" placeholder="Please explain why you are unavailable on the assigned exam date..." required></textarea>
+            </div>
+
+            <button type="submit" id="submitRequestBtn" class="submit-btn">Submit Request</button>
+        </form>
+
+        <div id="requestStatus" class="request-status" hidden></div>
+    </div>
+</div>
+
+<!-- Notifications Modal -->
+<div id="notificationsModal" class="modal-overlay" hidden>
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Notifications</h3>
+            <button id="closeNotificationsModalBtn" class="modal-close-btn" type="button">&times;</button>
+        </div>
+        <div id="requestNotifications" class="request-notifications"></div>
+    </div>
+</div>
+
+<script type="module" src="faculty.js"></script>
+</body>
+</html>

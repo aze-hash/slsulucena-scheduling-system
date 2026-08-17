@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chairperson Dashboard</title>
+
+    <link rel="stylesheet" href="chairperson.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Chairperson Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a class="active" href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<main class="container">
+    <header class="header">
+        <div>
+            <h1>Welcome, Chairperson</h1>
+            <p>Manage schedules, academic resources, and system activity.</p>
+        </div>
+
+        <div class="admin-profile">
+            <strong id="adminName">SLSU Admin</strong>
+            <span>Administrator / Chairperson</span>
+        </div>
+    </header>
+
+    <div class="notice" id="dashboardNotice">
+        Loading your live Firestore dashboard data...
+    </div>
+
+    <section class="dashboard-grid">
+        <article class="stat-card">
+            <p>Students</p>
+            <h2 id="studentCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Faculty</p>
+            <h2 id="facultyCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Pending Request</p>
+            <h2 id="pendingRequestCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Class Schedule</p>
+            <h2 id="classScheduleCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Exam Schedule</p>
+            <h2 id="examScheduleCount">0</h2>
+        </article>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <h3>Exam Reschedule Requests</h3>
+            <span class="request-count-badge" id="pendingRequestBadge">0 pending</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Faculty Name</th>
+                        <th>Section</th>
+                        <th>Date Submitted</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="rescheduleRequestsBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<!-- Reschedule Request Details Modal -->
+<div class="modal-overlay" id="requestModal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Reschedule Request Details</h3>
+            <button class="modal-close" id="closeModalBtn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p><strong>Status:</strong> <span class="status-badge" id="modalStatus"></span></p>
+            <p><strong>Reason:</strong></p>
+            <div class="modal-reason" id="modalReason"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="approve-btn" id="modalApproveBtn">Approve</button>
+            <button class="deny-btn" id="modalDenyBtn">Deny</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="chairperson.js"></script>
+
+</body>
+</html>

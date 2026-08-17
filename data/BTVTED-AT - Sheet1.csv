@@ -1,0 +1,74 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+GEC02,Understanding the Self,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in Philippine History,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in Modern World,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC10,Kontekstuwalisadong Komunikasyon sa Filipino,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PED01,The Child and Adolescent Learner and Learning Principles,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC01,Introduction to Industrial Arts,BTVTED,AT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATFit01,PATHFit01 Movement Skill Training,BTVTED,AT,1,1,2,2,0,Minor,Gymnasium,,Activity
+GEC01,Life and Works of Rizal,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC08,"Science, Technology and Society",BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC11,Filipino sa Iba't Ibang Disiplina,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC13,Literature of the Philippines,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PED02,The Teaching Profession,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC03,Introduction to Agriculture and Fishery Arts,BTVTED,AT,1,2,3,3,0,Minor,Lecture Room,,Lecture
+PATFit02,PATHFit02 Fitness and Wellness Activities,BTVTED,AT,1,2,2,2,0,Minor,Gymnasium,,Activity
+GEC04,The Contemporary World,BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED05a,"Facilitating Learner-centered 
+Teaching: The Learner-centered Approaches with Emphasis on Trainers Methodology 1",BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED08,Technology for Teaching and Learning 1,BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED10a,Building and Enhancing New Literacies across the Curriculum with Emphasis on the 21st Century Skills,BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PED06,Assessment in Learning 1,BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+HEO01,Home Economics Literacy,BTVTED,AT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+AUT01,Occupational Health and Safety Practices,BTVTED,AT,2,1,1,1,0,Minor,Lecture Room,,Lecture
+AUT02,"Internal Combustion Engine Servicing, Repairing and 
+Maintenance",BTVTED,AT,2,1,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT03,Preventive Maintenance and Gas/Diesel Engine Tune Up,BTVTED,AT,2,1,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+PATFit03,PATHFit03 Rhythmic Activities and/or Sports,BTVTED,AT,2,1,2,2,0,Minor,Gymnasium,,Activity
+GEC07,Art Appreciation,BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED03a,The Teacher and the Community School Culture and Organizational Leadership with Focus on the Philippine TVET System,BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED15,Technology for Teaching and Learning 2 (TLE),BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED12,"Curriculum Development and 
+Evaluation with Emphasis on Trainers Methodology 2",BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PED07a,Assessment in Learning 2 with Focus on Trainers Methodology 1 and 2,BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC02,Teaching ICT as an Exploratory Course,BTVTED,AT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+AUT04,"Automotive Electrical System Servicing, Repairing and 
+Maintenance",BTVTED,AT,2,2,4,4,2,Major,AT Laboratory,,Lecture+Laboratory
+AUT05,"Power Train and Under Chassis Servicing, Repairing and 
+Maintenance",BTVTED,AT,2,2,3,3,1,Major,AT Laboratory,,Lecture+Laboratory
+PATFit04,PATHFit04 Recreational Activities,BTVTED,AT,2,2,2,2,0,Minor,Gymnasium,,Activity
+RES01,Technology Research 1 (Methods of Research),BTVTED,AT,3,1,3,3,0,Research,Lecture Room,,Lecture
+TIC04,Teaching Common Competencies in Industrial Arts,BTVTED,AT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+TIC06,Teaching Common Competencies in Information and Communication Technology,BTVTED,AT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED04,Foundation of Special and Inclusive Education,BTVTED,AT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+PED13,The Andragogy of Learning including Principles of Trainers Methodology 1,BTVTED,AT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+AUTO06,Automotive Service Shop Management,BTVTED,AT,3,1,1,1,0,Minor,Lecture Room,,Lecture
+AUT07,"Basic Automotive Air 
+conditioning Servicing, Repairing and Maintenance",BTVTED,AT,3,1,2,1,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT08,"Motor Cycle and Small Engine Servicing, Repairing and 
+Maintenance",BTVTED,AT,3,1,2,1,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT09,Automotive Body Repair and Substrate Preparation,BTVTED,AT,3,1,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT10,Engine Overhauling and Rebuilding,BTVTED,AT,3,1,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+RES02,Technology Research 2 (Undergraduate Thesis/Research Paper/Research Project),BTVTED,AT,3,2,3,3,0,Research,Lecture Room,,Lecture
+TIC07,Teaching Common Competencies in Agriculture and Fishery Arts,BTVTED,AT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+TIC05,Teaching Common Competencies in Home Economics,BTVTED,AT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+ENT01,Entrepreneurship,BTVTED,AT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+AUT11,Metallic and Solid Color Painting Applications and Techniques,BTVTED,AT,3,2,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT12,Basic Driving,BTVTED,AT,3,2,2,1,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT13,"Basic Power Conversion System Servicing, Repairing and 
+Maintenance",BTVTED,AT,3,2,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+AUT14,"Basic Electronic Engine 
+Management System Operation and Servicing",BTVTED,AT,3,2,3,2,1,Major,AT Laboratory,,Lecture+Laboratory
+PED14,Work-based Learning with Emphasis on Trainers Methodology,BTVTED,AT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+AMC01,Supervised Industrial Training (240 Hours),BTVTED,AT,4,1,3,0,0,OJT,,,OJT
+FSO01,Field Study 1,BTVTED,AT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+FSO02,Field Study 2,BTVTED,AT,4,1,3,3,0,Minor,Lecture Room,,Lecture
+PED11,Teaching Internship (480 hours),BTVTED,AT,4,2,6,0,0,OJT,,,OJT
+TCC01,Integrative Course,BTVTED,AT,4,2,3,1,0,Minor,Lecture Room,,Lecture
+,,,,,,,,,,,,
+,,,,,,,,,,,,
+,,,,,,,,,,,,
+,,,,,,,,,,,,
+,,,,,,,,,,, ,

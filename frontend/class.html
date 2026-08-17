@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Class Schedule Generator</title>
+    <link rel="stylesheet" href="class.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Chairperson Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html" class="active"><span class="nav-icon">📅</span> Class Schedule</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="home.html"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+    <div class="header">
+        <h1>Class Schedule Generator</h1>
+        <p>Generate and manage section schedules efficiently.</p>
+    </div>
+
+    <div class="card">
+        <h3>Schedule Filters</h3>
+
+        <div class="filters">
+            <input type="text" id="academicYear" placeholder="A.Y. (e.g. 2026-2027)" style="width:100%;padding:12px;border:1px solid #c9c1b0;border-radius:10px;background:white;color:#1a1a1a;outline:none;font-size:14px;">
+
+            <select id="semester">
+                <option value="">Select Semester</option>
+                <option value="1">1st Semester</option>
+                <option value="2">2nd Semester</option>
+            </select>
+
+            <select id="program">
+                <option value="">Select Program</option>
+                <option value="BIT">BIT</option>
+                <option value="BINDTECH">BINDTECH</option>
+                <option value="BTVTED">BTVTED</option>
+            </select>
+
+            <select id="major">
+                <option value="">Select Major</option>
+            </select>
+
+            <select id="yearLevel">
+                <option value="">Select Year Level</option>
+                <option value="1">1st Year</option>
+                <option value="2">2nd Year</option>
+                <option value="3">3rd Year</option>
+                <option value="4">4th Year</option>
+            </select>
+
+            <select id="section">
+                <option value="">Select Section</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h3>Subjects</h3>
+            <button id="loadSubjectsBtn" type="button">Load Subjects</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Subject Code</th>
+                        <th>Subject Name</th>
+                        <th>Units</th>
+                        <th>Lec</th>
+                        <th>Lab</th>
+                    </tr>
+                </thead>
+                <tbody id="subjectTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="generate-container">
+        <button id="generateBtn" type="button">Generate Schedule</button>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h3>Saved Schedules</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button id="exportPdfBtn" type="button">Export All to PDF</button>
+                <button id="deleteAllBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
+            </div>
+        </div>
+
+        <p id="emptySavedSchedules">No saved schedules yet.</p>
+        <div id="savedSchedulesList"></div>
+    </div>
+
+</div>
+
+<div id="scheduleModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Generated Schedule</h2>
+            <span class="close-modal">&times;</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Subject Code</th>
+                        <th>Subject Name</th>
+                        <th>Units</th>
+                        <th>Day</th>
+                        <th>Time</th>
+                        <th>Room</th>
+                    </tr>
+                </thead>
+                <tbody id="scheduleTableBody"></tbody>
+            </table>
+        </div>
+
+        <div id="scheduleConflicts" style="margin:16px 24px; color:#333; font-size:14px"></div>
+
+        <div style="margin:16px 24px; display:flex; justify-content:center;">
+    <button id="saveScheduleBtn" type="button">Save Schedule</button>
+</div>
+    </div>
+</div>
+
+<!-- Generating Overlay -->
+<div id="generatingOverlay" class="generating-overlay" style="display:none;">
+    <div class="generating-overlay-content">
+        <span class="generating-spinner">⟳</span>
+        <span>Generating Schedule...</span>
+    </div>
+</div>
+
+<!-- Saved Overlay -->
+<div id="savedOverlay" class="saved-overlay" style="display:none;">
+    <div class="saved-overlay-content">
+        <svg class="saved-check" viewBox="0 0 52 52">
+            <circle class="saved-check-circle" cx="26" cy="26" r="24" fill="none"/>
+            <path class="saved-check-mark" fill="none" d="M14 27l8 8 16-16"/>
+        </svg>
+        <span>Schedule saved successfully.</span>
+    </div>
+</div>
+
+<script type="module" src="class.js"></script>
+
+<!-- Custom Notification Toast -->
+<div id="customToast" class="custom-toast" style="display:none;">
+    <div class="custom-toast-content">
+        <span id="customToastMessage"></span>
+        <button id="customToastClose" class="custom-toast-close">&times;</button>
+    </div>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div id="customConfirmModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content">
+        <div class="custom-confirm-header">
+            <h3>Confirm Action</h3>
+        </div>
+        <div class="custom-confirm-body">
+            <p id="customConfirmMessage"></p>
+        </div>
+        <div class="custom-confirm-footer">
+            <button id="customConfirmCancel" class="custom-confirm-btn cancel">Cancel</button>
+            <button id="customConfirmOk" class="custom-confirm-btn ok">Yes, Proceed</button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

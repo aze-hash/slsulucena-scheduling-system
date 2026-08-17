@@ -1,0 +1,50 @@
+subjectCode,subjectName,programCode,majorCode,yearLevel,semester,units,lecHours,labHours,subjectType,requiredRoomType,prerequisite,meetingType
+CPT01,Occupational Health and Safety,BINDTECH,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+CPT02,Introduction to Electronics,BINDTECH,CPT,1,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT03,Computer Software and Operating System,BINDTECH,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+CHM01a,Chemistry for Industrial Technologist,BINDTECH,CPT,1,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+IND01,Industrial Drawing,BINDTECH,CPT,1,1,2,1,1,Major,Laboratory,,Lecture+Laboratory
+GEC02,Understanding the Self,BINDTECH,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC05,Mathematics in the Modern World,BINDTECH,CPT,1,1,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit01,Movement Skill Training,BINDTECH,CPT,1,1,2,2,0,Minor,Gymnasium,,Activity
+CPT04,Computer Fundamentals and System Hardware,BINDTECH,CPT,1,2,3,2,1,Major,Laboratory,CPT03,Lecture+Laboratory
+CPT05,Logic and Switching Theory,BINDTECH,CPT,1,2,2,1,1,Major,Laboratory,CPT02,Lecture+Laboratory
+CPT06,Computer Networking and Installation,BINDTECH,CPT,1,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT07,Computer Numerically Controlled Machines,BINDTECH,CPT,1,2,2,1,1,Major,Laboratory,,Lecture+Laboratory
+IIT01,Introduction to Information Technology,BINDTECH,CPT,1,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+MAT04a,Comprehensive Mathematics,BINDTECH,CPT,1,2,5,5,0,Minor,Lecture Room,,Lecture
+PATHFit02,Fitness and Wellness Activities,BINDTECH,CPT,1,2,2,2,0,Minor,Gymnasium,PATHFit01,Activity
+CPT08,Computer Maintenance and Troubleshooting,BINDTECH,CPT,2,1,3,2,1,Major,Laboratory,CPT04,Lecture+Laboratory
+CPT09,Advanced Microcontroller,BINDTECH,CPT,2,1,3,2,1,Major,Laboratory,CPT05,Lecture+Laboratory
+CPT10,Specialized Technology,BINDTECH,CPT,2,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT11,Seminar in Information Trends,BINDTECH,CPT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+PHY01a,Physics for Industrial Technologist,BINDTECH,CPT,2,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+GEL01,Environmental Science,BINDTECH,CPT,2,1,3,3,0,Minor,Lecture Room,,Lecture
+COM01a,Computer Programming,BINDTECH,CPT,2,1,3,2,1,Major,Laboratory,,Lecture+Laboratory
+PATHFit03,Rhythmic Activities and/or Sports,BINDTECH,CPT,2,1,2,2,0,Minor,Gymnasium,PATHFit02,Activity
+CPT12,Web Development,BINDTECH,CPT,2,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+CPT13,Data Structure and Algorithm,BINDTECH,CPT,2,2,3,2,1,Major,Laboratory,COM01a,Lecture+Laboratory
+CPT14,Special Topics in Computer Technology,BINDTECH,CPT,2,2,3,2,1,Major,Laboratory,,Lecture+Laboratory
+GEC07,Art Appreciation,BINDTECH,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC03,Readings in Philippine History,BINDTECH,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC04,The Contemporary World,BINDTECH,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+MTM01,Materials Technology Management,BINDTECH,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+IEN08a,Quality Control and Assurance,BINDTECH,CPT,2,2,3,3,0,Minor,Lecture Room,,Lecture
+PATHFit04,Recreational Activities,BINDTECH,CPT,2,2,2,2,0,Minor,Gymnasium,PATHFit03,Activity
+CPT15,Object-Oriented Programming,BINDTECH,CPT,3,1,3,2,1,Major,Laboratory,CPT13,Lecture+Laboratory
+RES01a,Project Study 1 with Intellectual Property Rights,BINDTECH,CPT,3,1,3,2,1,Research,Lecture Room,,Lecture+Laboratory
+IEN04a,Industrial Organization and Management,BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+InP01,Industrial Psychology,BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+GEL05,"Religions, Religious Experiences, and Spirituality",BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC06,Purposive Communication,BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC08,"Science, Technology and Society",BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+GEC09,Ethics,BINDTECH,CPT,3,1,3,3,0,Minor,Lecture Room,,Lecture
+CPT16,Advanced Computer Programming,BINDTECH,CPT,3,2,3,2,1,Major,Laboratory,CPT15,Lecture+Laboratory
+RES02a,Project Study 2,BINDTECH,CPT,3,2,3,2,1,Research,Lecture Room,RES01a,Lecture+Laboratory
+MGT02,Technopreneurship,BINDTECH,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+IEN11a,Production Management,BINDTECH,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+CSH03,Foreign Languange,BINDTECH,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+GEL11,Indigenous Creative Crafts,BINDTECH,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+GEC01,Life and Works of Rizal,BINDTECH,CPT,3,2,3,3,0,Minor,Lecture Room,,Lecture
+SIP01,Student Internship Program 1,BINDTECH,CPT,4,1,6,0,0,OJT,,,OJT
+SIP02,Student Internship Program 2,BINDTECH,CPT,4,2,6,0,0,OJT,,SIP01,OJT

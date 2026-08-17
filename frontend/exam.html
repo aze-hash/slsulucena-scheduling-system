@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exam Schedule Generator</title>
+
+<link rel="stylesheet" href="exam.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="logo (1).png" alt="SLSU Logo">
+        <h2>Chairperson Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
+        <li><a href="exam.html" class="active"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="home.html"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+<div class="header">
+<h1>Exam Schedule Generator</h1>
+<p>Generate examinations from saved class schedules.</p>
+</div>
+
+<div class="card">
+
+<div class="section-header">
+<h3>Saved Class Schedules</h3>
+</div>
+
+<!-- Academic Year, Semester, Exam Date, Exam Type Controls -->
+<div class="schedule-controls-card">
+    <div class="schedule-controls-grid">
+        <div class="control-group">
+            <label for="academicYearFilter">Academic Year</label>
+            <select id="academicYearFilter">
+                <option value="">Select Academic Year</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="semesterFilter">Semester</label>
+            <select id="semesterFilter">
+                <option value="">Select Semester</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="examDateInput">Select Exam Date</label>
+            <input type="date" id="examDateInput">
+        </div>
+
+        <div class="control-group">
+            <label for="examType">Select Exam Type</label>
+            <select id="examType">
+                <option value="">Select Exam Type</option>
+                <option value="Preliminary">Preliminary Examinations</option>
+                <option value="Midterm">Midterm Examinations</option>
+                <option value="Final">Final Examinations</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="selectedDatesContainer" class="date-chips">
+        <span class="date-chips-empty">No dates selected yet. Add at least one exam date.</span>
+    </div>
+</div>
+
+<div class="table-container saved-classes-table-container">
+
+<table>
+
+<thead>
+
+<tr>
+<th><input type="checkbox" id="selectAllCheckbox" aria-label="Select all sections"></th>
+<th>Section</th>
+<th>Subjects</th>
+<th>Preliminary</th>
+<th>Midterm</th>
+<th>Final</th>
+</tr>
+
+</thead>
+
+<tbody id="savedScheduleTable"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+<div class="generate-container">
+<button id="generateExamBtn">
+Generate Exam Schedule
+</button>
+</div>
+
+<!-- Saved Exam Schedules -->
+<div class="card" id="savedExamCard">
+    <div class="section-header">
+        <h3>Saved Exam Schedules</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="exportExamPdfBtn" type="button">Export All to PDF</button>
+            <button id="deleteAllExamBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
+        </div>
+    </div>
+    <p id="emptyExamSchedules">No saved exam schedules yet.</p>
+    <div id="savedExamSchedules"></div>
+</div>
+
+</div>
+
+<!-- Exam Schedule Modal -->
+<div id="examModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Generated Exam Schedule</h2>
+            <span class="close-modal">&times;</span>
+        </div>
+
+        <div id="examModalBody" class="modal-body-sections"></div>
+
+        <div style="margin:20px 24px 8px; display:flex; justify-content:center;">
+            <button id="saveExamBtn" type="button">Save Exam Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- Saved Overlay -->
+<div id="savedOverlay" class="saved-overlay" style="display:none;">
+    <div class="saved-overlay-content">
+        <svg class="saved-check" viewBox="0 0 52 52">
+            <circle class="saved-check-circle" cx="26" cy="26" r="24" fill="none"/>
+            <path class="saved-check-mark" fill="none" d="M14 27l8 8 16-16"/>
+        </svg>
+        <span>Schedule saved successfully.</span>
+    </div>
+</div>
+
+<script type="module" src="exam.js"></script>
+
+<!-- Custom Notification Toast -->
+<div id="customToast" class="custom-toast" style="display:none;">
+    <div class="custom-toast-content">
+        <span id="customToastMessage"></span>
+        <button id="customToastClose" class="custom-toast-close">&times;</button>
+    </div>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div id="customConfirmModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content">
+        <div class="custom-confirm-header">
+            <h3>Confirm Action</h3>
+        </div>
+        <div class="custom-confirm-body">
+            <p id="customConfirmMessage"></p>
+        </div>
+        <div class="custom-confirm-footer">
+            <button id="customConfirmCancel" class="custom-confirm-btn cancel">Cancel</button>
+            <button id="customConfirmOk" class="custom-confirm-btn ok">Yes, Proceed</button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLSU Automated Scheduling System</title>
+
+  <style>
+    :root {
+      --primary: #2e7d32;
+      --secondary: #4caf50;
+      --dark: #1b5e20;
+      --light: #f0f9f4;
+      --white: #ffffff;
+      --shadow: rgba(0, 0, 0, 0.18);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--light);
+      color: #333;
+      overflow-x: hidden;
+    }
+
+    /* Navbar */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(27, 94, 32, 0.95);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 4%;
+      min-height: 62px;
+      z-index: 1000;
+      box-shadow: 0 4px 12px var(--shadow);
+    }
+
+    .logo-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .logo-box img {
+      height: 40px;
+      width: 40px;
+      object-fit: contain;
+      border-radius: 50%;
+      background: white;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+
+    .logo-box h2 {
+      color: white;
+      font-size: 1rem;
+      line-height: 1.25;
+      text-align: left;
+    }
+
+    .logo-box h2 .campus {
+      display: block;
+      font-size: 0.75em;
+      font-weight: bold;
+      color: #c8e6c9;
+    }
+
+    nav ul {
+      display: flex;
+      list-style: none;
+      gap: 16px;
+    }
+
+    nav ul li a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+      transition: 0.3s;
+      padding: 8px 10px;
+      border-radius: 8px;
+      display: block;
+      font-size: 0.95rem;
+    }
+
+    nav ul li a:hover {
+      color: #c8e6c9;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Hamburger menu */
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      cursor: pointer;
+      background: none;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 8px;
+      padding: 6px 8px;
+      z-index: 1001;
+    }
+
+    .hamburger span {
+      width: 22px;
+      height: 2px;
+      background: white;
+      margin: 3px 0;
+      border-radius: 3px;
+      transition: 0.3s;
+    }
+
+    .hamburger.active span:nth-child(1) {
+      transform: translateY(5px) rotate(45deg);
+    }
+
+    .hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .hamburger.active span:nth-child(3) {
+      transform: translateY(-5px) rotate(-45deg);
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 120px 6% 60px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Background Image */
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: 
+        linear-gradient(
+          rgba(27, 94, 32, 0.25),
+          rgba(46, 125, 50, 0.20)
+        ),
+        url("home.png") no-repeat center center;
+      background-size: cover;
+      z-index: 0;
+    }
+
+    /* Optional overlay */
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.15);
+      z-index: 1;
+    }
+
+    /* Content stays above */
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 650px;
+      background: rgba(46, 125, 50, 0.75);
+      border: 1px solid rgba(76, 175, 80, 0.3);
+      padding: 45px;
+      border-radius: 24px;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.25);
+      color: #ffffff;
+      width: 100%;
+    }
+
+    .hero-content h1 {
+      font-size: 3.2rem;
+      line-height: 1.2;
+      margin-bottom: 18px;
+    }
+
+    .hero-content p {
+      font-size: 1.1rem;
+      line-height: 1.8;
+      margin-bottom: 28px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 13px 26px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: 0.3s;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn-primary {
+      background: var(--secondary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary);
+      transform: translateY(-3px);
+    }
+
+    .btn-secondary {
+      background: white;
+      color: var(--dark);
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-3px);
+    }
+
+    /* Features */
+    .features {
+      padding: 100px 6%;
+      text-align: center;
+    }
+
+    .features h2 {
+      font-size: 2.5rem;
+      color: var(--dark);
+      margin-bottom: 50px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 8px 18px var(--shadow);
+      transition: 0.3s;
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+    }
+
+    .card h3 {
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--dark);
+      color: white;
+      text-align: center;
+      padding: 24px;
+    }
+
+    footer a {
+      color: #c8e6c9;
+      text-decoration: none;
+      margin: 0 8px;
+    }
+
+    /* ===== Responsive Styles ===== */
+
+    /* Tablet & below */
+    @media (max-width: 900px) {
+      nav {
+        padding: 12px 4%;
+      }
+
+      .hero {
+        padding: 110px 4% 50px;
+      }
+
+      .hero-content {
+        max-width: 100%;
+        padding: 35px;
+      }
+
+      .hero-content h1 {
+        font-size: 2.3rem;
+      }
+
+      .btn-group {
+        justify-content: center;
+      }
+
+      .features {
+        padding: 80px 4%;
+      }
+    }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      nav {
+        padding: 8px 4%;
+        min-height: 54px;
+      }
+
+      .logo-box h2 {
+        font-size: 0.9rem;
+      }
+
+      .logo-box img {
+        height: 36px;
+        width: 36px;
+      }
+
+      .hamburger {
+        display: flex;
+      }
+
+      nav ul {
+        position: fixed;
+        top: 54px;
+        left: 0;
+        right: 0;
+        width: 100%;
+        height: auto;
+        background: var(--dark);
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 0;
+        transition: max-height 0.4s ease, opacity 0.3s ease;
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        border-radius: 0 0 12px 12px;
+      }
+
+      nav ul.open {
+        max-height: 300px;
+        opacity: 1;
+      }
+
+      nav ul li {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      nav ul li:last-child {
+        border-bottom: none;
+      }
+
+      nav ul li a {
+        font-size: 0.95rem;
+        padding: 14px 24px;
+        text-align: center;
+        border-radius: 0;
+        display: block;
+      }
+
+      nav ul li a:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .hero {
+        padding: 100px 4% 40px;
+      }
+
+      .hero-content {
+        padding: 30px 20px;
+        border-radius: 18px;
+      }
+
+      .hero-content h1 {
+        font-size: 1.8rem;
+      }
+
+      .hero-content p {
+        font-size: 1rem;
+        line-height: 1.7;
+      }
+
+      .btn {
+        padding: 12px 22px;
+        font-size: 0.95rem;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .btn-group {
+        flex-direction: row;
+        gap: 12px;
+      }
+
+      .features {
+        padding: 60px 4%;
+      }
+
+      .features h2 {
+        font-size: 1.8rem;
+        margin-bottom: 30px;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .card {
+        padding: 24px 18px;
+      }
+
+      footer {
+        padding: 20px 4%;
+        font-size: 0.9rem;
+      }
+
+      footer a {
+        display: inline-block;
+        margin: 4px 6px;
+      }
+    }
+
+    /* Small phones */
+    @media (max-width: 400px) {
+      .logo-box h2 {
+        font-size: 0.8rem;
+      }
+
+      .logo-box img {
+        height: 32px;
+        width: 32px;
+      }
+
+      .hero-content h1 {
+        font-size: 1.5rem;
+      }
+
+      .hero-content p {
+        font-size: 0.95rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="logo-box">
+      <img src="logo (1).png" alt="SLSU Logo">
+      <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
+    </div>
+
+    <button class="hamburger" id="hamburger" aria-label="Toggle navigation">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <ul id="nav-menu">
+      <li><a href="home.html">Home</a></li>
+      <li><a href="feature.html">Features</a></li>
+      <li><a href="about.html">About</a></li>
+    </ul>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Automated Scheduling for Modern Education</h1>
+      <p>
+        An automated solution for efficient class and examination scheduling,
+        reducing conflicts and improving academic planning.
+      </p>
+      <div class="btn-group">
+        <a href="login.html" class="btn btn-primary">Get Started</a>
+        <a href="feature.html" class="btn btn-secondary">Learn More</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>&copy; 2026 SLSU Automated Scheduling System | All Rights Reserved</p>
+    <p>
+      <a href="#">Privacy Policy</a> |
+      <a href="#">Terms of Service</a>
+    </p>
+  </footer>
+
+  <script>
+    const hamburger = document.getElementById('hamburger');
+    const navMenu = document.getElementById('nav-menu');
+
+    hamburger.addEventListener('click', () => {
+      hamburger.classList.toggle('active');
+      navMenu.classList.toggle('open');
+    });
+
+    // Close menu when a link is clicked
+    navMenu.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        hamburger.classList.remove('active');
+        navMenu.classList.remove('open');
+      });
+    });
+  </script>
+
+</body>
+</html>

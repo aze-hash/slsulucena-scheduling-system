@@ -1,0 +1,578 @@
+<!-- register.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLSU Register System</title>
+
+<style>
+:root{
+  --primary:#2e7d32;
+  --secondary:#4caf50;
+  --dark:#1b5e20;
+  --cream:#F5F1E6;
+  --beige:#E8DDC7;
+  --shadow:rgba(0,0,0,.15);
+}
+
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:Arial,sans-serif;
+  scroll-behavior:smooth;
+}
+
+body{
+  min-height:100vh;
+  background:var(--cream);
+  overflow-x:hidden;
+}
+
+/* Navbar */
+nav{
+  position:fixed;
+  top:0;
+  width:100%;
+  background:rgba(27,94,32,.95);
+  backdrop-filter:blur(12px);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 4%;
+  min-height:62px;
+  z-index:1000;
+  box-shadow:0 4px 12px var(--shadow);
+}
+
+.logo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+
+.logo img{
+  width:40px;
+  height:40px;
+  object-fit:contain;
+  border-radius:50%;
+  background:white;
+  padding:3px;
+  flex-shrink:0;
+}
+
+.logo h2{
+  color:white;
+  font-size:1rem;
+  line-height:1.25;
+  text-align:left;
+}
+
+.logo h2 .campus{
+  display:block;
+  font-size:.75em;
+  font-weight:bold;
+  color:#c8e6c9;
+}
+
+nav ul{
+  display:flex;
+  list-style:none;
+  gap:16px;
+}
+
+nav ul li a{
+  color:white;
+  text-decoration:none;
+  font-weight:bold;
+  transition:.3s;
+  padding:8px 10px;
+  border-radius:8px;
+  display:block;
+  font-size:.95rem;
+}
+
+nav ul li a:hover{
+  color:#c8e6c9;
+  background:rgba(255,255,255,.1);
+}
+
+/* Hamburger menu */
+.hamburger{
+  display:none;
+  flex-direction:column;
+  cursor:pointer;
+  background:none;
+  border:2px solid rgba(255,255,255,.4);
+  border-radius:8px;
+  padding:6px 8px;
+  z-index:1001;
+}
+
+.hamburger span{
+  width:22px;
+  height:2px;
+  background:white;
+  margin:3px 0;
+  border-radius:3px;
+  transition:.3s;
+}
+
+.hamburger.active span:nth-child(1){
+  transform:translateY(5px) rotate(45deg);
+}
+
+.hamburger.active span:nth-child(2){
+  opacity:0;
+}
+
+.hamburger.active span:nth-child(3){
+  transform:translateY(-5px) rotate(-45deg);
+}
+
+/* Responsive */
+@media (max-width:768px){
+  nav{
+    padding:8px 4%;
+    min-height:54px;
+  }
+
+  .logo h2{
+    font-size:.9rem;
+  }
+
+  .logo img{
+    height:36px;
+    width:36px;
+  }
+
+  .hamburger{
+    display:flex;
+  }
+
+  nav ul{
+    position:fixed;
+    top:54px;
+    left:0;
+    right:0;
+    width:100%;
+    height:auto;
+    background:var(--dark);
+    flex-direction:column;
+    align-items:stretch;
+    gap:0;
+    padding:0;
+    transition:max-height .4s ease, opacity .3s ease;
+    max-height:0;
+    opacity:0;
+    overflow:hidden;
+    box-shadow:0 8px 16px rgba(0,0,0,.2);
+    border-radius:0 0 12px 12px;
+  }
+
+  nav ul.open{
+    max-height:300px;
+    opacity:1;
+  }
+
+  nav ul li{
+    border-bottom:1px solid rgba(255,255,255,.1);
+  }
+
+  nav ul li:last-child{
+    border-bottom:none;
+  }
+
+  nav ul li a{
+    font-size:.95rem;
+    padding:14px 24px;
+    text-align:center;
+    border-radius:0;
+    display:block;
+  }
+
+  nav ul li a:hover{
+    background:rgba(255,255,255,.08);
+  }
+}
+
+@media (max-width:400px){
+  .logo h2{
+    font-size:.8rem;
+  }
+
+  .logo img{
+    height:32px;
+    width:32px;
+  }
+}
+
+.container{
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:100px 20px 30px;
+}
+
+.register-box{
+  width:400px;
+  background:var(--beige);
+  border:1px solid #d6cbb8;
+  border-radius:20px;
+  padding:30px;
+  box-shadow:0 10px 25px var(--shadow);
+  text-align:center;
+  color:#1a1a1a;
+}
+
+.register-box img{
+  width:70px;
+  height:70px;
+  margin-bottom:10px;
+  border-radius:50%;
+  background:white;
+  padding:5px;
+}
+
+.register-box h2{
+  margin-bottom:20px;
+  color:black;
+}
+
+.input-box{
+  margin-bottom:12px;
+}
+
+.input-box input,
+.input-box select{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
+  border:1px solid #cbbfa6;
+  outline:none;
+  background:#fff;
+}
+
+.btn{
+  width:100%;
+  padding:12px;
+  background:var(--primary);
+  border:none;
+  border-radius:10px;
+  color:white;
+  font-size:16px;
+  cursor:pointer;
+  transition:.3s;
+}
+
+.btn:hover{
+  background:var(--dark);
+  transform:translateY(-2px);
+}
+
+.btn:disabled{
+  opacity:.7;
+  cursor:not-allowed;
+  transform:none;
+}
+
+.login-link{
+  margin-top:10px;
+  font-size:15px;
+}
+
+.login-link a{
+  color:var(--dark);
+  text-decoration:none;
+}
+
+.login-link a:hover{
+  text-decoration:underline;
+}
+
+.hidden{
+  display:none;
+}
+
+.small{
+  margin-top:10px;
+  font-size:12px;
+  opacity:.8;
+}
+
+.message{
+  min-height:18px;
+  margin-top:12px;
+  font-size:13px;
+  color:#a11;
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+  <div class="logo">
+    <img src="logo (1).png" alt="SLSU Logo">
+    <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
+  </div>
+
+  <button class="hamburger" id="hamburger" aria-label="Toggle navigation">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <ul id="nav-menu">
+    <li><a href="home.html">Home</a></li>
+    <li><a href="feature.html">Features</a></li>
+    <li><a href="about.html">About</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+  <div class="register-box">
+
+    <img src="logo (1).png" alt="SLSU Logo">
+
+    <h2>Create Account</h2>
+
+    <form id="registerForm">
+      <div class="input-box">
+        <input id="fullName" type="text" placeholder="Full Name" required>
+      </div>
+
+      <div class="input-box">
+        <input id="registerEmail" type="email" placeholder="Email" required>
+      </div>
+
+      <div class="input-box">
+        <input
+          id="registerPassword"
+          type="password"
+          placeholder="Password (minimum 6 characters)"
+          minlength="6"
+          required
+        >
+      </div>
+
+      <div class="input-box">
+        <select id="registerRole" required>
+          <option value="">Select Role</option>
+          <option value="Student">Student</option>
+          <option value="Faculty">Faculty</option>
+        </select>
+      </div>
+
+      <div class="input-box hidden" id="programBox">
+        <select id="registerProgram">
+          <option value="">Select Program</option>
+          <option value="BIT">BIT</option>
+          <option value="BINDTECH">BINDTECH</option>
+          <option value="BTVTED">BTVTED</option>
+        </select>
+      </div>
+
+      <div class="input-box hidden" id="majorBox">
+        <select id="registerMajor">
+          <option value="">Select Major</option>
+        </select>
+      </div>
+
+      <button class="btn" id="registerBtn" type="submit">
+        Sign up
+      </button>
+    </form>
+
+    <p id="registerMessage" class="message"></p>
+
+    <div class="login-link">
+      Already have an account? <a href="login.html">Login</a>
+    </div>
+
+    <div class="small">
+      Automated Class & Examination Scheduling System
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const hamburger = document.getElementById('hamburger');
+  const navMenu = document.getElementById('nav-menu');
+
+  hamburger.addEventListener('click', () => {
+    hamburger.classList.toggle('active');
+    navMenu.classList.toggle('open');
+  });
+
+  navMenu.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      hamburger.classList.remove('active');
+      navMenu.classList.remove('open');
+    });
+  });
+</script>
+
+<script type="module">
+import { auth, db } from "../firebase.js";
+
+import {
+  createUserWithEmailAndPassword
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+
+import {
+  doc,
+  setDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+const registerForm = document.getElementById("registerForm");
+const registerButton = document.getElementById("registerBtn");
+const registerMessage = document.getElementById("registerMessage");
+const registerRole = document.getElementById("registerRole");
+const registerProgram = document.getElementById("registerProgram");
+const registerMajor = document.getElementById("registerMajor");
+const programBox = document.getElementById("programBox");
+const majorBox = document.getElementById("majorBox");
+
+/* Show/hide program and major dropdowns when role changes */
+registerRole.addEventListener("change", () => {
+  const isStudent = registerRole.value === "Student";
+
+  programBox.classList.toggle("hidden", !isStudent);
+  majorBox.classList.toggle("hidden", true);
+
+  if (isStudent) {
+    registerProgram.setAttribute("required", "");
+    registerProgram.value = "";
+    registerMajor.innerHTML = `<option value="">Select Major</option>`;
+    registerMajor.value = "";
+    registerMajor.removeAttribute("required");
+  } else {
+    registerProgram.removeAttribute("required");
+    registerMajor.removeAttribute("required");
+    registerProgram.value = "";
+    registerMajor.innerHTML = `<option value="">Select Major</option>`;
+  }
+});
+
+/* Populate major options based on program selection */
+registerProgram.addEventListener("change", () => {
+  registerMajor.innerHTML = `<option value="">Select Major</option>`;
+
+  if (registerProgram.value === "BIT" || registerProgram.value === "BINDTECH") {
+    registerMajor.innerHTML += `<option value="CPT">CPT</option>`;
+  }
+
+  if (registerProgram.value === "BTVTED") {
+    registerMajor.innerHTML += `
+      <option value="AT">AT</option>
+      <option value="MT">MT</option>
+      <option value="CP">CP</option>
+      <option value="FSM">FSM</option>
+      <option value="CT">CT</option>
+      <option value="ELT">ELT</option>
+      <option value="ELX">ELX</option>
+    `;
+  }
+
+  const hasMajors = registerMajor.options.length > 1;
+  majorBox.classList.toggle("hidden", !hasMajors || !registerProgram.value);
+
+  if (hasMajors && registerProgram.value) {
+    registerMajor.setAttribute("required", "");
+    registerMajor.value = "";
+  } else {
+    registerMajor.removeAttribute("required");
+  }
+});
+
+registerForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const fullName = document.getElementById("fullName").value.trim();
+  const email = document.getElementById("registerEmail").value.trim();
+  const password = document.getElementById("registerPassword").value;
+  const role = registerRole.value;
+
+  if (!fullName || !email || !password || !role) {
+    registerMessage.textContent = "Please complete all fields.";
+    return;
+  }
+
+  if (role === "Student") {
+    if (!registerProgram.value) {
+      registerMessage.textContent = "Please select a program.";
+      return;
+    }
+    if (!registerMajor.value) {
+      registerMessage.textContent = "Please select a major.";
+      return;
+    }
+  }
+
+  registerButton.disabled = true;
+  registerButton.textContent = "Creating account...";
+  registerMessage.textContent = "";
+
+  try {
+    const credential = await createUserWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+    const userData = {
+      fullName,
+      email,
+      role,
+      createdAt: serverTimestamp()
+    };
+
+    /* Save program and major for student users */
+    if (role === "Student") {
+      userData.program = registerProgram.value;
+      userData.major = registerMajor.value;
+    }
+
+    await setDoc(doc(db, "users", credential.user.uid), userData);
+
+    registerMessage.style.color = "#1b5e20";
+    registerMessage.textContent = "Registration successful. Redirecting to login...";
+
+    setTimeout(() => {
+      window.location.href = "login.html";
+    }, 1200);
+
+  } catch (error) {
+    console.error("Firebase signup error code:", error.code);
+    console.error("Firebase signup error message:", error.message);
+    console.error("Full Firebase error:", error);
+
+    registerMessage.style.color = "#a11";
+
+    if (error.code === "auth/email-already-in-use") {
+        registerMessage.textContent = "This email is already registered.";
+    } else if (error.code === "auth/weak-password") {
+        registerMessage.textContent = "Password must have at least 6 characters.";
+    } else if (error.code === "auth/invalid-email") {
+        registerMessage.textContent = "Please enter a valid email address.";
+    } else if (error.code === "auth/operation-not-allowed") {
+        registerMessage.textContent = "Email/password registration is disabled in Firebase.";
+    } else {
+        registerMessage.textContent =
+            `Registration failed: ${error.code} - ${error.message}`;
+    }
+
+    registerButton.disabled = false;
+    registerButton.textContent = "Sign up";
+}
+});
+</script>
+
+</body>
+</html>
