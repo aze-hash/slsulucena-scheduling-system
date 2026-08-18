@@ -97,6 +97,7 @@ nav ul li a {
     display:block;
     padding:10px 16px;
     color:white;
+    font-size: 12px;
     text-decoration:none;
     font-weight:bold;
     border-radius:8px;
@@ -115,7 +116,7 @@ nav ul li a.active {
     background:var(--danger);
     color:#fff;
     font-weight:bold;
-    font-size:14px;
+    font-size:12px;
     cursor:pointer;
     transition:.3s;
 }
@@ -691,17 +692,21 @@ nav ul li a.active {
     }
 }
 
+.mobile-menu-toggle {
+    display: none;
+}
+
 @media (max-width: 768px) {
     nav {
         position:relative;
-        align-items:flex-start;
+        align-items:center;
         padding:10px 15px;
         gap:10px;
     }
 
     .logo {
-        width:38%;
-        justify-content:space-between;
+        width:auto;
+        justify-content:flex-start;
     }
 
     .logo h2 {
@@ -709,26 +714,59 @@ nav ul li a.active {
     }
 
     .nav-right {
-        width:100%;
-        flex-direction:column;
-        align-items:stretch;
-        gap:10px;
+        width:auto;
+        flex-direction:row;
+        align-items:center;
+        gap:12px;
+        margin-left:auto;
     }
 
     .nav-profile {
         padding-right:0;
-        padding-top: 12px;
-        padding-bottom:10px;
+        padding-top:0;
+        padding-bottom:0;
         border-right:none;
-        border-bottom:1px solid rgba(255,255,255,.3);
+        border-bottom:none;
+    }
+
+    .mobile-menu-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: #ffffff;
+        font-size: 24px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 6px;
+        transition: background 0.2s ease;
+    }
+
+    .mobile-menu-toggle:hover {
+        background: rgba(255, 255, 255, 0.15);
     }
 
     nav ul {
-        width:100%;
-        flex-direction:row;
-        align-items:stretch;
-        gap:8px;
-        margin-left: 182px;
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: rgba(27, 94, 32, 0.98);
+        padding: 12px 20px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        margin-left: 0;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+        z-index: 999;
+    }
+
+    nav ul.show {
+        display: flex;
     }
 
     nav ul li {
@@ -1070,13 +1108,13 @@ nav ul li a.active {
 }
 
 .view-schedule-btn {
-    padding: 9px 18px;
+    padding: 8px 8px;
     border: none;
     border-radius: 8px;
     background: var(--primary);
     color: #ffffff;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 12px;
     cursor: pointer;
     transition: background 0.2s, transform 0.2s;
     display: inline-flex;

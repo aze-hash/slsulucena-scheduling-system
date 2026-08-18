@@ -231,7 +231,7 @@ function renderRecentExamSchedules() {
             <article class="recent-exam-card" data-schedule-id="${safe(schedule.id)}">
                 <div class="recent-exam-header-row">
                     <div class="recent-exam-title-group">
-                        <span class="recent-exam-icon">🔔</span>
+                        <span class="recent-exam-icon"></span>
                         <h3>${safe(examType)}</h3>
                         ${newBadgeHtml}
                     </div>
@@ -239,9 +239,8 @@ function renderRecentExamSchedules() {
 
                 <div class="recent-exam-meta">
                     <span>📅 ${safe(academicInfo)}</span>
-                    ${generatedDate ? `<span>🕒 Generated on ${safe(generatedDate)}</span>` : ""}
-                    ${section ? `<span>👥 Section: ${safe(section)}</span>` : ""}
-                    ${proctor ? `<span>👤 Proctor: ${safe(proctor)}</span>` : ""}
+                    ${generatedDate ? `<span>Generated on ${safe(generatedDate)}</span>` : ""}
+                    ${section ? `<span>Section: ${safe(section)}</span>` : ""}
                 </div>
 
                 <div class="recent-exam-actions">
@@ -600,6 +599,16 @@ logoutBtn.addEventListener("click", async () => {
         console.error("Logout failed:", error);
     }
 });
+
+const mobileMenuToggleBtn = document.getElementById("mobileMenuToggleBtn");
+const navUl = document.querySelector("nav ul");
+
+if (mobileMenuToggleBtn && navUl) {
+    mobileMenuToggleBtn.addEventListener("click", () => {
+        navUl.classList.toggle("show");
+        mobileMenuToggleBtn.textContent = navUl.classList.contains("show") ? "✕" : "☰";
+    });
+}
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 

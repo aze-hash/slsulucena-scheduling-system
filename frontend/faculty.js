@@ -592,6 +592,16 @@ logoutBtn.addEventListener("click", async () => {
     }
 });
 
+const mobileMenuToggleBtn = document.getElementById("mobileMenuToggleBtn");
+const navUl = document.querySelector("nav ul");
+
+if (mobileMenuToggleBtn && navUl) {
+    mobileMenuToggleBtn.addEventListener("click", () => {
+        navUl.classList.toggle("show");
+        mobileMenuToggleBtn.textContent = navUl.classList.contains("show") ? "✕" : "☰";
+    });
+}
+
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
 initializeFacultyDashboard();
