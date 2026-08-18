@@ -200,6 +200,36 @@ function formatExamDate(dateStr) {
     return `${monthNames[month]} ${day}, ${year}`;
 }
 
+function getExamTypeTitle(schedule) {
+    const rawType = schedule.examType || schedule.title || "Exam Schedule";
+    const norm = normalize(rawType);
+    let examName = rawType;
+    if (!norm.includes("exam")) {
+        if (norm === "preliminary" || norm === "prelim") examName = "Preliminary Examination";
+        else if (norm === "midterm") examName = "Midterm Examination";
+        else if (norm === "final" || norm === "finals") examName = "Final Examination";
+    }
+
+    const section = schedule.section ? schedule.section.trim() : "";
+    if (section) {
+        if (normalize(examName).includes(normalize(section))) {
+            return examName;
+        }
+        return `${section} ${examName}`;
+    }
+    return examName;
+}
+
+function formatExamAcademicInfo(schedule) {
+    const parts = [
+        schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "",
+        schedule.semester ? `${schedule.semester}` : "",
+        schedule.yearLevel ? `${schedule.yearLevel}` : ""
+    ].filter(Boolean);
+
+    return parts.join(" • ") || "Schedule";
+}
+
 function renderExamSchedules(schedules) {
     if (!schedules.length) {
         examScheduleContainer.innerHTML = '<div class="empty-state">No exam schedules are assigned to you as proctor.</div>';
@@ -266,12 +296,15 @@ function renderExamSchedules(schedules) {
             `;
         }
 
+        const examTypeTitle = getExamTypeTitle(schedule);
+        const academicSubtext = formatExamAcademicInfo(schedule);
+
         return `
             <article class="schedule-card">
                 <div class="schedule-header exam-schedule-header">
                     <div class="schedule-title-info">
-                        <h4>${safe(schedule.title || schedule.section || "Exam Schedule")}</h4>
-                        <small>${safe(formatAcademicInfo(schedule))}</small>
+                        <h4>${safe(examTypeTitle)}</h4>
+                        <small>${safe(academicSubtext)}</small>
                     </div>
                     <div class="schedule-proctor">
                         <span>Proctor:</span>

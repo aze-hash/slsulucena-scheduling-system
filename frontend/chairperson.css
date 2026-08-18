@@ -167,7 +167,7 @@ nav ul li a.active{
 }
 
 .card h3{
-    color:var(--dark);
+    color:black;
 }
 
 .stat-card p{

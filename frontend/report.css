@@ -103,7 +103,7 @@ nav ul li a.active{
 
 .header h1{
     font-size:32px;
-    color:var(--dark);
+    color:black;
 }
 
 .header p{
@@ -152,7 +152,7 @@ nav ul li a.active{
 }
 
 .card h3{
-    color:var(--dark);
+    color:black;
 }
 
 .section-header{

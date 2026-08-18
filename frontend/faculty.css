@@ -1146,3 +1146,64 @@ nav ul li a.active {
     gap: 8px;
 }
 
+/* =========================
+   RECENT EXAMS TABLE LAYOUT
+========================= */
+
+.recent-exams-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid #d9d2c5;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+
+.recent-exams-table {
+    width: 100%;
+    min-width: 680px;
+    border-collapse: collapse;
+    font-size: 14px;
+    text-align: left;
+}
+
+.recent-exams-table thead th {
+    background: #e8f5e9;
+    color: var(--dark);
+    font-weight: bold;
+    padding: 14px 16px;
+    border-bottom: 2px solid var(--primary);
+    white-space: nowrap;
+}
+
+.recent-exams-table tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e0e0e0;
+    vertical-align: middle;
+    color: #1a1a1a;
+}
+
+.recent-exams-table tbody tr:hover {
+    background: #f9fbf8;
+}
+
+.recent-exams-table tbody tr.schedule-detail-row {
+    background: #f1f8e9;
+}
+
+.recent-exams-table tbody tr.schedule-detail-row:hover {
+    background: #f1f8e9;
+}
+
+.recent-exams-table tbody tr.schedule-detail-row td {
+    padding: 16px;
+    border-bottom: 2px solid var(--primary);
+}
+
+.recent-exams-table .view-schedule-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+

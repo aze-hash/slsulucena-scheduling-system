@@ -22,7 +22,7 @@
         <button id="mobileMenuToggleBtn" class="mobile-menu-toggle" type="button" aria-label="Toggle menu">☰</button>
         <ul>
             <li><a href="faculty.html">Home</a></li>
-            <li><a href="faculty-exams.html" class="active">Recent Exam Schedule<span id="recentExamsBadge" class="nav-badge-new" hidden>NEW</span></a></li>
+            <li><a href="faculty-exams.html" class="active">Recent Exam Schedule</span></a></li>
             <li><button id="logoutBtn" class="nav-logout-btn" type="button">Logout</button></li>
         </ul>
     </div>
@@ -46,8 +46,27 @@
         </div>
     </div>
 
-    <div id="recentExamSchedulesContainer" class="schedules-stack">
-        <div class="empty-state">Loading recent exam schedules...</div>
+    <div class="search-bar">
+        <input type="text" id="recentExamSearchInput" placeholder="⌕ Search by section, A.Y., semester, or exam type..." />
+    </div>
+
+    <div class="recent-exams-table-wrapper">
+        <table class="recent-exams-table">
+            <thead>
+                <tr>
+                    <th>A.Y.</th>
+                    <th>Semester</th>
+                    <th>Section</th>
+                    <th>Exam Type</th>
+                    <th>View Schedule</th>
+                </tr>
+            </thead>
+            <tbody id="recentExamSchedulesContainer">
+                <tr>
+                    <td colspan="5" class="empty-state">Loading recent exam schedules...</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 

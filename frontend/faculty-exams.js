@@ -201,9 +201,82 @@ function updateNavbarBadge() {
     recentExamsBadge.hidden = !hasUnread;
 }
 
+function getExamTypeTitle(schedule) {
+    const rawType = schedule.examType || schedule.title || "Exam Schedule";
+    const norm = normalize(rawType);
+    let examName = rawType;
+    if (!norm.includes("exam")) {
+        if (norm === "preliminary" || norm === "prelim") examName = "Preliminary Examination";
+        else if (norm === "midterm") examName = "Midterm Examination";
+        else if (norm === "final" || norm === "finals") examName = "Final Examination";
+    }
+
+    const section = schedule.section ? schedule.section.trim() : "";
+    if (section) {
+        if (normalize(examName).includes(normalize(section))) {
+            return examName;
+        }
+        return `${section} ${examName}`;
+    }
+    return examName;
+}
+
+function getPureExamTypeLabel(schedule) {
+    const rawType = schedule.examType || schedule.title || "Exam Schedule";
+    const norm = normalize(rawType);
+    if (norm.includes("exam")) return rawType;
+    if (norm === "preliminary" || norm === "prelim") return "Preliminary Examination";
+    if (norm === "midterm") return "Midterm Examination";
+    if (norm === "final" || norm === "finals") return "Final Examination";
+    return rawType;
+}
+
+const recentExamSearchInput = document.getElementById("recentExamSearchInput");
+let recentExamSearchTerm = "";
+
+function scheduleMatchesSearch(schedule, term) {
+    if (!term) return true;
+
+    const haystack = [
+        schedule.title,
+        schedule.examType,
+        getPureExamTypeLabel(schedule),
+        schedule.section,
+        schedule.program,
+        schedule.major,
+        schedule.academicYear,
+        schedule.semester,
+        schedule.yearLevel,
+        schedule.proctor,
+        ...(Array.isArray(schedule.exams) ? schedule.exams.flatMap(exam => [
+            exam.subjectCode,
+            exam.code,
+            exam.subjectName,
+            exam.name,
+            exam.day,
+            exam.time,
+            exam.room
+        ]) : [])
+    ].map(normalize).filter(Boolean).join(" ");
+
+    return haystack.includes(term);
+}
+
 function renderRecentExamSchedules() {
+    const existingBanner = document.querySelector(".info-banner");
+
     if (!assignedExamSchedules.length) {
-        recentExamSchedulesContainer.innerHTML = '<div class="empty-state">No new exam schedules are available.</div>';
+        if (existingBanner) existingBanner.remove();
+        recentExamSchedulesContainer.innerHTML = '<tr><td colspan="5" class="empty-state">No new exam schedules are available.</td></tr>';
+        updateNavbarBadge();
+        return;
+    }
+
+    const filteredSchedules = assignedExamSchedules.filter(schedule => scheduleMatchesSearch(schedule, recentExamSearchTerm));
+
+    if (!filteredSchedules.length) {
+        if (existingBanner) existingBanner.remove();
+        recentExamSchedulesContainer.innerHTML = '<tr><td colspan="5" class="empty-state">No recent exam schedules match your search.</td></tr>';
         updateNavbarBadge();
         return;
     }
@@ -211,50 +284,55 @@ function renderRecentExamSchedules() {
     const allViewed = assignedExamSchedules.every(schedule => viewedSchedulesMap[schedule.id]);
     updateNavbarBadge();
 
-    const bannerHtml = allViewed
-        ? '<div class="info-banner">ℹ️ You\'re viewing the latest available exam schedules.</div>'
-        : '';
+    const tableWrapper = recentExamSchedulesContainer.closest(".recent-exams-table-wrapper");
 
-    const cardsHtml = assignedExamSchedules.map(schedule => {
-        const isUnread = !viewedSchedulesMap[schedule.id];
-        const generatedDate = formatExamGeneratedDate(schedule);
-        const examType = schedule.examType || schedule.title || "Exam Schedule";
-        const academicInfo = formatAcademicInfo(schedule);
-        const section = schedule.section || "";
-        const proctor = schedule.proctor || "";
+    if (allViewed && assignedExamSchedules.length > 0) {
+        if (!existingBanner && tableWrapper && tableWrapper.parentNode) {
+            const bannerDiv = document.createElement("div");
+            bannerDiv.className = "info-banner";
+            bannerDiv.innerHTML = "ℹ️ You're viewing the latest available exam schedules.";
+            tableWrapper.parentNode.insertBefore(bannerDiv, tableWrapper);
+        }
+    } else if (existingBanner) {
+        existingBanner.remove();
+    }
+
+    const rowsHtml = filteredSchedules.map(schedule => {
         const isExpanded = expandedScheduleIds.has(schedule.id);
+        const academicYear = schedule.academicYear || "-";
+        const semester = schedule.semester || "-";
+        const section = schedule.section || "-";
+        const examType = getPureExamTypeLabel(schedule);
+        const scheduleTables = isExpanded ? buildScheduleTablesHtml(schedule) : "";
 
-        const newBadgeHtml = isUnread ? '<span class="badge-card-new">NEW</span>' : '';
-        const scheduleTables = isExpanded ? buildScheduleTablesHtml(schedule) : '';
-
-        return `
-            <article class="recent-exam-card" data-schedule-id="${safe(schedule.id)}">
-                <div class="recent-exam-header-row">
-                    <div class="recent-exam-title-group">
-                        <span class="recent-exam-icon"></span>
-                        <h3>${safe(examType)}</h3>
-                        ${newBadgeHtml}
-                    </div>
-                </div>
-
-                <div class="recent-exam-meta">
-                    <span>📅 ${safe(academicInfo)}</span>
-                    ${generatedDate ? `<span>Generated on ${safe(generatedDate)}</span>` : ""}
-                    ${section ? `<span>Section: ${safe(section)}</span>` : ""}
-                </div>
-
-                <div class="recent-exam-actions">
+        const mainRow = `
+            <tr>
+                <td>${safe(academicYear)}</td>
+                <td>${safe(semester)}</td>
+                <td>${safe(section)}</td>
+                <td>${safe(examType)}</td>
+                <td>
                     <button class="view-schedule-btn" type="button" data-action="toggle-schedule" data-schedule-id="${safe(schedule.id)}">
                         ${isExpanded ? "Hide Schedule" : "View Schedule"}
                     </button>
-                </div>
-
-                ${isExpanded ? `<div class="recent-exam-table-container">${scheduleTables}</div>` : ""}
-            </article>
+                </td>
+            </tr>
         `;
+
+        const detailRow = isExpanded ? `
+            <tr class="schedule-detail-row">
+                <td colspan="5">
+                    <div class="recent-exam-table-container">
+                        ${scheduleTables}
+                    </div>
+                </td>
+            </tr>
+        ` : "";
+
+        return mainRow + detailRow;
     }).join("");
 
-    recentExamSchedulesContainer.innerHTML = bannerHtml + cardsHtml;
+    recentExamSchedulesContainer.innerHTML = rowsHtml;
 }
 
 recentExamSchedulesContainer.addEventListener("click", async event => {
@@ -609,6 +687,11 @@ if (mobileMenuToggleBtn && navUl) {
         mobileMenuToggleBtn.textContent = navUl.classList.contains("show") ? "✕" : "☰";
     });
 }
+
+recentExamSearchInput?.addEventListener("input", () => {
+    recentExamSearchTerm = normalize(recentExamSearchInput.value);
+    renderRecentExamSchedules();
+});
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
