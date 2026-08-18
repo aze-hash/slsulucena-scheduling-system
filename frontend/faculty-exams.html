@@ -77,7 +77,7 @@
             <h3>Request Exam Reschedule</h3>
             <button id="closeRescheduleModalBtn" class="modal-close-btn" type="button">&times;</button>
         </div>
-        <p class="form-note">Only submit if you are unavailable on the assigned exam date.</p>
+        <p class="form-note">Select your section and assigned exam date to view and request a reschedule for your entire exam day journey.</p>
 
         <form id="rescheduleForm" class="reschedule-form">
             <div class="form-group">
@@ -88,8 +88,17 @@
             </div>
 
             <div class="form-group">
+                <label for="examDateSelect">Select Assigned Exam Date</label>
+                <select id="examDateSelect" required disabled>
+                    <option value="">-- Select section first --</option>
+                </select>
+            </div>
+
+            <div id="examJourneyPreview" class="exam-journey-preview" hidden></div>
+
+            <div class="form-group">
                 <label for="reasonInput">Reason for Unavailability</label>
-                <textarea id="reasonInput" rows="4" placeholder="Please explain why you are unavailable on the assigned exam date..." required></textarea>
+                <textarea id="reasonInput" rows="4" placeholder="Please explain why you are unavailable for this entire exam day..." required></textarea>
             </div>
 
             <button type="submit" id="submitRequestBtn" class="submit-btn">Submit Request</button>

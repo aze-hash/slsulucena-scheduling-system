@@ -82,7 +82,9 @@
                     <tr>
                         <th>Faculty Name</th>
                         <th>Section</th>
+                        <th>Exam Date</th>
                         <th>Date Submitted</th>
+                        <th>Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -94,17 +96,42 @@
 
 <!-- Reschedule Request Details Modal -->
 <div class="modal-overlay" id="requestModal" style="display:none;">
-    <div class="modal">
+    <div class="modal" style="max-width: 650px; width: 90%;">
         <div class="modal-header">
             <h3>Reschedule Request Details</h3>
             <button class="modal-close" id="closeModalBtn">&times;</button>
         </div>
         <div class="modal-body">
-            <p><strong>Status:</strong> <span class="status-badge" id="modalStatus"></span></p>
-            <p><strong>Reason:</strong></p>
-            <div class="modal-reason" id="modalReason"></div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                <p><strong>Faculty:</strong> <span id="modalFacultyName">-</span></p>
+                <p><strong>Section:</strong> <span id="modalSection">-</span></p>
+                <p><strong>Exam Date:</strong> <span id="modalExamDate">-</span></p>
+                <p><strong>Status:</strong> <span class="status-badge" id="modalStatus">Pending</span></p>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <strong>Affected Exam Day Journey:</strong>
+                <div id="modalJourneyPreview" class="journey-preview-container" style="margin-top: 8px;"></div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <strong>Reason for Unavailability:</strong>
+                <div class="modal-reason" id="modalReason" style="margin-top: 5px; background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0;"></div>
+            </div>
+
+            <!-- Manual Replacement Override Fallback (hidden by default) -->
+            <div id="manualReplacementContainer" style="display: none; background: #fffbeeb0; border: 1fr solid #fde68a; padding: 12px; border-radius: 8px; margin-top: 15px;">
+                <p style="color: #92400e; font-weight: 600; margin-bottom: 8px;">⚠️ No Single Replacement Faculty Available Without Conflict</p>
+                <p style="font-size: 0.9em; color: #78350f; margin-bottom: 10px;">Select a faculty member manually to override and assign proctoring for this journey:</p>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="manualReplacementSelect" style="flex: 1; padding: 8px; border-radius: 6px; border: 1fr solid #cbd5e1;">
+                        <option value="">-- Select Replacement Faculty --</option>
+                    </select>
+                    <button class="approve-btn" id="confirmManualReassignBtn" type="button">Reassign</button>
+                </div>
+            </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" id="modalFooterActions">
             <button class="approve-btn" id="modalApproveBtn">Approve</button>
             <button class="deny-btn" id="modalDenyBtn">Deny</button>
         </div>

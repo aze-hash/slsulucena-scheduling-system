@@ -25,6 +25,8 @@ const logoutBtn = document.getElementById("logoutBtn");
 
 const rescheduleForm = document.getElementById("rescheduleForm");
 const sectionSelect = document.getElementById("sectionSelect");
+const examDateSelect = document.getElementById("examDateSelect");
+const examJourneyPreview = document.getElementById("examJourneyPreview");
 const reasonInput = document.getElementById("reasonInput");
 const submitRequestBtn = document.getElementById("submitRequestBtn");
 const requestStatus = document.getElementById("requestStatus");
@@ -324,11 +326,20 @@ function showRequestStatus(message, type = "success") {
 }
 
 function populateSectionSelect() {
+    if (!sectionSelect) return;
     const sections = [...new Set(assignedExamSchedules.map(schedule => schedule.section).filter(Boolean))];
 
     if (!sections.length) {
         sectionSelect.innerHTML = '<option value="">No sections assigned to you yet</option>';
         sectionSelect.disabled = true;
+        if (examDateSelect) {
+            examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
+            examDateSelect.disabled = true;
+        }
+        if (examJourneyPreview) {
+            examJourneyPreview.hidden = true;
+            examJourneyPreview.innerHTML = "";
+        }
         return;
     }
 
@@ -337,6 +348,148 @@ function populateSectionSelect() {
         <option value="">-- Select the section you are assigned to --</option>
         ${sections.map(section => `<option value="${safe(section)}">${safe(section)}</option>`).join("")}
     `;
+
+    if (examDateSelect) {
+        examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
+        examDateSelect.disabled = true;
+    }
+    if (examJourneyPreview) {
+        examJourneyPreview.hidden = true;
+        examJourneyPreview.innerHTML = "";
+    }
+}
+
+function handleSectionChange() {
+    const selectedSection = sectionSelect.value;
+    if (examJourneyPreview) {
+        examJourneyPreview.hidden = true;
+        examJourneyPreview.innerHTML = "";
+    }
+
+    if (!selectedSection) {
+        if (examDateSelect) {
+            examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
+            examDateSelect.disabled = true;
+        }
+        return;
+    }
+
+    const matchingSchedules = assignedExamSchedules.filter(s => s.section === selectedSection);
+    const datesMap = new Map();
+
+    matchingSchedules.forEach(schedule => {
+        const examDatesObj = schedule.examDates || {};
+        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+
+        Object.entries(examDatesObj).forEach(([dayLabel, dateStr]) => {
+            if (dateStr) {
+                const formatted = formatExamDate(dateStr);
+                const fullLabel = formatted ? `${formatted} (${dayLabel})` : dateStr;
+                datesMap.set(dateStr, fullLabel);
+            }
+        });
+
+        exams.forEach(exam => {
+            if (exam.day && examDatesObj[exam.day]) {
+                const dateStr = examDatesObj[exam.day];
+                const formatted = formatExamDate(dateStr);
+                const fullLabel = formatted ? `${formatted} (${exam.day})` : dateStr;
+                datesMap.set(dateStr, fullLabel);
+            }
+        });
+    });
+
+    if (!datesMap.size) {
+        if (examDateSelect) {
+            examDateSelect.innerHTML = '<option value="">No exam dates found for this section</option>';
+            examDateSelect.disabled = true;
+        }
+        return;
+    }
+
+    if (examDateSelect) {
+        examDateSelect.disabled = false;
+        examDateSelect.innerHTML = `
+            <option value="">-- Select assigned exam date --</option>
+            ${Array.from(datesMap.entries()).map(([dateStr, label]) => `<option value="${safe(dateStr)}">${safe(label)}</option>`).join("")}
+        `;
+    }
+}
+
+function handleExamDateChange() {
+    const selectedSection = sectionSelect.value;
+    const selectedDate = examDateSelect ? examDateSelect.value : "";
+
+    if (!selectedSection || !selectedDate) {
+        if (examJourneyPreview) {
+            examJourneyPreview.hidden = true;
+            examJourneyPreview.innerHTML = "";
+        }
+        return;
+    }
+
+    const matchingSchedules = assignedExamSchedules.filter(s => s.section === selectedSection);
+    const affectedExams = [];
+
+    matchingSchedules.forEach(schedule => {
+        const examDatesObj = schedule.examDates || {};
+        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+
+        const matchingDays = Object.entries(examDatesObj)
+            .filter(([dayLabel, dateStr]) => dateStr === selectedDate)
+            .map(([dayLabel]) => dayLabel);
+
+        const dayExams = exams.filter(e => matchingDays.includes(e.day) || e.day === selectedDate);
+        dayExams.forEach(exam => {
+            affectedExams.push({
+                day: exam.day,
+                time: exam.time || "-",
+                code: exam.code || exam.subjectCode || "-",
+                name: exam.name || exam.subjectName || "-",
+                room: exam.room || "-",
+                scheduleId: schedule.id
+            });
+        });
+    });
+
+    if (!affectedExams.length) {
+        if (examJourneyPreview) {
+            examJourneyPreview.hidden = false;
+            examJourneyPreview.innerHTML = '<div class="empty-state">No scheduled exams found on this date.</div>';
+        }
+        return;
+    }
+
+    const rows = affectedExams.map(exam => `
+        <tr>
+            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.time)}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.code)} — ${safe(exam.name)}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.room)}</td>
+        </tr>
+    `).join("");
+
+    const formattedDate = formatExamDate(selectedDate);
+
+    if (examJourneyPreview) {
+        examJourneyPreview.hidden = false;
+        examJourneyPreview.innerHTML = `
+            <div class="exam-journey-card" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin: 10px 0;">
+                <div style="font-weight: 600; margin-bottom: 8px; color: #1e293b;">
+                    Timetable Preview (${safe(formattedDate || selectedDate)}):
+                </div>
+                <table class="exam-pdf-style" style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                    <thead>
+                        <tr style="background: #e2e8f0; text-align: left;">
+                            <th style="padding: 6px;">TIME</th>
+                            <th style="padding: 6px;">SUBJECT</th>
+                            <th style="padding: 6px;">ROOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+    }
 }
 
 function formatRequestDate(value) {
@@ -384,11 +537,20 @@ function renderRequestNotifications(requests) {
     requestNotifications.innerHTML = reviewed.map(request => {
         const status = normalize(request.status);
         const isApproved = status === "approved";
+        const isReplacementFaculty = request.replacementFacultyId === currentFacultyUid;
         const icon = isApproved ? "✓" : "✕";
         const title = isApproved ? "Request Approved" : "Request Denied";
-        const message = isApproved
-            ? `Your reschedule request for ${safe(request.section || "your section")} has been approved by the admin.`
-            : `Your reschedule request for ${safe(request.section || "your section")} was denied by the admin.`;
+        
+        let message = "";
+        if (isApproved) {
+            if (isReplacementFaculty) {
+                message = `You have been assigned as replacement proctor for ${safe(request.section || "section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")}.`;
+            } else {
+                message = `Your reschedule request for ${safe(request.section || "your section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")} has been approved. Reassigned to ${safe(request.replacementFacultyName || "replacement faculty")}.`;
+            }
+        } else {
+            message = `Your reschedule request for ${safe(request.section || "your section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")} was denied by the admin.`;
+        }
 
         return `
             <div class="notification-item ${isApproved ? "notification-approved" : "notification-denied"}">
@@ -419,6 +581,21 @@ function watchRescheduleNotifications() {
             console.error("Could not watch reschedule notifications:", error);
         }
     );
+
+    // Also watch requests where current faculty is assigned as replacement faculty
+    onSnapshot(
+        query(
+            collection(db, "rescheduleRequests"),
+            where("replacementFacultyId", "==", currentFacultyUid)
+        ),
+        snapshot => {
+            const replacementRequests = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+            renderRequestNotifications(replacementRequests);
+        },
+        error => {
+            console.error("Could not watch replacement reschedule notifications:", error);
+        }
+    );
 }
 
 async function loadPendingRequests() {
@@ -442,10 +619,16 @@ async function handleRescheduleSubmit(event) {
     event.preventDefault();
 
     const section = sectionSelect.value;
+    const examDate = examDateSelect ? examDateSelect.value : "";
     const reason = reasonInput.value.trim();
 
     if (!section) {
         showRequestStatus("Please select a section.", "error");
+        return;
+    }
+
+    if (!examDate) {
+        showRequestStatus("Please select an assigned exam date.", "error");
         return;
     }
 
@@ -454,44 +637,80 @@ async function handleRescheduleSubmit(event) {
         return;
     }
 
-    const selectedSchedule = assignedExamSchedules.find(schedule => schedule.section === section);
+    const selectedDateLabel = examDateSelect && examDateSelect.selectedIndex >= 0
+        ? examDateSelect.options[examDateSelect.selectedIndex].text
+        : examDate;
 
-    if (!selectedSchedule) {
-        showRequestStatus("Could not find the selected section in your assigned exam schedules.", "error");
-        return;
-    }
-
-    // Check if there is already a pending request for this section
+    // Check for duplicate pending requests in rescheduleRequests matching requestingFacultyId + section + examDate
     const pendingRequests = await loadPendingRequests();
     const alreadyPending = pendingRequests.some(request =>
-        normalize(request.section) === normalize(section)
+        normalize(request.section) === normalize(section) &&
+        (request.examDate === examDate || normalize(request.examDateLabel) === normalize(selectedDateLabel))
     );
 
     if (alreadyPending) {
-        showRequestStatus(`You already have a pending reschedule request for ${section}. Please wait for the chairperson to review it.`, "error");
+        showRequestStatus(`You already have a pending reschedule request for ${section} on ${selectedDateLabel}. Please wait for the chairperson to review it.`, "error");
         return;
     }
+
+    // Collect affected exams & schedule doc IDs
+    const matchingSchedules = assignedExamSchedules.filter(s => s.section === section);
+    const affectedExams = [];
+    const affectedScheduleIds = [];
+
+    matchingSchedules.forEach(schedule => {
+        const examDatesObj = schedule.examDates || {};
+        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+
+        const matchingDays = Object.entries(examDatesObj)
+            .filter(([dayLabel, dateStr]) => dateStr === examDate)
+            .map(([dayLabel]) => dayLabel);
+
+        const dayExams = exams.filter(e => matchingDays.includes(e.day) || e.day === examDate);
+        if (dayExams.length > 0) {
+            if (!affectedScheduleIds.includes(schedule.id)) {
+                affectedScheduleIds.push(schedule.id);
+            }
+            dayExams.forEach(exam => {
+                affectedExams.push({
+                    day: exam.day,
+                    time: exam.time || "-",
+                    code: exam.code || exam.subjectCode || "-",
+                    name: exam.name || exam.subjectName || "-",
+                    room: exam.room || "-",
+                    scheduleId: schedule.id
+                });
+            });
+        }
+    });
 
     submitRequestBtn.disabled = true;
     submitRequestBtn.textContent = "Submitting...";
 
     try {
         const requestData = {
+            section: section,
+            examDate: examDate,
+            examDateLabel: selectedDateLabel,
+            requestingFacultyId: currentFacultyUid,
+            requestingFacultyName: currentFacultyName,
             facultyUid: currentFacultyUid,
             facultyName: currentFacultyName,
-            section: section,
+            affectedExamScheduleIds: affectedScheduleIds,
+            affectedExams: affectedExams,
             reason: reason,
-            examType: selectedSchedule.examType || "",
-            examDates: selectedSchedule.examDates || {},
-            examScheduleId: selectedSchedule.id || "",
             status: "pending",
+            replacementFacultyId: null,
+            replacementFacultyName: null,
+            reviewedBy: null,
+            reviewedAt: null,
             createdAt: new Date(),
             updatedAt: new Date()
         };
 
         await addDoc(collection(db, "rescheduleRequests"), requestData);
 
-        showRequestStatus(`Your reschedule request for ${section} has been submitted to the chairperson for review.`);
+        showRequestStatus(`Your reschedule request for ${section} on ${selectedDateLabel} has been submitted to the chairperson for review.`);
         rescheduleForm.reset();
         populateSectionSelect();
     } catch (error) {
@@ -634,6 +853,9 @@ if (mobileMenuToggleBtn && navUl) {
         mobileMenuToggleBtn.textContent = navUl.classList.contains("show") ? "✕" : "☰";
     });
 }
+
+sectionSelect?.addEventListener("change", handleSectionChange);
+examDateSelect?.addEventListener("change", handleExamDateChange);
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
