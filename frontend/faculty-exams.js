@@ -10,18 +10,18 @@ import {
     getDoc,
     getDocs,
     doc,
+    setDoc,
     addDoc,
     query,
     where,
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-const classScheduleContainer = document.getElementById("classScheduleContainer");
-const examScheduleContainer = document.getElementById("examScheduleContainer");
-const classSearchInput = document.getElementById("classSearchInput");
+const recentExamSchedulesContainer = document.getElementById("recentExamSchedulesContainer");
 const navFacultyName = document.getElementById("navFacultyName");
 const navFacultyRole = document.getElementById("navFacultyRole");
 const logoutBtn = document.getElementById("logoutBtn");
+const recentExamsBadge = document.getElementById("recentExamsBadge");
 
 const rescheduleForm = document.getElementById("rescheduleForm");
 const sectionSelect = document.getElementById("sectionSelect");
@@ -38,52 +38,12 @@ const notificationsModal = document.getElementById("notificationsModal");
 const openNotificationsModalBtn = document.getElementById("openNotificationsModalBtn");
 const closeNotificationsModalBtn = document.getElementById("closeNotificationsModalBtn");
 const notificationBadge = document.getElementById("notificationBadge");
-const recentExamsBadge = document.getElementById("recentExamsBadge");
 
 let currentFacultyName = "";
 let currentFacultyUid = "";
 let assignedExamSchedules = [];
-let allClassSchedules = [];
-let classSearchTerm = "";
-
-function getScheduleTimestamp(schedule) {
-    const raw = schedule.generatedAt || schedule.createdAt || schedule.updatedAt;
-    if (!raw) return 0;
-    if (raw.toDate) return raw.toDate().getTime();
-    if (raw.seconds) return raw.seconds * 1000;
-    if (raw instanceof Date) return raw.getTime();
-    const d = new Date(raw);
-    return isNaN(d.getTime()) ? 0 : d.getTime();
-}
-
-function watchUnreadExamSchedulesNotification(assignedSchedules, facultyUid) {
-    if (!recentExamsBadge || !facultyUid || !assignedSchedules.length) {
-        if (recentExamsBadge) recentExamsBadge.hidden = true;
-        return;
-    }
-
-    onSnapshot(
-        query(
-            collection(db, "facultyScheduleNotifications"),
-            where("facultyUid", "==", facultyUid)
-        ),
-        snapshot => {
-            const viewedMap = {};
-            snapshot.docs.forEach(d => {
-                const data = d.data();
-                if (data.scheduleId) {
-                    viewedMap[data.scheduleId] = !!data.viewed;
-                }
-            });
-
-            const hasUnread = assignedSchedules.some(s => !viewedMap[s.id]);
-            recentExamsBadge.hidden = !hasUnread;
-        },
-        error => {
-            console.error("Could not watch recent exam notifications:", error);
-        }
-    );
-}
+let viewedSchedulesMap = {};
+let expandedScheduleIds = new Set();
 
 function safe(value) {
     const amp = String.fromCharCode(38);
@@ -110,82 +70,37 @@ function formatAcademicInfo(schedule) {
     return parts.join(" • ") || "Schedule";
 }
 
-function scheduleMatchesSearch(schedule, term) {
-    if (!term) return true;
-
-    const haystack = [
-        schedule.name,
-        schedule.section,
-        schedule.program,
-        schedule.major,
-        schedule.academicYear,
-        schedule.semester,
-        schedule.yearLevel,
-        ...(Array.isArray(schedule.entries) ? schedule.entries.flatMap(entry => [
-            entry.subjectCode,
-            entry.code,
-            entry.subjectName,
-            entry.name,
-            entry.units,
-            entry.day,
-            entry.time,
-            entry.room
-        ]) : [])
-    ].map(normalize).filter(Boolean).join(" ");
-
-    return haystack.includes(term);
+function getScheduleTimestamp(schedule) {
+    const raw = schedule.generatedAt || schedule.createdAt || schedule.updatedAt;
+    if (!raw) return 0;
+    if (raw.toDate) return raw.toDate().getTime();
+    if (raw.seconds) return raw.seconds * 1000;
+    if (raw instanceof Date) return raw.getTime();
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
-function renderClassSchedules(schedules) {
-    const filtered = schedules.filter(schedule => scheduleMatchesSearch(schedule, classSearchTerm));
-
-    if (!filtered.length) {
-        classScheduleContainer.innerHTML = classSearchTerm
-            ? '<div class="empty-state">No class schedules match your search.</div>'
-            : '<div class="empty-state">No class schedules have been created yet.</div>';
-        return;
+function formatExamGeneratedDate(schedule) {
+    const raw = schedule.generatedAt || schedule.createdAt || schedule.updatedAt;
+    if (!raw) return "";
+    let dateObj = null;
+    if (raw.toDate) {
+        dateObj = raw.toDate();
+    } else if (raw.seconds) {
+        dateObj = new Date(raw.seconds * 1000);
+    } else if (raw instanceof Date) {
+        dateObj = raw;
+    } else {
+        dateObj = new Date(raw);
     }
 
-    classScheduleContainer.innerHTML = filtered.map(schedule => {
-        const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
+    if (!dateObj || isNaN(dateObj.getTime())) return "";
 
-        const rows = entries.length
-            ? entries.map(entry => `
-                <tr>
-                    <td>${safe(entry.subjectCode || entry.code || "-")}</td>
-                    <td>${safe(entry.subjectName || entry.name || "-")}</td>
-                    <td>${safe(entry.units || "-")}</td>
-                    <td>${safe(entry.day || "-")}</td>
-                    <td>${safe(entry.time || "-")}</td>
-                    <td>${safe(entry.room || "-")}</td>
-                </tr>
-            `).join("")
-            : `<tr><td colspan="6">No class entries available.</td></tr>`;
-
-        return `
-            <article class="schedule-card">
-                <div class="schedule-header">
-                    <h4>${safe(schedule.name || schedule.section || "Class Schedule")}</h4>
-                    <small>${safe(formatAcademicInfo(schedule))}</small>
-                </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Subject Code</th>
-                                <th>Subject Name</th>
-                                <th>Units</th>
-                                <th>Day</th>
-                                <th>Time</th>
-                                <th>Room</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
-            </article>
-        `;
-    }).join("");
+    return dateObj.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+    });
 }
 
 function formatExamDate(dateStr) {
@@ -200,88 +115,189 @@ function formatExamDate(dateStr) {
     return `${monthNames[month]} ${day}, ${year}`;
 }
 
-function renderExamSchedules(schedules) {
-    if (!schedules.length) {
-        examScheduleContainer.innerHTML = '<div class="empty-state">No exam schedules are assigned to you as proctor.</div>';
+function buildScheduleTablesHtml(schedule) {
+    const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+    const examDates = schedule.examDates || {};
+    const daySet = new Set(exams.map(exam => exam.day).filter(Boolean));
+    const DAYS_ORDER = (Object.keys(examDates).length > 0
+        ? Object.keys(examDates)
+        : [...daySet]
+    ).sort((a, b) => {
+        const dateA = examDates[a] || "";
+        const dateB = examDates[b] || "";
+        return dateA.localeCompare(dateB);
+    });
+
+    function groupExamsByDay(examList) {
+        const groups = {};
+        for (const day of DAYS_ORDER) {
+            groups[day] = examList.filter(exam => exam.day === day);
+        }
+        return groups;
+    }
+
+    const examsByDay = groupExamsByDay(exams);
+
+    let dayTablesHtml = "";
+    for (const day of DAYS_ORDER) {
+        const dayExams = examsByDay[day];
+        if (!dayExams || dayExams.length === 0) continue;
+
+        const dateStr = examDates[day] || "";
+        const formattedDate = formatExamDate(dateStr);
+        const dayLabel = formattedDate ? `${formattedDate} (${day})` : day;
+
+        const rows = dayExams.map(exam => `
+            <tr>
+                <td>${safe(exam.time || "-")}</td>
+                <td>${safe(exam.code || exam.subjectCode || "-")} — ${safe(exam.name || exam.subjectName || "-")}</td>
+                <td>${safe(exam.room || "-")}</td>
+            </tr>
+        `).join("");
+
+        dayTablesHtml += `
+            <div class="exam-day-section">
+                <div class="exam-day-header">${safe(dayLabel)}</div>
+                <div class="table-container">
+                    <table class="exam-pdf-style">
+                        <thead>
+                            <tr>
+                                <th>TIME</th>
+                                <th>SUBJECT</th>
+                                <th>ROOM</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    return dayTablesHtml || '<div class="empty-state">No detailed exam timetable entries available.</div>';
+}
+
+async function markScheduleAsViewed(scheduleId) {
+    if (!currentFacultyUid || !scheduleId) return;
+
+    const docId = `${currentFacultyUid}_${scheduleId}`;
+    viewedSchedulesMap[scheduleId] = true;
+
+    try {
+        await setDoc(doc(db, "facultyScheduleNotifications", docId), {
+            facultyUid: currentFacultyUid,
+            scheduleId: scheduleId,
+            viewed: true,
+            viewedAt: new Date()
+        }, { merge: true });
+    } catch (error) {
+        console.error("Could not update viewed status in Firestore:", error);
+    }
+}
+
+function updateNavbarBadge() {
+    if (!recentExamsBadge) return;
+    const hasUnread = assignedExamSchedules.some(schedule => !viewedSchedulesMap[schedule.id]);
+    recentExamsBadge.hidden = !hasUnread;
+}
+
+function renderRecentExamSchedules() {
+    if (!assignedExamSchedules.length) {
+        recentExamSchedulesContainer.innerHTML = '<div class="empty-state">No new exam schedules are available.</div>';
+        updateNavbarBadge();
         return;
     }
 
-    examScheduleContainer.innerHTML = schedules.map(schedule => {
-        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-        const examDates = schedule.examDates || {};
+    const allViewed = assignedExamSchedules.every(schedule => viewedSchedulesMap[schedule.id]);
+    updateNavbarBadge();
+
+    const bannerHtml = allViewed
+        ? '<div class="info-banner">ℹ️ You\'re viewing the latest available exam schedules.</div>'
+        : '';
+
+    const cardsHtml = assignedExamSchedules.map(schedule => {
+        const isUnread = !viewedSchedulesMap[schedule.id];
+        const generatedDate = formatExamGeneratedDate(schedule);
+        const examType = schedule.examType || schedule.title || "Exam Schedule";
+        const academicInfo = formatAcademicInfo(schedule);
+        const section = schedule.section || "";
         const proctor = schedule.proctor || "";
-        const daySet = new Set(exams.map(exam => exam.day).filter(Boolean));
-        const DAYS_ORDER = (Object.keys(examDates).length > 0
-            ? Object.keys(examDates)
-            : [...daySet]
-        ).sort((a, b) => {
-            const dateA = examDates[a] || "";
-            const dateB = examDates[b] || "";
-            return dateA.localeCompare(dateB);
-        });
+        const isExpanded = expandedScheduleIds.has(schedule.id);
 
-        function groupExamsByDay(examList) {
-            const groups = {};
-            for (const day of DAYS_ORDER) {
-                groups[day] = examList.filter(exam => exam.day === day);
-            }
-            return groups;
-        }
-
-        const examsByDay = groupExamsByDay(exams);
-
-        let dayTablesHtml = "";
-        for (const day of DAYS_ORDER) {
-            const dayExams = examsByDay[day];
-            if (!dayExams || dayExams.length === 0) continue;
-
-            const dateStr = examDates[day] || "";
-            const formattedDate = formatExamDate(dateStr);
-            const dayLabel = formattedDate ? `${formattedDate} (${day})` : day;
-
-            const rows = dayExams.map(exam => `
-                <tr>
-                    <td>${safe(exam.time || "-")}</td>
-                    <td>${safe(exam.code || exam.subjectCode || "-")} — ${safe(exam.name || exam.subjectName || "-")}</td>
-                    <td>${safe(exam.room || "-")}</td>
-                </tr>
-            `).join("");
-
-            dayTablesHtml += `
-                <div class="exam-day-section">
-                    <div class="exam-day-header">${safe(dayLabel)}</div>
-                    <div class="table-container">
-                        <table class="exam-pdf-style">
-                            <thead>
-                                <tr>
-                                    <th>TIME</th>
-                                    <th>SUBJECT</th>
-                                    <th>ROOM</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
+        const newBadgeHtml = isUnread ? '<span class="badge-card-new">NEW</span>' : '';
+        const scheduleTables = isExpanded ? buildScheduleTablesHtml(schedule) : '';
 
         return `
-            <article class="schedule-card">
-                <div class="schedule-header exam-schedule-header">
-                    <div class="schedule-title-info">
-                        <h4>${safe(schedule.title || schedule.section || "Exam Schedule")}</h4>
-                        <small>${safe(formatAcademicInfo(schedule))}</small>
-                    </div>
-                    <div class="schedule-proctor">
-                        <span>Proctor:</span>
-                        <strong>${safe(proctor || "-")}</strong>
+            <article class="recent-exam-card" data-schedule-id="${safe(schedule.id)}">
+                <div class="recent-exam-header-row">
+                    <div class="recent-exam-title-group">
+                        <span class="recent-exam-icon">🔔</span>
+                        <h3>${safe(examType)}</h3>
+                        ${newBadgeHtml}
                     </div>
                 </div>
-                ${dayTablesHtml}
+
+                <div class="recent-exam-meta">
+                    <span>📅 ${safe(academicInfo)}</span>
+                    ${generatedDate ? `<span>🕒 Generated on ${safe(generatedDate)}</span>` : ""}
+                    ${section ? `<span>👥 Section: ${safe(section)}</span>` : ""}
+                    ${proctor ? `<span>👤 Proctor: ${safe(proctor)}</span>` : ""}
+                </div>
+
+                <div class="recent-exam-actions">
+                    <button class="view-schedule-btn" type="button" data-action="toggle-schedule" data-schedule-id="${safe(schedule.id)}">
+                        ${isExpanded ? "Hide Schedule" : "View Schedule"}
+                    </button>
+                </div>
+
+                ${isExpanded ? `<div class="recent-exam-table-container">${scheduleTables}</div>` : ""}
             </article>
         `;
     }).join("");
+
+    recentExamSchedulesContainer.innerHTML = bannerHtml + cardsHtml;
+}
+
+recentExamSchedulesContainer.addEventListener("click", async event => {
+    const toggleBtn = event.target.closest('button[data-action="toggle-schedule"]');
+    if (!toggleBtn) return;
+
+    const scheduleId = toggleBtn.getAttribute("data-schedule-id");
+    if (!scheduleId) return;
+
+    if (expandedScheduleIds.has(scheduleId)) {
+        expandedScheduleIds.delete(scheduleId);
+    } else {
+        expandedScheduleIds.add(scheduleId);
+        if (!viewedSchedulesMap[scheduleId]) {
+            await markScheduleAsViewed(scheduleId);
+        }
+    }
+
+    renderRecentExamSchedules();
+});
+
+function watchFacultyScheduleNotifications() {
+    if (!currentFacultyUid) return;
+
+    onSnapshot(
+        query(
+            collection(db, "facultyScheduleNotifications"),
+            where("facultyUid", "==", currentFacultyUid)
+        ),
+        snapshot => {
+            snapshot.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                if (data.scheduleId) {
+                    viewedSchedulesMap[data.scheduleId] = !!data.viewed;
+                }
+            });
+            renderRecentExamSchedules();
+        },
+        error => {
+            console.error("Could not listen to faculty schedule notifications:", error);
+        }
+    );
 }
 
 function showRequestStatus(message, type = "success") {
@@ -335,7 +351,6 @@ function renderRequestNotifications(requests) {
             return bDate - aDate;
         });
 
-    // Update the notification badge count
     if (reviewed.length) {
         notificationBadge.textContent = reviewed.length;
         notificationBadge.hidden = false;
@@ -428,7 +443,6 @@ async function handleRescheduleSubmit(event) {
         return;
     }
 
-    // Check if there is already a pending request for this section
     const pendingRequests = await loadPendingRequests();
     const alreadyPending = pendingRequests.some(request =>
         normalize(request.section) === normalize(section)
@@ -470,7 +484,7 @@ async function handleRescheduleSubmit(event) {
     }
 }
 
-async function initializeFacultyDashboard() {
+async function initializeFacultyExamsPage() {
     onAuthStateChanged(auth, async user => {
         if (!user) {
             window.location.href = "login.html";
@@ -496,34 +510,34 @@ async function initializeFacultyDashboard() {
             navFacultyName.textContent = fullName;
             navFacultyRole.textContent = "Instructor";
 
-            const classSnapshot = await getDocs(collection(db, "classSchedules"));
             const examSnapshot = await getDocs(collection(db, "examSchedules"));
-
-            allClassSchedules = classSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
 
             const examSchedules = examSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
                 .filter(schedule => {
+                    // Check if generated/published (ignore draft/unpublished if explicit status exists)
+                    const status = normalize(schedule.status || "generated");
+                    const isValidStatus = status === "generated" || status === "published" || status === "active";
+                    if (!isValidStatus) return false;
+
                     const matchesUid = schedule.proctorUid === user.uid ||
                                        schedule.facultyUid === user.uid ||
                                        schedule.assignedFacultyUid === user.uid;
                     const matchesName = normalize(schedule.proctor) === normalize(fullName);
+
                     return matchesUid || matchesName;
                 });
 
+            // Sort by generatedAt / createdAt / updatedAt descending (newest first)
             examSchedules.sort((a, b) => getScheduleTimestamp(b) - getScheduleTimestamp(a));
             assignedExamSchedules = examSchedules;
 
-            renderClassSchedules(allClassSchedules);
-            // Home page shows only the latest assigned exam schedule
-            renderExamSchedules(assignedExamSchedules.slice(0, 1));
             populateSectionSelect();
             watchRescheduleNotifications();
-            watchUnreadExamSchedulesNotification(assignedExamSchedules, currentFacultyUid);
+            watchFacultyScheduleNotifications();
         } catch (error) {
-            console.error("Could not load faculty dashboard:", error);
-            classScheduleContainer.innerHTML = '<div class="empty-state">Unable to load class schedules right now.</div>';
-            examScheduleContainer.innerHTML = '<div class="empty-state">Unable to load exam schedules right now.</div>';
+            console.error("Could not load recent exam schedules page:", error);
+            recentExamSchedulesContainer.innerHTML = '<div class="empty-state">Unable to load recent exam schedules right now.</div>';
         }
     });
 }
@@ -578,11 +592,6 @@ document.addEventListener("keydown", event => {
     }
 });
 
-classSearchInput.addEventListener("input", () => {
-    classSearchTerm = normalize(classSearchInput.value);
-    renderClassSchedules(allClassSchedules);
-});
-
 logoutBtn.addEventListener("click", async () => {
     try {
         await signOut(auth);
@@ -594,4 +603,4 @@ logoutBtn.addEventListener("click", async () => {
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
-initializeFacultyDashboard();
+initializeFacultyExamsPage();

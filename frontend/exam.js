@@ -1451,7 +1451,11 @@ async function exportExamPdf() {
         const examTypeUpper = examType.toUpperCase();
         const sectionName = escapeHtml(schedule.title || schedule.section || "");
         const examDates = schedule.examDates || {};
-        const DAYS_ORDER = Object.keys(examDates);
+        const DAYS_ORDER = Object.keys(examDates).sort((a, b) => {
+            const dateA = examDates[a] || "";
+            const dateB = examDates[b] || "";
+            return dateA.localeCompare(dateB);
+        });
 
         function groupExamsByDay(exams) {
             const groups = {};
