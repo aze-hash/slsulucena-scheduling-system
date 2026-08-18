@@ -319,11 +319,25 @@ function examStatusForSchedule(schedule, examType) {
     const localSchedules = readStorage(EXAM_SCHEDULES_KEY);
     const combinedSchedules = [...firestoreExamSchedules, ...localSchedules];
 
-    return combinedSchedules.some(saved =>
+    // 1. Check active saved exam schedules
+    const isSaved = combinedSchedules.some(saved =>
         (saved.examType || "").trim().toLowerCase() === targetType &&
         (saved.academicYear || "").trim() === ay &&
         (saved.semester || "").trim().toLowerCase() === sem &&
         normalise(saved.section) === section
+    );
+    if (isSaved) return true;
+
+    // 2. Check archived exam reports (for schedules already exported to PDF)
+    return cachedExamReports.some(report =>
+        report.category === "Exam Schedule" &&
+        (report.examType || "").trim().toLowerCase() === targetType &&
+        (report.academicYear || "").trim() === ay &&
+        (report.semester || "").trim().toLowerCase() === sem &&
+        (
+            (Array.isArray(report.sections) && report.sections.some(s => normalise(s) === section)) ||
+            normalise(report.html || "").includes(section)
+        )
     );
 }
 
@@ -476,7 +490,28 @@ function renderClassSchedules() {
     populateAcademicYearFilter();
     populateSemesterFilter();
 
-    /* If no AY + Semester selected, show the prompt message */
+    /* If no AY + Semester selected, automatically default to the Academic Year and Semester of the latest created class schedule */
+    if ((!selectedAcademicYear || !selectedSemester) && displayedClassSchedules.length > 0) {
+        const sortedByLatest = [...displayedClassSchedules].sort((a, b) => {
+            const timeA = new Date(a.createdAt || a.exportedAt || 0).getTime();
+            const timeB = new Date(b.createdAt || b.exportedAt || 0).getTime();
+            return timeB - timeA;
+        });
+
+        const latest = sortedByLatest[0];
+        if (latest) {
+            if (!selectedAcademicYear && latest.academicYear) {
+                selectedAcademicYear = latest.academicYear;
+                if (academicYearFilter) academicYearFilter.value = selectedAcademicYear;
+            }
+            if (!selectedSemester && latest.semester) {
+                selectedSemester = latest.semester;
+                if (semesterFilter) semesterFilter.value = selectedSemester;
+            }
+        }
+    }
+
+    /* If still no AY + Semester selected (e.g. no class schedules exist), show the prompt message */
     if (!selectedAcademicYear || !selectedSemester) {
         if (filterMessage) filterMessage.style.display = "block";
         savedScheduleBody.innerHTML = `<tr><td colspan="6">Select an Academic Year and Semester to view class schedules.</td></tr>`;
@@ -1528,6 +1563,7 @@ async function exportExamPdf() {
             semester,
             yearLevel: groupSchedules[0]?.yearLevel || "",
             examType,
+            sections: groupSchedules.map(s => s.section || ""),
             title: [
                 academicYear ? `A.Y. ${academicYear}` : "",
                 semester,
@@ -1548,6 +1584,11 @@ async function exportExamPdf() {
             continue; // Abort deletion for this group if archiving failed
         }
 
+        // Record successfully exported schedule IDs for clearing from saved card
+        for (const sched of groupSchedules) {
+            allSuccessfullyExportedIds.add(sched.id);
+        }
+
         // Open print window for this group
         const printWindow = window.open("", "_blank");
         if (printWindow) {
@@ -1562,9 +1603,30 @@ async function exportExamPdf() {
         exportedGroupsCount++;
     }
 
-    // PDF export is strictly READ-ONLY. Keep saved exam schedules in Firestore & localStorage.
+    // Delete exported schedules from Firestore & remove from localStorage so they don't accumulate in future exports
+    if (allSuccessfullyExportedIds.size > 0) {
+        for (const id of allSuccessfullyExportedIds) {
+            try {
+                await deleteExamScheduleFromFirestore(id);
+            } catch (err) {
+                console.warn(`Could not delete exported exam schedule ${id} from Firestore:`, err);
+            }
+        }
+
+        const remainingLocalSchedules = readStorage(EXAM_SCHEDULES_KEY).filter(
+            s => !allSuccessfullyExportedIds.has(s.id)
+        );
+        writeStorage(EXAM_SCHEDULES_KEY, remainingLocalSchedules);
+    }
+
+    // Refresh Firestore schedules & cached reports
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();
-    writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
+    try {
+        cachedExamReports = await loadReportsFromFirestore();
+    } catch (err) {
+        console.warn("Could not reload reports after export:", err);
+    }
+
     renderSavedExams();
     renderClassSchedules();
 
@@ -1906,6 +1968,13 @@ onAuthStateChanged(auth, async () => {
     /* ── Load exam schedules ── */
     const firestoreSchedules = await loadExamSchedulesFromFirestore();
     firestoreExamSchedules = firestoreSchedules;
+
+    /* Load archived reports so status cells reflect exported schedules */
+    try {
+        cachedExamReports = await loadReportsFromFirestore();
+    } catch (err) {
+        console.warn("Could not load reports in auth check:", err);
+    }
 
     /* Merge any existing localStorage exam schedules so nothing is lost */
     const localSchedules = readStorage(EXAM_SCHEDULES_KEY);

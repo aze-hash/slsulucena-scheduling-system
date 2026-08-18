@@ -123,11 +123,26 @@ function renderClassArchive() {
 
     populateClassYearFilter(classArchiveRecords);
 
+    // If no filter is set by user, default to the latest Academic Year in classArchiveRecords
+    if (!classFilterYear && !classFilterSemester && !classFilterSearch.trim() && classArchiveRecords.length > 0) {
+        const sortedByLatest = [...classArchiveRecords].sort((a, b) => {
+            const aTime = a.exportedAt || a.createdAt || "";
+            const bTime = b.exportedAt || b.createdAt || "";
+            return String(bTime).localeCompare(String(aTime));
+        });
+        const latestAY = sortedByLatest[0]?.academicYear;
+        if (latestAY) {
+            classFilterYear = latestAY;
+            const yearSelect = document.getElementById("classArchiveAcademicYear");
+            if (yearSelect) yearSelect.value = latestAY;
+        }
+    }
+
     const hasFilter = Boolean(classFilterYear || classFilterSemester || classFilterSearch.trim());
 
     if (!hasFilter) {
         tbody.innerHTML = "";
-        emptyNote.textContent = "Select a filter to view archived schedules.";
+        emptyNote.textContent = "No archived class schedules available.";
         emptyNote.hidden = false;
         return;
     }
@@ -323,11 +338,26 @@ function renderExamArchive() {
 
     populateExamYearFilter(examArchiveReports);
 
+    // If no filter is set by user, default to the latest Academic Year in examArchiveReports
+    if (!examFilterYear && !examFilterSemester && !examFilterExamType && !examFilterSearch.trim() && examArchiveReports.length > 0) {
+        const sortedByLatest = [...examArchiveReports].sort((a, b) => {
+            const aTime = a.createdAt || "";
+            const bTime = b.createdAt || "";
+            return String(bTime).localeCompare(String(aTime));
+        });
+        const latestAY = sortedByLatest[0]?.academicYear;
+        if (latestAY) {
+            examFilterYear = latestAY;
+            const yearSelect = document.getElementById("examArchiveAcademicYear");
+            if (yearSelect) yearSelect.value = latestAY;
+        }
+    }
+
     const hasFilter = Boolean(examFilterYear || examFilterSemester || examFilterExamType || examFilterSearch.trim());
 
     if (!hasFilter) {
         tbody.innerHTML = "";
-        emptyNote.textContent = "Select a filter to view archived exam schedules.";
+        emptyNote.textContent = "No archived exam schedules available.";
         emptyNote.hidden = false;
         if (pagination) pagination.style.display = "none";
         return;
