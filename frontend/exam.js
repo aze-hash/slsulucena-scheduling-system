@@ -1683,7 +1683,7 @@ function examScheduleDocId(schedule) {
 async function saveExamScheduleToFirestore(schedule) {
     const docId = examScheduleDocId(schedule);
 
-const data = {
+    const data = {
         classScheduleId: schedule.classScheduleId,
         title: schedule.title,
         section: schedule.section,
@@ -1693,6 +1693,9 @@ const data = {
         major: schedule.major,
         yearLevel: schedule.yearLevel,
         proctor: schedule.proctor,
+        proctorUid: schedule.proctorUid || schedule.facultyUid || schedule.assignedFacultyUid || "",
+        facultyUid: schedule.facultyUid || schedule.proctorUid || schedule.assignedFacultyUid || "",
+        assignedFacultyUid: schedule.assignedFacultyUid || schedule.proctorUid || schedule.facultyUid || "",
         room: schedule.room,
         examType: schedule.examType || "",
         examDates: schedule.examDates || {},

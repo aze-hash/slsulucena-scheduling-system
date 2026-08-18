@@ -781,6 +781,64 @@ async function handleRescheduleSubmit(event) {
     }
 }
 
+function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
+    if (!schedule) return false;
+
+    // 1. Direct UID match (primary check)
+    const matchesUid = schedule.proctorUid === userUid ||
+                       schedule.facultyUid === userUid ||
+                       schedule.assignedFacultyUid === userUid;
+    if (matchesUid) return true;
+
+    // 2. Flexible name matching (handles titles/honorifics/formatting variations)
+    const normProctor = normalize(schedule.proctor || "");
+    const normFullName = normalize(facultyFullName || "");
+
+    if (normProctor && normFullName) {
+        if (normProctor === normFullName) return true;
+        if (normProctor.includes(normFullName) || normFullName.includes(normProctor)) return true;
+
+        const nameTokens = normFullName.split(/\s+/).filter(t => t.length > 2);
+        if (nameTokens.length >= 2) {
+            const allTokensMatch = nameTokens.every(token => normProctor.includes(token));
+            if (allTokensMatch) return true;
+        }
+    }
+
+    return false;
+}
+
+function watchAssignedExamSchedules(user, fullName) {
+    onSnapshot(
+        collection(db, "examSchedules"),
+        snapshot => {
+            const examSchedules = snapshot.docs
+                .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+                .filter(schedule => {
+                    const status = normalize(schedule.status || "generated");
+                    const isValidStatus = status === "generated" || status === "published" || status === "active";
+                    if (!isValidStatus) return false;
+
+                    // STRICT isolation: ONLY exam schedules assigned to THIS faculty account
+                    return isAssignedToCurrentFaculty(schedule, user.uid, fullName);
+                });
+
+            examSchedules.sort((a, b) => getScheduleTimestamp(b) - getScheduleTimestamp(a));
+            assignedExamSchedules = examSchedules;
+
+            renderRecentExamSchedules();
+            populateSectionSelect();
+            watchFacultyScheduleNotifications();
+        },
+        error => {
+            console.error("Could not watch recent exam schedules:", error);
+            if (recentExamSchedulesContainer) {
+                recentExamSchedulesContainer.innerHTML = '<tr><td colspan="5" class="empty-state">Unable to load recent exam schedules right now.</td></tr>';
+            }
+        }
+    );
+}
+
 async function initializeFacultyExamsPage() {
     onAuthStateChanged(auth, async user => {
         if (!user) {
@@ -807,34 +865,11 @@ async function initializeFacultyExamsPage() {
             navFacultyName.textContent = fullName;
             navFacultyRole.textContent = "Instructor";
 
-            const examSnapshot = await getDocs(collection(db, "examSchedules"));
-
-            const examSchedules = examSnapshot.docs
-                .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule => {
-                    // Check if generated/published (ignore draft/unpublished if explicit status exists)
-                    const status = normalize(schedule.status || "generated");
-                    const isValidStatus = status === "generated" || status === "published" || status === "active";
-                    if (!isValidStatus) return false;
-
-                    const matchesUid = schedule.proctorUid === user.uid ||
-                                       schedule.facultyUid === user.uid ||
-                                       schedule.assignedFacultyUid === user.uid;
-                    const matchesName = normalize(schedule.proctor) === normalize(fullName);
-
-                    return matchesUid || matchesName;
-                });
-
-            // Sort by generatedAt / createdAt / updatedAt descending (newest first)
-            examSchedules.sort((a, b) => getScheduleTimestamp(b) - getScheduleTimestamp(a));
-            assignedExamSchedules = examSchedules;
-
-            populateSectionSelect();
+            watchAssignedExamSchedules(user, fullName);
             watchRescheduleNotifications();
-            watchFacultyScheduleNotifications();
         } catch (error) {
             console.error("Could not load recent exam schedules page:", error);
-            recentExamSchedulesContainer.innerHTML = '<div class="empty-state">Unable to load recent exam schedules right now.</div>';
+            recentExamSchedulesContainer.innerHTML = '<tr><td colspan="5" class="empty-state">Unable to load recent exam schedules right now.</td></tr>';
         }
     });
 }
