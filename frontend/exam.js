@@ -1554,26 +1554,10 @@ async function exportExamPdf() {
             };
         }
 
-        // 3. ONLY THEN delete the exact Saved Exam Schedule documents included in that PDF
-        for (const sched of groupSchedules) {
-            try {
-                await deleteExamScheduleFromFirestore(sched.id);
-                allSuccessfullyExportedIds.add(sched.id);
-            } catch (deleteError) {
-                console.error("Could not delete saved schedule doc:", sched.id, deleteError);
-            }
-        }
-
         exportedGroupsCount++;
     }
 
-    // 4. Remove exported schedules from localStorage
-    if (allSuccessfullyExportedIds.size > 0) {
-        const remainingSchedules = readStorage(EXAM_SCHEDULES_KEY).filter(s => !allSuccessfullyExportedIds.has(s.id));
-        writeStorage(EXAM_SCHEDULES_KEY, remainingSchedules);
-    }
-
-    // 5. Refresh Firestore cache, Saved Exam Schedules, Class Schedules status, and Archive
+    // PDF export is strictly READ-ONLY. Keep saved exam schedules in Firestore & localStorage.
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();
     renderSavedExams();
     renderClassSchedules();

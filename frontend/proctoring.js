@@ -92,8 +92,68 @@ function populateFilters(records) {
     }
 }
 
+function extractPersonName(data) {
+    if (!data) return "";
+    if (typeof data === "string") return data.trim();
+    if (typeof data === "object") {
+        return data.name || data.fullName || data.facultyName || data.displayName ||
+            [data.firstName, data.lastName].filter(Boolean).join(" ") || "";
+    }
+    return "";
+}
+
+async function loadFacultyUsersMap() {
+    const map = new Map();
+    try {
+        const userSnapshot = await getDocs(collection(db, "users"));
+        userSnapshot.docs.forEach(d => {
+            const data = d.data();
+            const name = extractPersonName(data);
+            if (name) {
+                map.set(d.id, name);
+                if (data.uid) map.set(data.uid, name);
+            }
+        });
+
+        const facultySnapshot = await getDocs(collection(db, "faculty"));
+        facultySnapshot.docs.forEach(d => {
+            const data = d.data();
+            const name = extractPersonName(data);
+            if (name) {
+                if (!map.has(d.id)) map.set(d.id, name);
+                if (data.uid && !map.has(data.uid)) map.set(data.uid, name);
+            }
+        });
+    } catch (err) {
+        console.warn("Could not load users/faculty map:", err);
+    }
+    return map;
+}
+
+function resolveFacultyName(sched, usersMap) {
+    const raw = sched.proctor || sched.proctorName || sched.facultyName ||
+                sched.assignedFaculty || sched.assignedProctor || "";
+    const nameFromRaw = extractPersonName(raw);
+    if (nameFromRaw) {
+        if (usersMap && usersMap.has(nameFromRaw)) {
+            return usersMap.get(nameFromRaw);
+        }
+        return nameFromRaw;
+    }
+
+    const id = sched.proctorId || sched.assignedFacultyId || sched.facultyId || sched.facultyUID || sched.userId || "";
+    if (id && usersMap && usersMap.has(String(id).trim())) {
+        return usersMap.get(String(id).trim());
+    }
+
+    return "Unassigned";
+}
+
 async function loadProctoringData() {
     try {
+        /* Load faculty/user map to resolve UIDs or IDs to full names */
+        const usersMap = await loadFacultyUsersMap();
+
         /* 1. Fetch saved exam schedules from examSchedules collection */
         const examSnapshot = await getDocs(collection(db, "examSchedules"));
         const examSchedules = examSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -106,14 +166,16 @@ async function loadProctoringData() {
 
         /* Map examSchedules */
         for (const sched of examSchedules) {
-            const facultyName = sched.proctor || sched.facultyName || "Unassigned";
+            const facultyName = resolveFacultyName(sched, usersMap);
+            const sectionName = sched.section || sched.sectionName || sched.className || sched.name || "Section Schedule";
+
             records.push({
                 id: sched.id,
                 facultyName,
                 academicYear: sched.academicYear || "",
                 semester: sched.semester || "",
-                section: sched.section || sched.title || "Section Schedule",
-                examType: sched.examType || "Midterm",
+                section: sectionName,
+                examType: sched.examType || "Preliminary",
                 exams: sched.exams || [],
                 examDates: sched.examDates || {},
                 html: sched.html || null,
@@ -121,17 +183,19 @@ async function loadProctoringData() {
             });
         }
 
-        /* Map examReports if not already present */
+        /* Map examReports if not already present in live examSchedules */
         for (const report of examReports) {
-            const exists = records.some(r => r.id === report.id || (r.section === report.title && r.academicYear === report.academicYear && r.semester === report.semester));
+            const reportSection = report.section || report.sectionName || (report.title && !report.title.startsWith("A.Y.") ? report.title : "");
+            const exists = records.some(r => r.id === report.id || (reportSection && r.section === reportSection && r.academicYear === report.academicYear && r.semester === report.semester));
             if (!exists) {
+                const facultyName = resolveFacultyName(report, usersMap);
                 records.push({
                     id: report.id,
-                    facultyName: report.proctor || report.facultyName || "Unassigned",
+                    facultyName,
                     academicYear: report.academicYear || "",
                     semester: report.semester || "",
-                    section: report.title || report.filename || "Exam Schedule",
-                    examType: report.examType || "Midterm",
+                    section: reportSection || report.filename || "Exam Schedule",
+                    examType: report.examType || "Preliminary",
                     exams: [],
                     examDates: {},
                     html: report.html || null,
