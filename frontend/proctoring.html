@@ -33,22 +33,108 @@
             box-shadow: 0 0 0 2px rgba(46,125,50,.15);
         }
 
-        .faculty-name-cell {
+        .proctoring-card {
+            background: #ffffff;
+            border: 1px solid #d6cbb8;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+            transition: transform .2s, box-shadow .2s;
+        }
+
+        .proctoring-card:hover {
+            box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+        }
+
+        .proctoring-card-header {
+            background: rgba(163, 177, 138, 0.25);
+            padding: 12px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #d6cbb8;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .proctoring-card-header .faculty-title {
+            font-size: 16px;
             font-weight: bold;
             color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .table-container {
-            max-height: 520px;
-            overflow-y: auto;
-            overflow-x: auto;
+        .proctoring-card-header .duties-count-badge {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: var(--primary);
+            color: white;
+            font-weight: normal;
         }
 
-        table th {
-            position: sticky;
-            top: 0;
-            z-index: 1;
-            background: #d8e0ce;
+        .proctoring-card-body {
+            padding: 14px 18px;
+        }
+
+        .btn-export-pdf {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 6px;
+            background: var(--primary);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s;
+        }
+
+        .btn-export-pdf:hover {
+            background: var(--secondary);
+        }
+
+        .btn-export-all {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s;
+        }
+
+        .btn-export-all:hover {
+            background: var(--secondary);
+        }
+
+        .duty-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .duty-table th {
+            background: rgba(163, 177, 138, 0.15);
+            color: var(--dark);
+            font-weight: bold;
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #d6cbb8;
+        }
+
+        .duty-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .duty-table tr:last-child td {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -115,7 +201,6 @@
                         <th>Semester</th>
                         <th>Section</th>
                         <th>Exam Type</th>
-                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="proctoringTableBody"></tbody>

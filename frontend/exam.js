@@ -311,15 +311,19 @@ function subjectCount(schedule) {
  * the selected semester.
  */
 function examStatusForSchedule(schedule, examType) {
-    const ay = schedule.academicYear || "";
-    const sem = schedule.semester || "";
-    const section = schedule.section || "";
+    const ay = (schedule.academicYear || "").trim();
+    const sem = (schedule.semester || "").trim().toLowerCase();
+    const section = normalise(schedule.section || "");
+    const targetType = (examType || "").trim().toLowerCase();
 
-    return firestoreExamSchedules.some(saved =>
-        saved.examType === examType &&
-        (saved.academicYear || "") === ay &&
-        (saved.semester || "") === sem &&
-        normalise(saved.section) === normalise(section)
+    const localSchedules = readStorage(EXAM_SCHEDULES_KEY);
+    const combinedSchedules = [...firestoreExamSchedules, ...localSchedules];
+
+    return combinedSchedules.some(saved =>
+        (saved.examType || "").trim().toLowerCase() === targetType &&
+        (saved.academicYear || "").trim() === ay &&
+        (saved.semester || "").trim().toLowerCase() === sem &&
+        normalise(saved.section) === section
     );
 }
 
@@ -1271,6 +1275,7 @@ async function saveExamSchedules() {
 
     /* Refresh from Firestore so the status columns reflect the actual saved state */
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();
+    writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
 
     generatedExamSchedules = [];
     saveExamBtn.disabled = true;
@@ -1559,9 +1564,9 @@ async function exportExamPdf() {
 
     // PDF export is strictly READ-ONLY. Keep saved exam schedules in Firestore & localStorage.
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();
+    writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
     renderSavedExams();
     renderClassSchedules();
-    await loadExamArchiveData();
 
     if (exportedGroupsCount > 0) {
         showToast(`Successfully exported and archived ${exportedGroupsCount} exam schedule PDF(s).`);
@@ -1655,6 +1660,7 @@ return {
                 proctor: data.proctor || "",
                 room: data.room || "",
                 examType: data.examType || "",
+                examDates: data.examDates || {},
                 exams: data.exams || [],
                 createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString()
             };
