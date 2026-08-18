@@ -1607,21 +1607,7 @@ async function exportExamPdf() {
         exportedGroupsCount++;
     }
 
-    // Delete exported schedules from Firestore & remove from localStorage so they don't accumulate in future exports
-    if (allSuccessfullyExportedIds.size > 0) {
-        for (const id of allSuccessfullyExportedIds) {
-            try {
-                await deleteExamScheduleFromFirestore(id);
-            } catch (err) {
-                console.warn(`Could not delete exported exam schedule ${id} from Firestore:`, err);
-            }
-        }
-
-        const remainingLocalSchedules = readStorage(EXAM_SCHEDULES_KEY).filter(
-            s => !allSuccessfullyExportedIds.has(s.id)
-        );
-        writeStorage(EXAM_SCHEDULES_KEY, remainingLocalSchedules);
-    }
+    // Refresh Firestore schedules & cached reports without deleting examSchedules from Firestore
 
     // Refresh Firestore schedules & cached reports
     firestoreExamSchedules = await loadExamSchedulesFromFirestore();

@@ -180,13 +180,13 @@ function renderRescheduleRequests(requests) {
         const statusClass = status === "approved" ? "status-approved" :
             status === "denied" ? "status-denied" : "status-pending";
 
-        const examDateDisplay = request.examDateLabel || request.examDate || "-";
+        const examTypeDisplay = request.examType || (request.affectedExams && request.affectedExams[0]?.examType) || "Exam Schedule";
 
         return `
             <tr>
                 <td>${safe(request.facultyName || request.requestingFacultyName || "Unknown Faculty")}</td>
                 <td>${safe(request.section || "-")}</td>
-                <td>${safe(examDateDisplay)}</td>
+                <td>${safe(examTypeDisplay)}</td>
                 <td>${safe(formatDate(getDate(request)))}</td>
                 <td><span class="status-badge ${statusClass}">${safe(statusLabel)}</span></td>
                 <td>
@@ -240,8 +240,11 @@ function openRequestModal(request) {
         request.facultyName || request.requestingFacultyName || "-";
     document.getElementById("modalSection").textContent =
         request.section || "-";
-    document.getElementById("modalExamDate").textContent =
-        request.examDateLabel || request.examDate || "-";
+
+    const modalExamType = document.getElementById("modalExamType") || document.getElementById("modalExamDate");
+    if (modalExamType) {
+        modalExamType.textContent = request.examType || (request.affectedExams && request.affectedExams[0]?.examType) || "Exam Schedule";
+    }
     document.getElementById("modalReason").textContent =
         request.reason || "-";
 
@@ -408,10 +411,10 @@ async function handleRequestDecision(requestId, action) {
                     const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
 
                     const matchingDays = Object.entries(examDatesObj)
-                        .filter(([dayLabel, dateStr]) => dateStr === examDate)
+                        .filter(([dayLabel, dateStr]) => !examDate || examDate === "All Exam Days" || dateStr === examDate)
                         .map(([dayLabel]) => dayLabel);
 
-                    const dayExams = exams.filter(e => matchingDays.includes(e.day) || e.day === examDate);
+                    const dayExams = exams.filter(e => !examDate || examDate === "All Exam Days" || matchingDays.includes(e.day) || e.day === examDate);
                     dayExams.forEach(exam => {
                         assignedOnDate.push({
                             scheduleId: schedule.id,

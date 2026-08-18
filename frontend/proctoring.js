@@ -1,5 +1,5 @@
 import { db } from "../firebase.js";
-import { loadReportsFromFirestore, deleteReportsByCategoryFromFirestore } from "./reportStorage.js";
+import { deleteReportsByCategoryFromFirestore } from "./reportStorage.js";
 
 import {
     collection,
@@ -43,15 +43,6 @@ function escapeHtml(value) {
 
 function normalise(str) {
     return String(str || "").trim().toLowerCase();
-}
-
-function readLocalStorageSchedules(key) {
-    try {
-        const val = JSON.parse(localStorage.getItem(key));
-        return Array.isArray(val) ? val : [];
-    } catch {
-        return [];
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -147,36 +138,16 @@ async function loadProctoringData() {
     try {
         const usersMap = await loadFacultyUsersMap();
 
-        let firestoreSchedules = [];
-        try {
-            const examSnapshot = await getDocs(collection(db, "examSchedules"));
-            firestoreSchedules = examSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch (e) {
-            console.warn("Could not fetch Firestore examSchedules:", e);
-        }
-
-        const localSchedules = readLocalStorageSchedules("chairpersonExamSchedules");
-
-        const mergedSchedules = [...firestoreSchedules];
-        for (const local of localSchedules) {
-            const docId = local.id || "";
-            if (docId && !mergedSchedules.some(item => item.id === docId)) {
-                mergedSchedules.push(local);
-            } else if (!docId) {
-                const key = `${local.section}|${local.semester}|${local.examType}`;
-                if (!mergedSchedules.some(item => `${item.section}|${item.semester}|${item.examType}` === key)) {
-                    mergedSchedules.push(local);
-                }
-            }
-        }
+        const examSnapshot = await getDocs(collection(db, "examSchedules"));
+        const firestoreSchedules = examSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
         const records = [];
-        for (const sched of mergedSchedules) {
+        for (const sched of firestoreSchedules) {
             const facultyName = resolveFacultyName(sched, usersMap);
             const sectionName = sched.section || sched.sectionName || sched.className || sched.name || "Section Schedule";
 
             records.push({
-                id: sched.id || `local-${Math.random()}`,
+                id: sched.id,
                 facultyName,
                 academicYear: sched.academicYear || "",
                 semester: sched.semester || "",
@@ -192,9 +163,201 @@ async function loadProctoringData() {
         populateFilters(proctoringRecords);
         renderProctoringTable();
     } catch (error) {
-        console.error("Could not load proctoring data:", error);
-        showToast("Error loading faculty proctoring data.");
+        console.error("Error loading faculty proctoring data from Firestore:", error);
+        proctoringRecords = [];
+        populateFilters([]);
+        renderProctoringTable();
+        showToast("Error loading faculty proctoring data from Firestore.");
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  PDF Viewing / Print Generator (1:1 with exam.js export style)     */
+/* ------------------------------------------------------------------ */
+
+function formatExamDate(dateStr) {
+    if (!dateStr) return "";
+    const parts = dateStr.split("-");
+    if (parts.length !== 3) return dateStr;
+    const year = parts[0];
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"];
+    return `${monthNames[month]} ${day}, ${year}`;
+}
+
+const printStyles = `
+    <style>
+        @page { size: A4 portrait; margin: 12mm 15mm; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; }
+        .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+        .logo-img { width: 65px; height: 65px; }
+        .logo-left, .logo-right { flex-shrink: 0; }
+        .header-text { text-align: center; flex-grow: 1; }
+        .uni-name { font-size: 15px; font-weight: bold; color: #1b5e20; letter-spacing: 0.5px; }
+        .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
+        .city-name { font-size: 11px; color: #555; margin-top: 1px; }
+        .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
+        .title-section { text-align: center; font-size: 14px; font-weight: bold; color: #1b5e20; margin-bottom: 10px; text-decoration: underline; }
+        .section-row { background-color: #2e7d32; color: #ffffff; text-align: center; font-size: 14px; font-weight: bold; padding: 7px 10px; margin-bottom: 12px; }
+        .day-section { margin-bottom: 14px; }
+        .day-header { font-size: 12px; font-weight: bold; color: #1b5e20; text-align: center; padding: 5px; background: #e8f5e9; border-bottom: 2px solid #2e7d32; }
+        .exam-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .exam-table th, .exam-table td { border: 1px solid #888; padding: 5px 7px; text-align: left; }
+        .exam-table th { background: #a5d6a7; color: #1b5e20; font-weight: bold; text-align: center; }
+        .exam-table td { vertical-align: top; }
+        .exam-table tbody tr:nth-child(even) { background: #f1f8e9; }
+        .exam-table th:nth-child(1), .exam-table td:nth-child(1) { width: 22%; }
+        .exam-table th:nth-child(2), .exam-table td:nth-child(2) { width: 38%; }
+        .exam-table th:nth-child(3), .exam-table td:nth-child(3) { width: 22%; }
+        .exam-table th:nth-child(4), .exam-table td:nth-child(4) { width: 18%; }
+        .page { break-after: page; page-break-after: always; }
+        .page:last-child { break-after: auto; page-break-after: auto; }
+    </style>
+`;
+
+function openProctoringSchedulePdf(recordId) {
+    const record = proctoringRecords.find(r => r.id === recordId);
+    if (!record) {
+        showToast("Proctoring schedule record not found.");
+        return;
+    }
+
+    const logoUrl = new URL('logo (1).png', window.location.href).href;
+    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+
+    const examType = record.examType || "Preliminary";
+    const examTypeUpper = examType.toUpperCase();
+    const sectionName = escapeHtml(record.section || "");
+    const proctorName = escapeHtml(record.facultyName || "");
+    const examDates = record.examDates || {};
+    const exams = Array.isArray(record.exams) ? record.exams : [];
+
+    const daySet = new Set(exams.map(e => e.day).filter(Boolean));
+    const DAYS_ORDER = (Object.keys(examDates).length > 0
+        ? Object.keys(examDates)
+        : [...daySet]
+    ).sort((a, b) => {
+        const dateA = examDates[a] || "";
+        const dateB = examDates[b] || "";
+        return dateA.localeCompare(dateB);
+    });
+
+    function groupExamsByDay(examList) {
+        const groups = {};
+        for (const day of DAYS_ORDER) {
+            groups[day] = examList.filter(exam =>
+                normalise(exam.day) === normalise(day) || exam.day === day
+            );
+        }
+        return groups;
+    }
+
+    const examsByDay = groupExamsByDay(exams);
+    let dayTablesHtml = "";
+    for (const day of DAYS_ORDER) {
+        const dayExams = examsByDay[day];
+        if (!dayExams || dayExams.length === 0) continue;
+
+        const dateStr = examDates[day] || "";
+        const formattedDate = formatExamDate(dateStr);
+        const dayLabel = formattedDate ? `${formattedDate} (${day})` : day;
+
+        let rowsHtml = "";
+        for (const exam of dayExams) {
+            rowsHtml += `<tr>
+                <td>${escapeHtml(exam.time || "-")}</td>
+                <td>${escapeHtml(exam.code || exam.subjectCode || "-")} — ${escapeHtml(exam.name || exam.subjectName || "-")}</td>
+                <td>${proctorName || "-"}</td>
+                <td>${escapeHtml(exam.room || "-")}</td>
+            </tr>`;
+        }
+
+        dayTablesHtml += `
+            <div class="day-section">
+                <div class="day-header">${escapeHtml(dayLabel)}</div>
+                <table class="exam-table">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>SUBJECT</th>
+                            <th>PROCTOR</th>
+                            <th>ROOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    if (!dayTablesHtml) {
+        dayTablesHtml = `
+            <div class="day-section">
+                <div class="day-header">Assigned Proctoring Duty</div>
+                <table class="exam-table">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>SUBJECT</th>
+                            <th>PROCTOR</th>
+                            <th>ROOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding: 12px; color: #666;">No exam entries listed for this schedule.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    const docTitle = [
+        record.academicYear ? `A.Y. ${record.academicYear}` : "",
+        record.semester || "",
+        record.section || "",
+        `${examType} Exam Schedule`
+    ].filter(Boolean).join(" ");
+
+    const pageHtml = `
+        <div class="page">
+            <div class="header-section">
+                <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
+                <div class="header-text">
+                    <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
+                    <div class="dtlc-name">Dual Training and Livelihood Center</div>
+                    <div class="campus-name">LUCENA CAMPUS</div>
+                    <div class="city-name">Lucena City</div>
+                </div>
+                <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
+            </div>
+            <div class="divider"></div>
+            <div class="title-section">SCHEDULES OF ${escapeHtml(examTypeUpper)} EXAMINATIONS</div>
+            <div class="section-row">${sectionName}</div>
+            ${dayTablesHtml}
+        </div>
+    `;
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(docTitle)}</title>${printStyles}</head><body>${pageHtml}</body></html>`;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+        showToast("The print window was blocked by the browser. Please allow popups for this site.");
+        return;
+    }
+
+    printWindow.document.write(fullHtml);
+    printWindow.document.close();
+    printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -246,6 +409,9 @@ function renderProctoringTable() {
             <td>${escapeHtml(item.semester || "—")}</td>
             <td>${escapeHtml(item.section || "—")}</td>
             <td>${escapeHtml(item.examType || "—")}</td>
+            <td>
+                <button type="button" class="archive-view-pdf view-proctoring-pdf-btn" data-record-id="${escapeHtml(item.id)}">View PDF</button>
+            </td>
         </tr>
     `).join("");
 }
@@ -318,6 +484,15 @@ document.getElementById("proctorSection")?.addEventListener("change", event => {
 document.getElementById("proctorExamType")?.addEventListener("change", event => {
     filterExamType = event.target.value;
     renderProctoringTable();
+});
+
+document.getElementById("proctoringTableBody")?.addEventListener("click", event => {
+    const btn = event.target.closest(".view-proctoring-pdf-btn");
+    if (!btn) return;
+    const recordId = btn.dataset.recordId;
+    if (recordId) {
+        openProctoringSchedulePdf(recordId);
+    }
 });
 
 document.getElementById("deleteAllProctoringBtn")?.addEventListener("click", deleteAllProctoringSchedules);

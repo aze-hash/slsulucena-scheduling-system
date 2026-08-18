@@ -392,10 +392,6 @@ function populateSectionSelect() {
     if (!sections.length) {
         sectionSelect.innerHTML = '<option value="">No sections assigned to you yet</option>';
         sectionSelect.disabled = true;
-        if (examDateSelect) {
-            examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
-            examDateSelect.disabled = true;
-        }
         if (examJourneyPreview) {
             examJourneyPreview.hidden = true;
             examJourneyPreview.innerHTML = "";
@@ -409,10 +405,6 @@ function populateSectionSelect() {
         ${sections.map(section => `<option value="${safe(section)}">${safe(section)}</option>`).join("")}
     `;
 
-    if (examDateSelect) {
-        examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
-        examDateSelect.disabled = true;
-    }
     if (examJourneyPreview) {
         examJourneyPreview.hidden = true;
         examJourneyPreview.innerHTML = "";
@@ -426,83 +418,16 @@ function handleSectionChange() {
         examJourneyPreview.innerHTML = "";
     }
 
-    if (!selectedSection) {
-        if (examDateSelect) {
-            examDateSelect.innerHTML = '<option value="">-- Select section first --</option>';
-            examDateSelect.disabled = true;
-        }
-        return;
-    }
-
-    const matchingSchedules = assignedExamSchedules.filter(s => s.section === selectedSection);
-    const datesMap = new Map();
-
-    matchingSchedules.forEach(schedule => {
-        const examDatesObj = schedule.examDates || {};
-        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-
-        Object.entries(examDatesObj).forEach(([dayLabel, dateStr]) => {
-            if (dateStr) {
-                const formatted = formatExamDate(dateStr);
-                const fullLabel = formatted ? `${formatted} (${dayLabel})` : dateStr;
-                datesMap.set(dateStr, fullLabel);
-            }
-        });
-
-        exams.forEach(exam => {
-            if (exam.day && examDatesObj[exam.day]) {
-                const dateStr = examDatesObj[exam.day];
-                const formatted = formatExamDate(dateStr);
-                const fullLabel = formatted ? `${formatted} (${exam.day})` : dateStr;
-                datesMap.set(dateStr, fullLabel);
-            }
-        });
-    });
-
-    if (!datesMap.size) {
-        if (examDateSelect) {
-            examDateSelect.innerHTML = '<option value="">No exam dates found for this section</option>';
-            examDateSelect.disabled = true;
-        }
-        return;
-    }
-
-    if (examDateSelect) {
-        examDateSelect.disabled = false;
-        examDateSelect.innerHTML = `
-            <option value="">-- Select assigned exam date --</option>
-            ${Array.from(datesMap.entries()).map(([dateStr, label]) => `<option value="${safe(dateStr)}">${safe(label)}</option>`).join("")}
-        `;
-    }
-}
-
-function handleExamDateChange() {
-    const selectedSection = sectionSelect.value;
-    const selectedDate = examDateSelect ? examDateSelect.value : "";
-
-    if (!selectedSection || !selectedDate) {
-        if (examJourneyPreview) {
-            examJourneyPreview.hidden = true;
-            examJourneyPreview.innerHTML = "";
-        }
-        return;
-    }
+    if (!selectedSection) return;
 
     const matchingSchedules = assignedExamSchedules.filter(s => s.section === selectedSection);
     const affectedExams = [];
 
     matchingSchedules.forEach(schedule => {
-        const examDatesObj = schedule.examDates || {};
         const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-
-        const matchingDays = Object.entries(examDatesObj)
-            .filter(([dayLabel, dateStr]) => dateStr === selectedDate)
-            .map(([dayLabel]) => dayLabel);
-
-        const dayExams = exams.filter(e => matchingDays.includes(e.day) || e.day === selectedDate);
-        dayExams.forEach(exam => {
+        exams.forEach(exam => {
             affectedExams.push({
-                day: exam.day,
+                day: exam.day || "-",
                 time: exam.time || "-",
                 code: exam.code || exam.subjectCode || "-",
                 name: exam.name || exam.subjectName || "-",
@@ -515,31 +440,31 @@ function handleExamDateChange() {
     if (!affectedExams.length) {
         if (examJourneyPreview) {
             examJourneyPreview.hidden = false;
-            examJourneyPreview.innerHTML = '<div class="empty-state">No scheduled exams found on this date.</div>';
+            examJourneyPreview.innerHTML = '<div class="empty-state">No scheduled exams found for this section.</div>';
         }
         return;
     }
 
     const rows = affectedExams.map(exam => `
         <tr>
+            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.day)}</td>
             <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.time)}</td>
             <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.code)} — ${safe(exam.name)}</td>
             <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.room)}</td>
         </tr>
     `).join("");
 
-    const formattedDate = formatExamDate(selectedDate);
-
     if (examJourneyPreview) {
         examJourneyPreview.hidden = false;
         examJourneyPreview.innerHTML = `
             <div class="exam-journey-card" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin: 10px 0;">
                 <div style="font-weight: 600; margin-bottom: 8px; color: #1e293b;">
-                    📅 Exam Day Journey Timetable Preview (${safe(formattedDate || selectedDate)}):
+                    Section Timetable Preview (${safe(selectedSection)}):
                 </div>
                 <table class="exam-pdf-style" style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
                     <thead>
                         <tr style="background: #e2e8f0; text-align: left;">
+                            <th style="padding: 6px;">DAY</th>
                             <th style="padding: 6px;">TIME</th>
                             <th style="padding: 6px;">SUBJECT</th>
                             <th style="padding: 6px;">ROOM</th>
@@ -596,19 +521,19 @@ function renderRequestNotifications(requests) {
     requestNotifications.innerHTML = reviewed.map(request => {
         const status = normalize(request.status);
         const isApproved = status === "approved";
-        const isReplacementFaculty = request.replacementFacultyId === currentFacultyUid;
-        const icon = isApproved ? "✓" : "✕";
-        const title = isApproved ? "Request Approved" : "Request Denied";
-        
+        const isReplacementFaculty = request.replacementFacultyId === currentFacultyUid && request.facultyUid !== currentFacultyUid;
+        const icon = isReplacementFaculty ? "📋" : (isApproved ? "✓" : "✕");
+        const title = isReplacementFaculty 
+            ? "New Proctoring Assignment" 
+            : (isApproved ? "Reschedule Request Approved" : "Reschedule Request Denied");
+
         let message = "";
-        if (isApproved) {
-            if (isReplacementFaculty) {
-                message = `You have been assigned as replacement proctor for ${safe(request.section || "section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")}.`;
-            } else {
-                message = `Your reschedule request for ${safe(request.section || "your section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")} has been approved. Reassigned to ${safe(request.replacementFacultyName || "replacement faculty")}.`;
-            }
+        if (isReplacementFaculty) {
+            message = `You have been assigned as replacement proctor for ${safe(request.section || "section")}.`;
+        } else if (isApproved) {
+            message = `Your reschedule request for ${safe(request.section || "your section")} has been approved. Reassigned to ${safe(request.replacementFacultyName || "replacement faculty")}.`;
         } else {
-            message = `Your reschedule request for ${safe(request.section || "your section")} on ${safe(request.examDateLabel || request.examDate || "the assigned date")} was denied by the admin.`;
+            message = `Your reschedule request for ${safe(request.section || "your section")} was denied by the admin.`;
         }
 
         return `
@@ -627,14 +552,25 @@ function renderRequestNotifications(requests) {
 function watchRescheduleNotifications() {
     if (!currentFacultyUid) return;
 
+    const myRequestsMap = new Map();
+    const replacementRequestsMap = new Map();
+
+    const updateCombinedNotifications = () => {
+        const combined = new Map();
+        myRequestsMap.forEach((val, key) => combined.set(key, val));
+        replacementRequestsMap.forEach((val, key) => combined.set(key, val));
+        renderRequestNotifications(Array.from(combined.values()));
+    };
+
     onSnapshot(
         query(
             collection(db, "rescheduleRequests"),
             where("facultyUid", "==", currentFacultyUid)
         ),
         snapshot => {
-            const requests = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            renderRequestNotifications(requests);
+            myRequestsMap.clear();
+            snapshot.docs.forEach(docSnap => myRequestsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() }));
+            updateCombinedNotifications();
         },
         error => {
             console.error("Could not watch reschedule notifications:", error);
@@ -648,8 +584,9 @@ function watchRescheduleNotifications() {
             where("replacementFacultyId", "==", currentFacultyUid)
         ),
         snapshot => {
-            const replacementRequests = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-            renderRequestNotifications(replacementRequests);
+            replacementRequestsMap.clear();
+            snapshot.docs.forEach(docSnap => replacementRequestsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() }));
+            updateCombinedNotifications();
         },
         error => {
             console.error("Could not watch replacement reschedule notifications:", error);
@@ -678,16 +615,10 @@ async function handleRescheduleSubmit(event) {
     event.preventDefault();
 
     const section = sectionSelect.value;
-    const examDate = examDateSelect ? examDateSelect.value : "";
     const reason = reasonInput.value.trim();
 
     if (!section) {
         showRequestStatus("Please select a section.", "error");
-        return;
-    }
-
-    if (!examDate) {
-        showRequestStatus("Please select an assigned exam date.", "error");
         return;
     }
 
@@ -696,52 +627,37 @@ async function handleRescheduleSubmit(event) {
         return;
     }
 
-    const selectedDateLabel = examDateSelect && examDateSelect.selectedIndex >= 0
-        ? examDateSelect.options[examDateSelect.selectedIndex].text
-        : examDate;
-
-    // Check for duplicate pending requests in rescheduleRequests matching requestingFacultyId + section + examDate
+    // Check for duplicate pending requests in rescheduleRequests matching requestingFacultyId + section
     const pendingRequests = await loadPendingRequests();
     const alreadyPending = pendingRequests.some(request =>
-        normalize(request.section) === normalize(section) &&
-        (request.examDate === examDate || normalize(request.examDateLabel) === normalize(selectedDateLabel))
+        normalize(request.section) === normalize(section)
     );
 
     if (alreadyPending) {
-        showRequestStatus(`You already have a pending reschedule request for ${section} on ${selectedDateLabel}. Please wait for the chairperson to review it.`, "error");
+        showRequestStatus(`You already have a pending reschedule request for ${section}. Please wait for the chairperson to review it.`, "error");
         return;
     }
 
-    // Collect affected exams & schedule doc IDs
+    // Collect affected exams & schedule doc IDs for this section
     const matchingSchedules = assignedExamSchedules.filter(s => s.section === section);
     const affectedExams = [];
-    const affectedScheduleIds = [];
+    const affectedScheduleIds = matchingSchedules.map(s => s.id);
 
     matchingSchedules.forEach(schedule => {
-        const examDatesObj = schedule.examDates || {};
         const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-
-        const matchingDays = Object.entries(examDatesObj)
-            .filter(([dayLabel, dateStr]) => dateStr === examDate)
-            .map(([dayLabel]) => dayLabel);
-
-        const dayExams = exams.filter(e => matchingDays.includes(e.day) || e.day === examDate);
-        if (dayExams.length > 0) {
-            if (!affectedScheduleIds.includes(schedule.id)) {
-                affectedScheduleIds.push(schedule.id);
-            }
-            dayExams.forEach(exam => {
-                affectedExams.push({
-                    day: exam.day,
-                    time: exam.time || "-",
-                    code: exam.code || exam.subjectCode || "-",
-                    name: exam.name || exam.subjectName || "-",
-                    room: exam.room || "-",
-                    scheduleId: schedule.id
-                });
+        exams.forEach(exam => {
+            affectedExams.push({
+                day: exam.day || "-",
+                time: exam.time || "-",
+                code: exam.code || exam.subjectCode || "-",
+                name: exam.name || exam.subjectName || "-",
+                room: exam.room || "-",
+                scheduleId: schedule.id
             });
-        }
+        });
     });
+
+    const examType = matchingSchedules[0]?.examType || matchingSchedules[0]?.title || "Exam Schedule";
 
     submitRequestBtn.disabled = true;
     submitRequestBtn.textContent = "Submitting...";
@@ -749,8 +665,9 @@ async function handleRescheduleSubmit(event) {
     try {
         const requestData = {
             section: section,
-            examDate: examDate,
-            examDateLabel: selectedDateLabel,
+            examType: examType,
+            examDate: "All Exam Days",
+            examDateLabel: "Entire Schedule",
             requestingFacultyId: currentFacultyUid,
             requestingFacultyName: currentFacultyName,
             facultyUid: currentFacultyUid,
@@ -769,7 +686,7 @@ async function handleRescheduleSubmit(event) {
 
         await addDoc(collection(db, "rescheduleRequests"), requestData);
 
-        showRequestStatus(`Your reschedule request for ${section} on ${selectedDateLabel} has been submitted to the chairperson for review.`);
+        showRequestStatus(`Your reschedule request for ${section} has been submitted to the chairperson for review.`);
         rescheduleForm.reset();
         populateSectionSelect();
     } catch (error) {
@@ -949,7 +866,6 @@ recentExamSearchInput?.addEventListener("input", () => {
 });
 
 sectionSelect?.addEventListener("change", handleSectionChange);
-examDateSelect?.addEventListener("change", handleExamDateChange);
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
