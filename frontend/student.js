@@ -14,9 +14,17 @@ import {
 
 const classScheduleContainer = document.getElementById("classScheduleContainer");
 const examScheduleContainer = document.getElementById("examScheduleContainer");
+const classSearchInput = document.getElementById("classSearchInput");
 const navStudentName = document.getElementById("navStudentName");
 const navStudentProgramMajor = document.getElementById("navStudentProgramMajor");
 const logoutBtn = document.getElementById("logoutBtn");
+
+const PINNED_CLASS_KEY = "studentPinnedClassScheduleId";
+const PINNED_EXAM_KEY = "studentPinnedExamScheduleId";
+
+let allClassSchedules = [];
+let allExamSchedules = [];
+let classSearchTerm = "";
 
 function safe(value) {
     return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -42,13 +50,59 @@ function formatAcademicInfo(schedule) {
     return parts.join(" • ") || "Schedule";
 }
 
-function renderClassSchedules(schedules) {
-    if (!schedules.length) {
+function getPinnedClassId() {
+    return localStorage.getItem(PINNED_CLASS_KEY) || "";
+}
+
+function setPinnedClassId(id) {
+    if (id) {
+        localStorage.setItem(PINNED_CLASS_KEY, id);
+    } else {
+        localStorage.removeItem(PINNED_CLASS_KEY);
+    }
+}
+
+function getPinnedExamId() {
+    return localStorage.getItem(PINNED_EXAM_KEY) || "";
+}
+
+function setPinnedExamId(id) {
+    if (id) {
+        localStorage.setItem(PINNED_EXAM_KEY, id);
+    } else {
+        localStorage.removeItem(PINNED_EXAM_KEY);
+    }
+}
+
+function renderClassSchedules() {
+    if (!allClassSchedules.length) {
         classScheduleContainer.innerHTML = '<div class="empty-state">No class schedules found for your program and major.</div>';
         return;
     }
 
-    classScheduleContainer.innerHTML = schedules.map(schedule => {
+    // 1. Filter by Section search term
+    let filtered = allClassSchedules;
+    if (classSearchTerm) {
+        filtered = filtered.filter(schedule => {
+            const sectionName = normalize(schedule.section || schedule.name || "");
+            return sectionName.includes(classSearchTerm);
+        });
+    }
+
+    if (!filtered.length) {
+        classScheduleContainer.innerHTML = '<div class="empty-state">No class schedules match your section search.</div>';
+        return;
+    }
+
+    // 2. Check pinning state
+    const pinnedId = getPinnedClassId();
+    const hasPinnedMatch = pinnedId && filtered.some(s => s.id === pinnedId);
+
+    // If a schedule is pinned and present in filtered list, show ONLY the pinned schedule!
+    const displayList = hasPinnedMatch ? filtered.filter(s => s.id === pinnedId) : filtered;
+
+    classScheduleContainer.innerHTML = displayList.map(schedule => {
+        const isPinned = schedule.id === pinnedId;
         const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
 
         const rows = entries.length
@@ -65,10 +119,15 @@ function renderClassSchedules(schedules) {
             : `<tr><td colspan="6">No class entries available.</td></tr>`;
 
         return `
-            <article class="schedule-card">
+            <article class="schedule-card" data-id="${safe(schedule.id)}">
                 <div class="schedule-header">
-                    <h4>${safe(schedule.name || schedule.section || "Class Schedule")}</h4>
-                    <small>${safe(formatAcademicInfo(schedule))}</small>
+                    <div class="schedule-header-title">
+                        <h4>${safe(schedule.section || schedule.name || "Class Schedule")}</h4>
+                        <small>${safe(formatAcademicInfo(schedule))}</small>
+                    </div>
+                    <button type="button" class="pin-btn ${isPinned ? "pinned" : ""}" data-type="class" data-id="${safe(schedule.id)}">
+                        ${isPinned ? "📌 Pinned" : "📌 Pin"}
+                    </button>
                 </div>
                 <div class="table-container">
                     <table>
@@ -90,13 +149,21 @@ function renderClassSchedules(schedules) {
     }).join("");
 }
 
-function renderExamSchedules(schedules) {
-    if (!schedules.length) {
+function renderExamSchedules() {
+    if (!allExamSchedules.length) {
         examScheduleContainer.innerHTML = '<div class="empty-state">No exam schedules found for your program and major.</div>';
         return;
     }
 
-    examScheduleContainer.innerHTML = schedules.map(schedule => {
+    // Check pinning state
+    const pinnedId = getPinnedExamId();
+    const hasPinnedMatch = pinnedId && allExamSchedules.some(s => s.id === pinnedId);
+
+    // If a schedule is pinned, show ONLY the pinned schedule!
+    const displayList = hasPinnedMatch ? allExamSchedules.filter(s => s.id === pinnedId) : allExamSchedules;
+
+    examScheduleContainer.innerHTML = displayList.map(schedule => {
+        const isPinned = schedule.id === pinnedId;
         const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
 
         const rows = exams.length
@@ -112,10 +179,15 @@ function renderExamSchedules(schedules) {
             : `<tr><td colspan="5">No exam entries available.</td></tr>`;
 
         return `
-            <article class="schedule-card">
+            <article class="schedule-card" data-id="${safe(schedule.id)}">
                 <div class="schedule-header">
-                    <h4>${safe(schedule.title || schedule.section || "Exam Schedule")}</h4>
-                    <small>${safe(formatAcademicInfo(schedule))}</small>
+                    <div class="schedule-header-title">
+                        <h4>${safe(schedule.section || schedule.title || "Exam Schedule")}</h4>
+                        <small>${safe(formatAcademicInfo(schedule))}</small>
+                    </div>
+                    <button type="button" class="pin-btn ${isPinned ? "pinned" : ""}" data-type="exam" data-id="${safe(schedule.id)}">
+                        ${isPinned ? "📌 Pinned" : "📌 Pin"}
+                    </button>
                 </div>
                 <div class="table-container">
                     <table>
@@ -134,6 +206,33 @@ function renderExamSchedules(schedules) {
             </article>
         `;
     }).join("");
+}
+
+function handlePinToggle(event) {
+    const btn = event.target.closest(".pin-btn");
+    if (!btn) return;
+
+    const type = btn.dataset.type;
+    const id = btn.dataset.id;
+    if (!type || !id) return;
+
+    if (type === "class") {
+        const currentPinned = getPinnedClassId();
+        if (currentPinned === id) {
+            setPinnedClassId("");
+        } else {
+            setPinnedClassId(id);
+        }
+        renderClassSchedules();
+    } else if (type === "exam") {
+        const currentPinned = getPinnedExamId();
+        if (currentPinned === id) {
+            setPinnedExamId("");
+        } else {
+            setPinnedExamId(id);
+        }
+        renderExamSchedules();
+    }
 }
 
 async function initializeStudentDashboard() {
@@ -167,16 +266,16 @@ async function initializeStudentDashboard() {
             const classSnapshot = await getDocs(collection(db, "classSchedules"));
             const examSnapshot = await getDocs(collection(db, "examSchedules"));
 
-            const classSchedules = classSnapshot.docs
+            allClassSchedules = classSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
                 .filter(schedule => normalize(schedule.program) === program && normalize(schedule.major) === major);
 
-            const examSchedules = examSnapshot.docs
+            allExamSchedules = examSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
                 .filter(schedule => normalize(schedule.program) === program && normalize(schedule.major) === major);
 
-            renderClassSchedules(classSchedules);
-            renderExamSchedules(examSchedules);
+            renderClassSchedules();
+            renderExamSchedules();
         } catch (error) {
             console.error("Could not load student dashboard:", error);
             classScheduleContainer.innerHTML = '<div class="empty-state">Unable to load your schedules right now.</div>';
@@ -184,6 +283,16 @@ async function initializeStudentDashboard() {
         }
     });
 }
+
+if (classSearchInput) {
+    classSearchInput.addEventListener("input", () => {
+        classSearchTerm = normalize(classSearchInput.value);
+        renderClassSchedules();
+    });
+}
+
+classScheduleContainer.addEventListener("click", handlePinToggle);
+examScheduleContainer.addEventListener("click", handlePinToggle);
 
 logoutBtn.addEventListener("click", async () => {
     try {

@@ -21,7 +21,8 @@
       {
         "ignore": [
           "backdrop-filter",
-          "min-height: auto"
+          "min-height: auto",
+          "-webkit-overflow-scrolling"
         ]
       }
     ],

@@ -298,6 +298,28 @@ async function loadClassArchiveData() {
         }
 
         classArchiveRecords = merged;
+        // Deduplicate merged records by title + academicYear + semester (keeping newest)
+        const dedupedMap = new Map();
+        merged.forEach(item => {
+            const key = [
+                normalise(item.title || item.section || item.name),
+                normalise(item.academicYear),
+                normalise(item.semester)
+            ].join("::");
+
+            const existing = dedupedMap.get(key);
+            if (!existing) {
+                dedupedMap.set(key, item);
+            } else {
+                const existingTime = new Date(existing.exportedAt || existing.createdAt || 0).getTime();
+                const itemTime = new Date(item.exportedAt || item.createdAt || 0).getTime();
+                if (itemTime > existingTime) {
+                    dedupedMap.set(key, item);
+                }
+            }
+        });
+
+        classArchiveRecords = Array.from(dedupedMap.values());
         renderClassArchive();
     } catch (error) {
         console.error("Could not load class archive data:", error);
@@ -465,7 +487,31 @@ function viewExamSchedulePdf(reportId) {
 async function loadExamArchiveData() {
     try {
         const allReports = await loadReportsFromFirestore();
-        examArchiveReports = allReports.filter(r => r.category === "Exam Schedule");
+        const examReports = allReports.filter(r => r.category === "Exam Schedule");
+
+        // Deduplicate exam reports by title/examType + academicYear + semester (keeping newest)
+        const dedupedMap = new Map();
+        examReports.forEach(item => {
+            const key = [
+                normalise(item.title || item.filename || "Exam Schedule"),
+                normalise(item.examType),
+                normalise(item.academicYear),
+                normalise(item.semester)
+            ].join("::");
+
+            const existing = dedupedMap.get(key);
+            if (!existing) {
+                dedupedMap.set(key, item);
+            } else {
+                const existingTime = new Date(existing.createdAt || 0).getTime();
+                const itemTime = new Date(item.createdAt || 0).getTime();
+                if (itemTime > existingTime) {
+                    dedupedMap.set(key, item);
+                }
+            }
+        });
+
+        examArchiveReports = Array.from(dedupedMap.values());
         renderExamArchive();
     } catch (error) {
         console.error("Could not load exam archive data:", error);

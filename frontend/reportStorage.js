@@ -3,6 +3,7 @@ import { db } from "../firebase.js";
 import {
     collection,
     addDoc,
+    setDoc,
     getDocs,
     deleteDoc,
     doc
@@ -19,11 +20,13 @@ const REPORTS_COLLECTION = "reports";
 export function reportDocId(report) {
     const parts = [
         report.category || "",
+        report.title || "",
         report.academicYear || "",
         report.semester || "",
         report.examType || ""
     ].join("_");
-    return parts.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "");
+    const raw = parts.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "");
+    return raw || crypto.randomUUID();
 }
 
 /**
@@ -31,7 +34,9 @@ export function reportDocId(report) {
  * @param {Object} report - { category, academicYear, semester, yearLevel, examType, title, filename, html }
  */
 export async function saveReportToFirestore(report) {
-    const docRef = await addDoc(collection(db, REPORTS_COLLECTION), {
+    const docId = report.id || reportDocId(report);
+    const docRef = doc(db, REPORTS_COLLECTION, docId);
+    await setDoc(docRef, {
         category: report.category || "",
         academicYear: report.academicYear || "",
         semester: report.semester || "",
@@ -40,9 +45,10 @@ export async function saveReportToFirestore(report) {
         title: report.title || "",
         filename: report.filename || "",
         html: report.html || "",
-        createdAt: new Date()
-    });
-    return docRef.id;
+        createdAt: new Date(),
+        updatedAt: new Date()
+    }, { merge: true });
+    return docId;
 }
 
 /**

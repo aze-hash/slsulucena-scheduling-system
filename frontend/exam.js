@@ -1234,10 +1234,18 @@ function examRows(exams) {
 }
 
 function renderSavedExams() {
-    const schedules = readStorage(EXAM_SCHEDULES_KEY);
+    const rawSchedules = readStorage(EXAM_SCHEDULES_KEY);
     const empty = document.getElementById("emptyExamSchedules");
     const list = document.getElementById("savedExamSchedules");
     if (!list || !empty) return;
+
+    /* Sort latest saved or generated exam schedule to the top */
+    const schedules = [...rawSchedules].sort((a, b) => {
+        const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return bTime - aTime;
+    });
+
     empty.hidden = schedules.length > 0;
     list.innerHTML = schedules.map(schedule => `<article style="margin-top:16px">
         <div class="section-header"><div><h4 style="margin:0">${escapeHtml(schedule.title)}</h4>
@@ -1699,10 +1707,10 @@ async function loadExamSchedulesFromFirestore() {
     try {
         const examSchedulesCollection = collection(db, EXAM_SCHEDULES_COLLECTION);
         const snapshot = await getDocs(examSchedulesCollection);
-        return snapshot.docs.map(document => {
+        const loaded = snapshot.docs.map(document => {
             const data = document.data();
 
-return {
+            return {
                 id: document.id,
                 classScheduleId: data.classScheduleId || "",
                 title: data.title || "",
@@ -1717,8 +1725,16 @@ return {
                 examType: data.examType || "",
                 examDates: data.examDates || {},
                 exams: data.exams || [],
-                createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString()
+                createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString(),
+                updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || data.updatedAt || null
             };
+        });
+
+        /* Sort latest saved exam schedules to the top */
+        return loaded.sort((a, b) => {
+            const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+            const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+            return bTime - aTime;
         });
     } catch (error) {
         console.error("Could not load exam schedules from Firestore:", error);
