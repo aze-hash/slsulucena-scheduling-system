@@ -98,7 +98,7 @@
     <div class="card">
         <div class="section-header">
             <h3>Saved Schedules</h3>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <div class="export-btn-container">
                 <button id="exportPdfBtn" type="button">Export All to PDF</button>
                 <button id="deleteAllBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
             </div>
@@ -186,5 +186,12 @@
     </div>
 </div>
 
+<div id="exportConfirmModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <p>Are you sure you want to export all of this to PDF?</p>
+    <button id="exportConfirmYes" class="modal-btn">Yes</button>
+    <button id="exportConfirmNo" class="modal-btn">No</button>
+  </div>
+</div>
 </body>
 </html>

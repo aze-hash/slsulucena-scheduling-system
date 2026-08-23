@@ -1131,6 +1131,21 @@ document.getElementById("deleteAllBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("exportPdfBtn").addEventListener("click", async () => {
+    const modal = document.getElementById("exportConfirmModal");
+    modal.style.display = "flex";
+    const confirmed = await new Promise(resolve => {
+        const yesBtn = document.getElementById("exportConfirmYes");
+        const noBtn = document.getElementById("exportConfirmNo");
+        const cleanup = () => {
+            yesBtn.removeEventListener("click", onYes);
+            noBtn.removeEventListener("click", onNo);
+        };
+        const onYes = () => { cleanup(); modal.style.display = "none"; resolve(true); };
+        const onNo = () => { cleanup(); modal.style.display = "none"; resolve(false); };
+        yesBtn.addEventListener("click", onYes);
+        noBtn.addEventListener("click", onNo);
+    });
+    if (!confirmed) return;
     /* Only ACTIVE schedules are eligible for export + archiving.
        Archived schedules stay in the archive and are never re-exported here. */
     const schedules = getSavedSchedules().filter(
