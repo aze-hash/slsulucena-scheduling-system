@@ -1,4 +1,5 @@
-import { db } from "../firebase.js";
+import { db, auth } from "../firebase.js";
+import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { deleteReportsByCategoryFromFirestore } from "./reportStorage.js";
 
 import {
@@ -225,7 +226,7 @@ function openProctoringSchedulePdf(recordId) {
         return;
     }
 
-    const logoUrl = new URL('logo (1).png', window.location.href).href;
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
     const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
 
     const examType = record.examType || "Preliminary";
@@ -495,6 +496,16 @@ document.getElementById("proctoringTableBody")?.addEventListener("click", event 
     }
 });
 
-document.getElementById("deleteAllProctoringBtn")?.addEventListener("click", deleteAllProctoringSchedules);
-
 loadProctoringData();
+
+document.getElementById("logoutLink")?.addEventListener("click", async event => {
+    event.preventDefault();
+    try {
+        if (auth) await signOut(auth);
+    } catch (e) {
+        console.error("Sign out error:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
+});

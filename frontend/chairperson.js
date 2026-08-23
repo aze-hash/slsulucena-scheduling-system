@@ -25,14 +25,14 @@ let candidateFacultyList = [];
 
 onAuthStateChanged(auth, async user => {
     if (!user) {
-        location.href = "login.html";
+        window.location.replace("login.html");
         return;
     }
 
     const profile = await getDoc(doc(db, "users", user.uid));
 
     if (!profile.exists() || profile.data().role !== "Admin") {
-        location.href = "login.html";
+        window.location.replace("login.html");
         return;
     }
 
@@ -591,8 +591,14 @@ function safe(value) {
 
 document.getElementById("logoutLink")?.addEventListener("click", async event => {
     event.preventDefault();
-    await signOut(auth);
-    location.href = "login.html";
+    try {
+        await signOut(auth);
+    } catch (e) {
+        console.error("Sign out error:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
 });
 
 document.getElementById("closeModalBtn")?.addEventListener("click", closeRequestModal);

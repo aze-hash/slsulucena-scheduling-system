@@ -59,7 +59,7 @@ nav{
   object-fit:contain;
   border-radius:50%;
   background:white;
-  padding:3px;
+  padding:1px;
   flex-shrink:0;
 }
 
@@ -234,7 +234,6 @@ nav ul li a:hover{
   margin-bottom:10px;
   border-radius:50%;
   background:white;
-  padding:5px;
 }
 
 .login-box h2{
@@ -361,7 +360,7 @@ nav ul li a:hover{
 
 <nav>
   <div class="logo">
-    <img src="logo (1).png" alt="SLSU Logo">
+    <img src="new slsu logo.jpg" alt="SLSU Logo">
     <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
   </div>
 
@@ -381,7 +380,7 @@ nav ul li a:hover{
 <div class="login-container">
   <div class="login-box">
 
-    <img src="logo (1).png" alt="SLSU Logo">
+    <img src="new slsu logo.jpg" alt="SLSU Logo">
 
     <h2>Login</h2>
 
@@ -469,7 +468,8 @@ import {
 
 import {
   doc,
-  getDoc
+  getDoc,
+  getDocFromCache
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 const loginForm = document.getElementById("loginForm");
@@ -505,11 +505,20 @@ loginForm.addEventListener("submit", async event => {
       password
     );
 
-    const userSnapshot = await getDoc(
-      doc(db, "users", credential.user.uid)
-    );
+    let userSnapshot;
+    const userDocRef = doc(db, "users", credential.user.uid);
+    try {
+      userSnapshot = await getDoc(userDocRef);
+    } catch (docErr) {
+      console.warn("Server getDoc failed, attempting cache fetch:", docErr);
+      try {
+        userSnapshot = await getDocFromCache(userDocRef);
+      } catch (cacheErr) {
+        throw docErr;
+      }
+    }
 
-    if (!userSnapshot.exists()) {
+    if (!userSnapshot || !userSnapshot.exists()) {
       throw new Error("User profile was not found.");
     }
 
@@ -522,15 +531,18 @@ loginForm.addEventListener("submit", async event => {
       return;
     }
 
-    window.location.href = rolePages[userData.role];
+    window.location.replace(rolePages[userData.role]);
 
   } catch (error) {
-    console.error(error);
+    console.error("Login error:", error);
 
-    loginMessage.textContent =
-      error.code === "auth/invalid-credential"
-        ? "Invalid email or password."
-        : error.message;
+    if (error.code === "unavailable" || (error.message && error.message.toLowerCase().includes("offline"))) {
+      loginMessage.textContent = "Network connection lost. Please check your internet connection and try again.";
+    } else if (error.code === "auth/invalid-credential") {
+      loginMessage.textContent = "Invalid email or password.";
+    } else {
+      loginMessage.textContent = error.message || "An error occurred during login.";
+    }
 
     loginButton.disabled = false;
     loginButton.textContent = "Login";
@@ -556,6 +568,12 @@ document.getElementById("forgotPasswordLink").addEventListener("click", async ev
     loginMessage.textContent = error.message;
   }
 });
+
+// Prevent back-button navigation to protected pages after logout
+window.history.pushState(null, "", window.location.href);
+window.onpopstate = function () {
+  window.history.pushState(null, "", window.location.href);
+};
 </script>
 
 </body>

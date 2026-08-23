@@ -256,12 +256,13 @@
       color: #444;
     }
 
-    /* Team / Values */
+    /* Team / Values Carousel */
     .values {
       background: white;
-      padding: 80px 60px;
+      padding: 80px 2%;
       margin-top: -110px;
       text-align: center;
+      overflow: hidden;
     }
 
     .values h2 {
@@ -270,45 +271,11 @@
       margin-bottom: 50px;
     }
 
-    .values-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 24px;
-      max-width: 1100px;
-      margin: 0 auto;
-    }
-
-    .value-card {
-      background: var(--light);
-      padding: 30px;
-      border-radius: 20px;
-      box-shadow: 0 8px 18px var(--shadow);
-      transition: 0.3s;
-    }
-
-    .value-card:hover {
-      transform: translateY(-8px);
-    }
-
-    .value-card .icon {
-      font-size: 2.4rem;
-      margin-bottom: 15px;
-    }
-
-    .value-card h3 {
-      color: var(--primary);
-      margin-bottom: 12px;
-    }
-
-    .value-card p {
-      line-height: 1.7;
-      color: #555;
-    }
-
-    /* Technology section */
+    /* Technology Section Carousel */
     .tech-section {
-      padding: 80px 6%;
+      padding: 80px 2%;
       text-align: center;
+      overflow: hidden;
     }
 
     .tech-section h2 {
@@ -317,39 +284,136 @@
       margin-bottom: 50px;
     }
 
-    .tech-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 24px;
-      max-width: 1000px;
+    /* Shared Carousel Wrappers & Controls */
+    .carousel-wrapper {
+      position: relative;
+      max-width: 1200px;
       margin: 0 auto;
+      padding: 0 45px;
+    }
+
+    .carousel-track-container {
+      overflow: hidden;
+      width: 100%;
+      padding: 25px 0;
+    }
+
+    .carousel-track {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+      will-change: transform;
+    }
+
+    /* Value & Tech Cards - Center Focus & Blurred Side Cards */
+    .value-card, .tech-card {
+      flex: 0 0 clamp(280px, 55%, 480px);
+      padding: 35px 28px;
+      border-radius: 20px;
+      box-shadow: 0 6px 16px var(--shadow);
+      transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
+                  opacity 0.6s ease,
+                  filter 0.6s ease,
+                  box-shadow 0.6s ease;
+      opacity: 0.35;
+      filter: blur(5px);
+      transform: scale(0.85);
+      cursor: pointer;
+    }
+
+    .value-card {
+      background: var(--light);
     }
 
     .tech-card {
       background: white;
-      padding: 28px 20px;
-      border-radius: 20px;
-      box-shadow: 0 8px 18px var(--shadow);
-      transition: 0.3s;
     }
 
-    .tech-card:hover {
-      transform: translateY(-8px);
+    .value-card:hover, .tech-card:hover {
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
     }
 
-    .tech-card .icon {
-      font-size: 2.2rem;
+    .value-card.active, .tech-card.active {
+      opacity: 1;
+      filter: blur(0);
+      transform: scale(1);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+      z-index: 2;
+      cursor: default;
+    }
+
+    .value-card .icon, .tech-card .icon {
+      font-size: 2.5rem;
       margin-bottom: 15px;
     }
 
-    .tech-card h3 {
+    .value-card h3, .tech-card h3 {
       color: var(--primary);
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      font-size: 1.35rem;
     }
 
-    .tech-card p {
-      line-height: 1.6;
-      color: #555;
+    .value-card p, .tech-card p {
+      line-height: 1.7;
+      color: #444;
+    }
+
+    /* Carousel Arrow Buttons */
+    .carousel-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--primary);
+      color: white;
+      border: none;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      font-size: 1.8rem;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      transition: background 0.3s, transform 0.3s;
+    }
+
+    .carousel-btn:hover {
+      background: var(--dark);
+      transform: translateY(-50%) scale(1.1);
+    }
+
+    .prev-btn {
+      left: 0;
+    }
+
+    .next-btn {
+      right: 0;
+    }
+
+    /* Carousel Pagination Dots */
+    .carousel-dots {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 25px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #878585;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.3s;
+    }
+
+    .dot.active {
+      background: var(--primary);
+      transform: scale(1.3);
     }
 
     /* CTA Section */
@@ -594,31 +658,13 @@
         margin-bottom: 30px;
       }
 
-      .values-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
+      .carousel-wrapper {
+        padding: 0 35px;
       }
 
-      .value-card {
-        padding: 24px 18px;
-      }
-
-      .tech-section {
-        padding: 50px 4%;
-      }
-
-      .tech-section h2 {
-        font-size: 1.8rem;
-        margin-bottom: 30px;
-      }
-
-      .tech-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
-      }
-
-      .tech-card {
-        padding: 24px 18px;
+      .value-card, .tech-card {
+        flex: 0 0 75%;
+        padding: 28px 20px;
       }
 
       .cta-section {
@@ -680,7 +726,7 @@
 
   <nav>
     <div class="logo-box">
-      <img src="logo (1).png" alt="SLSU Logo">
+      <img src="new slsu logo.jpg" alt="SLSU Logo">
       <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
     </div>
 
@@ -699,7 +745,7 @@
 
   <section class="page-header">
     <div class="page-header-content">
-      <h1>About the System</h1>
+      <h1>About</h1>
       <p>
         Discover the Automated Scheduling System of Southern Luzon State University Lucena Campus — designed to simplify class and examination scheduling, reduce conflicts, and support a more efficient academic planning process.
       </p>
@@ -730,56 +776,78 @@
     </div>
   </section>
 
+  <!-- Our Core Values Carousel -->
   <section class="values">
     <h2>Our Core Values</h2>
-    <div class="values-grid">
-      <div class="value-card">
-        <div class="icon">🎯</div>
-        <h3>Accuracy</h3>
-        <p>We strive to create precise and conflict-free schedules by carefully considering subjects, sections, faculty assignments, rooms, and examination requirements.</p>
+    <div class="carousel-wrapper" id="valuesWrapper">
+      <button class="carousel-btn prev-btn" id="valuesPrevBtn" aria-label="Previous value card">&#8249;</button>
+
+      <div class="carousel-track-container" id="valuesContainer">
+        <div class="carousel-track" id="valuesTrack">
+          <div class="value-card">
+            <div class="icon">🎯</div>
+            <h3>Accuracy</h3>
+            <p>We strive to create precise and conflict-free schedules by carefully considering subjects, sections, faculty assignments, rooms, and examination requirements.</p>
+          </div>
+          <div class="value-card">
+            <div class="icon">⚡</div>
+            <h3>Efficiency</h3>
+            <p>We reduce the time and effort required to prepare academic schedules through automated processes and organized schedule management.</p>
+          </div>
+          <div class="value-card">
+            <div class="icon">🛡️</div>
+            <h3>Reliability</h3>
+            <p>We provide a dependable platform that supports consistent scheduling and gives authorized users easy access to important academic schedule information.</p>
+          </div>
+          <div class="value-card">
+            <div class="icon">🌐</div>
+            <h3>Accessibility</h3>
+            <p>We make scheduling information easier to manage, view, and share, helping students, faculty, and academic personnel stay informed.</p>
+          </div>
+        </div>
       </div>
-      <div class="value-card">
-        <div class="icon">⚡</div>
-        <h3>Efficiency</h3>
-        <p>We reduce the time and effort required to prepare academic schedules through automated processes and organized schedule management.</p>
-      </div>
-      <div class="value-card">
-        <div class="icon">🛡️</div>
-        <h3>Reliability</h3>
-        <p>We provide a dependable platform that supports consistent scheduling and gives authorized users easy access to important academic schedule information.</p>
-      </div>
-      <div class="value-card">
-        <div class="icon">🌐</div>
-        <h3>Accessibility</h3>
-        <p>We make scheduling information easier to manage, view, and share, helping students, faculty, and academic personnel stay informed.</p>
-      </div>
+
+      <button class="carousel-btn next-btn" id="valuesNextBtn" aria-label="Next value card">&#8250;</button>
     </div>
+
+    <div class="carousel-dots" id="valuesDots"></div>
   </section>
 
+  <!-- Built on Modern Technology Carousel -->
   <section class="tech-section">
     <h2>Built on Modern Technology</h2>
-    <div class="tech-grid">
-      <div class="tech-card">
-        <div class="icon">💻</div>
-        <h3>Web-Based Access</h3>
-        <p>Access the scheduling system through a modern web browser without requiring additional software or installation.</p>
+    <div class="carousel-wrapper" id="techWrapper">
+      <button class="carousel-btn prev-btn" id="techPrevBtn" aria-label="Previous tech card">&#8249;</button>
+
+      <div class="carousel-track-container" id="techContainer">
+        <div class="carousel-track" id="techTrack">
+          <div class="tech-card">
+            <div class="icon">💻</div>
+            <h3>Web-Based Access</h3>
+            <p>Access the scheduling system through a modern web browser without requiring additional software or installation.</p>
+          </div>
+          <div class="tech-card">
+            <div class="icon">🔐</div>
+            <h3>Secure User Access</h3>
+            <p>Role-based authentication helps protect scheduling information and ensures that system features are available to authorized users.</p>
+          </div>
+          <div class="tech-card">
+            <div class="icon">⚙️</div>
+            <h3>Automated Scheduling</h3>
+            <p>The system automates the preparation of class and examination schedules while helping minimize conflicts and reduce manual work.</p>
+          </div>
+          <div class="tech-card">
+            <div class="icon">📄</div>
+            <h3>Schedule & Report Management</h3>
+            <p>View, manage, archive, and generate class and examination schedule records to support organized academic planning.</p>
+          </div>
+        </div>
       </div>
-      <div class="tech-card">
-        <div class="icon">🔐</div>
-        <h3>Secure User Access</h3>
-        <p>Role-based authentication helps protect scheduling information and ensures that system features are available to authorized users.</p>
-      </div>
-      <div class="tech-card">
-        <div class="icon">⚙️</div>
-        <h3>Automated Scheduling</h3>
-        <p>The system automates the preparation of class and examination schedules while helping minimize conflicts and reduce manual work.</p>
-      </div>
-      <div class="tech-card">
-        <div class="icon">📄</div>
-        <h3>Schedule & Report Management</h3>
-        <p>View, manage, archive, and generate class and examination schedule records to support organized academic planning.</p>
-      </div>
+
+      <button class="carousel-btn next-btn" id="techNextBtn" aria-label="Next tech card">&#8250;</button>
     </div>
+
+    <div class="carousel-dots" id="techDots"></div>
   </section>
 
   <footer>
@@ -791,6 +859,7 @@
   </footer>
 
   <script>
+    // Navigation Menu
     const hamburger = document.getElementById('hamburger');
     const navMenu = document.getElementById('nav-menu');
 
@@ -805,6 +874,161 @@
         hamburger.classList.remove('active');
         navMenu.classList.remove('open');
       });
+    });
+
+    // Reusable Center-Focused Blurred Carousel Initializer
+    function initCenterCarousel(wrapperId, trackId, containerId, prevBtnId, nextBtnId, dotsId) {
+      const track = document.getElementById(trackId);
+      const container = document.getElementById(containerId);
+      const wrapper = document.getElementById(wrapperId);
+      const prevBtn = document.getElementById(prevBtnId);
+      const nextBtn = document.getElementById(nextBtnId);
+      const dotsContainer = document.getElementById(dotsId);
+
+      if (!track || !container || !wrapper) return;
+
+      const originalCards = Array.from(track.children);
+      const realCount = originalCards.length;
+      if (realCount === 0) return;
+
+      // Clone full set of cards at beginning and end for 100% seamless infinite looping
+      originalCards.slice().reverse().forEach(card => {
+        const clone = card.cloneNode(true);
+        clone.classList.add('clone');
+        track.insertBefore(clone, track.firstChild);
+      });
+
+      originalCards.forEach(card => {
+        const clone = card.cloneNode(true);
+        clone.classList.add('clone');
+        track.appendChild(clone);
+      });
+
+      const cloneCount = realCount;
+      const allCards = Array.from(track.children);
+      let currentIndex = cloneCount;
+      let isTransitioning = false;
+      let autoSlideTimer = null;
+
+      // Build Pagination Dots
+      dotsContainer.innerHTML = '';
+      for (let i = 0; i < realCount; i++) {
+        const dot = document.createElement('div');
+        dot.classList.add('dot');
+        if (i === 0) dot.classList.add('active');
+        dot.addEventListener('click', () => {
+          const currentRealOffset = (currentIndex - cloneCount) % realCount;
+          const targetIndex = currentIndex + (i - (currentRealOffset >= 0 ? currentRealOffset : currentRealOffset + realCount));
+          goToSlide(targetIndex);
+          resetAutoSlide();
+        });
+        dotsContainer.appendChild(dot);
+      }
+      const dots = Array.from(dotsContainer.children);
+
+      // Position & Active Card Center Calculation
+      function updateCarousel(animate = true) {
+        if (!animate) {
+          track.style.transition = 'none';
+        } else {
+          track.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+        }
+
+        const containerWidth = container.getBoundingClientRect().width;
+        const gap = parseFloat(window.getComputedStyle(track).gap) || 0;
+        const cardWidth = allCards[currentIndex].offsetWidth;
+
+        const centerOffset = (containerWidth - cardWidth) / 2;
+        const slideOffset = centerOffset - currentIndex * (cardWidth + gap);
+
+        track.style.transform = `translateX(${slideOffset}px)`;
+
+        allCards.forEach((card, idx) => {
+          if (idx === currentIndex) {
+            card.classList.add('active');
+          } else {
+            card.classList.remove('active');
+          }
+        });
+
+        let realIndex = (currentIndex - cloneCount) % realCount;
+        if (realIndex < 0) realIndex += realCount;
+        dots.forEach((dot, idx) => {
+          dot.classList.toggle('active', idx === realIndex);
+        });
+      }
+
+      function goToSlide(index) {
+        if (isTransitioning) return;
+        isTransitioning = true;
+        currentIndex = index;
+        updateCarousel(true);
+      }
+
+      function nextSlide() { goToSlide(currentIndex + 1); }
+      function prevSlide() { goToSlide(currentIndex - 1); }
+
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          nextSlide();
+          resetAutoSlide();
+        });
+      }
+
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          prevSlide();
+          resetAutoSlide();
+        });
+      }
+
+      allCards.forEach((card, idx) => {
+        card.addEventListener('click', () => {
+          if (idx !== currentIndex) {
+            goToSlide(idx);
+            resetAutoSlide();
+          }
+        });
+      });
+
+      track.addEventListener('transitionend', () => {
+        isTransitioning = false;
+        if (currentIndex >= cloneCount + realCount) {
+          currentIndex -= realCount;
+          updateCarousel(false);
+        } else if (currentIndex < cloneCount) {
+          currentIndex += realCount;
+          updateCarousel(false);
+        }
+      });
+
+      function startAutoSlide() {
+        stopAutoSlide();
+        autoSlideTimer = setInterval(nextSlide, 3000);
+      }
+
+      function stopAutoSlide() {
+        if (autoSlideTimer) clearInterval(autoSlideTimer);
+      }
+
+      function resetAutoSlide() {
+        stopAutoSlide();
+        startAutoSlide();
+      }
+
+      wrapper.addEventListener('mouseenter', stopAutoSlide);
+      wrapper.addEventListener('mouseleave', startAutoSlide);
+
+      window.addEventListener('resize', () => updateCarousel(false));
+      window.addEventListener('load', () => updateCarousel(false));
+
+      updateCarousel(false);
+      startAutoSlide();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initCenterCarousel('valuesWrapper', 'valuesTrack', 'valuesContainer', 'valuesPrevBtn', 'valuesNextBtn', 'valuesDots');
+      initCenterCarousel('techWrapper', 'techTrack', 'techContainer', 'techPrevBtn', 'techNextBtn', 'techDots');
     });
   </script>
 

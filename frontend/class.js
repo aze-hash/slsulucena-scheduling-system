@@ -1,4 +1,5 @@
 import { db, auth } from "../firebase.js";
+import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { saveReportToFirestore } from "./reportStorage.js";
 
 import {
@@ -1142,7 +1143,7 @@ document.getElementById("exportPdfBtn").addEventListener("click", async () => {
     }
 
     // Build absolute URL for the logo image
-    const logoUrl = new URL('logo (1).png', window.location.href).href;
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
     const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
 
     // Shared printable CSS for each class schedule PDF
@@ -1321,4 +1322,16 @@ document.getElementById("exportPdfBtn").addEventListener("click", async () => {
             `${exportedSchedules.length} schedule(s) exported successfully and archived.`
         );
     }
+});
+
+document.getElementById("logoutLink")?.addEventListener("click", async event => {
+    event.preventDefault();
+    try {
+        await signOut(auth);
+    } catch (e) {
+        console.error("Sign out error:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
 });

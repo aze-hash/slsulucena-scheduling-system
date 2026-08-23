@@ -9,7 +9,7 @@ import {
     deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 /*
  * The class page saves its schedules in localStorage.  This page deliberately
@@ -1404,7 +1404,7 @@ async function exportExamPdf() {
     }
 
     // Build absolute URL for the logo image
-    const logoUrl = new URL('logo (1).png', window.location.href).href;
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
     const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
 
     /**
@@ -2019,5 +2019,17 @@ onAuthStateChanged(auth, async () => {
     renderClassSchedules();
     renderSavedExams();
     renderGeneratedExams();
+});
+
+document.getElementById("logoutLink")?.addEventListener("click", async event => {
+    event.preventDefault();
+    try {
+        await signOut(auth);
+    } catch (e) {
+        console.error("Sign out error:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
 });
 

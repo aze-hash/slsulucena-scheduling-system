@@ -1,7 +1,7 @@
 import { initializeApp }
 from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 
-import { getFirestore }
+import { getFirestore, enableIndexedDbPersistence }
 from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 import { getAuth }
@@ -20,6 +20,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 const db = getFirestore(app);
+enableIndexedDbPersistence(db).catch(err => {
+  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+    console.warn("Firestore persistence warning:", err.code);
+  }
+});
+
 const auth = getAuth(app);
 
 export { db, auth };

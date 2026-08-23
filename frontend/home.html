@@ -58,7 +58,7 @@
       object-fit: contain;
       border-radius: 50%;
       background: white;
-      padding: 3px;
+      padding: 1px;
       flex-shrink: 0;
     }
 
@@ -148,27 +148,28 @@
       overflow: hidden;
     }
 
-    /* Background Image */
-    .hero::before {
-      content: "";
+    /* Background Video */
+    .hero-video-bg {
       position: absolute;
-      inset: 0;
-      background: 
-        linear-gradient(
-          rgba(27, 94, 32, 0.25),
-          rgba(46, 125, 50, 0.20)
-        ),
-        url("home.png") no-repeat center center;
-      background-size: cover;
+      top: 50%;
+      left: 50%;
+      min-width: 100%;
+      min-height: 100%;
+      width: auto;
+      height: auto;
+      transform: translate(-50%, -50%);
+      object-fit: cover;
       z-index: 0;
     }
 
-    /* Optional overlay */
-    .hero::after {
-      content: "";
+    /* Video Overlay Gradient */
+    .hero-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(0, 0, 0, 0.15);
+      background: linear-gradient(
+        rgba(27, 94, 32, 0.35),
+        rgba(0, 0, 0, 0.40)
+      );
       z-index: 1;
     }
 
@@ -177,7 +178,7 @@
       position: relative;
       z-index: 2;
       max-width: 650px;
-      background: rgb(51 93 53 / 75%);
+      background: rgb(48 109 50 / 30%);
       border: 1px solid rgba(68, 165, 71, 0.3);
       padding: 45px;
       border-radius: 24px;
@@ -461,7 +462,7 @@
 
   <nav>
     <div class="logo-box">
-      <img src="logo (1).png" alt="SLSU Logo">
+      <img src="new slsu logo.jpg" alt="SLSU Logo">
       <h2>Southern Luzon State University<span class="campus">Lucena Campus</span></h2>
     </div>
 
@@ -479,6 +480,12 @@
   </nav>
 
   <section class="hero">
+    <video class="hero-video-bg" autoplay loop muted playsinline poster="home.png">
+      <source src="slsu_video.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <div class="hero-overlay"></div>
+
     <div class="hero-content">
       <h1>Automated Scheduling for Modern Education</h1>
       <p>
@@ -516,6 +523,15 @@
         navMenu.classList.remove('open');
       });
     });
+
+    // Slow-motion background video playback rate (0.7x speed)
+    const heroVideo = document.querySelector('.hero-video-bg');
+    if (heroVideo) {
+      heroVideo.playbackRate = 0.8;
+      heroVideo.addEventListener('loadedmetadata', () => {
+        heroVideo.playbackRate = 0.8;
+      });
+    }
   </script>
 
 </body>

@@ -238,21 +238,21 @@ function handlePinToggle(event) {
 async function initializeStudentDashboard() {
     onAuthStateChanged(auth, async user => {
         if (!user) {
-            window.location.href = "login.html";
+            window.location.replace("login.html");
             return;
         }
 
         try {
             const profileDoc = await getDoc(doc(db, "users", user.uid));
             if (!profileDoc.exists()) {
-                window.location.href = "login.html";
+                window.location.replace("login.html");
                 return;
             }
 
             const profile = profileDoc.data();
             const role = normalize(profile.role || "");
             if (role !== "STUDENT") {
-                window.location.href = "login.html";
+                window.location.replace("login.html");
                 return;
             }
 
@@ -297,10 +297,12 @@ examScheduleContainer.addEventListener("click", handlePinToggle);
 logoutBtn.addEventListener("click", async () => {
     try {
         await signOut(auth);
-        window.location.href = "login.html";
     } catch (error) {
         console.error("Logout failed:", error);
     }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
 });
 
 initializeStudentDashboard();

@@ -703,20 +703,20 @@ function watchAssignedExamSchedules(user, fullName) {
 async function initializeFacultyDashboard() {
     onAuthStateChanged(auth, async user => {
         if (!user) {
-            window.location.href = "login.html";
+            window.location.replace("login.html");
             return;
         }
 
         try {
             const profileDoc = await getDoc(doc(db, "users", user.uid));
             if (!profileDoc.exists()) {
-                window.location.href = "login.html";
+                window.location.replace("login.html");
                 return;
             }
 
             const profile = profileDoc.data();
             if (normalize(profile.role || "") !== "faculty") {
-                window.location.href = "login.html";
+                window.location.replace("login.html");
                 return;
             }
 
@@ -798,10 +798,12 @@ classSearchInput.addEventListener("input", () => {
 logoutBtn.addEventListener("click", async () => {
     try {
         await signOut(auth);
-        window.location.href = "login.html";
     } catch (error) {
         console.error("Logout failed:", error);
     }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
 });
 
 const mobileMenuToggleBtn = document.getElementById("mobileMenuToggleBtn");

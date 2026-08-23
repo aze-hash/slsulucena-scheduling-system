@@ -1,4 +1,5 @@
-import { db } from "../firebase.js";
+import { db, auth } from "../firebase.js";
+import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
     loadReportsFromFirestore,
     deleteReportsByCategoryFromFirestore,
@@ -205,7 +206,7 @@ function viewClassSchedulePdf(id) {
     }
 
     /* Fallback: construct printable HTML for class schedules loaded directly from classSchedules collection */
-    const logoUrl = new URL('logo (1).png', window.location.href).href;
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
     const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
 
     const printStyles = `
@@ -678,3 +679,15 @@ async function init() {
 }
 
 init();
+
+document.getElementById("logoutLink")?.addEventListener("click", async event => {
+    event.preventDefault();
+    try {
+        if (auth) await signOut(auth);
+    } catch (e) {
+        console.error("Sign out error:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
+});
