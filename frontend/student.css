@@ -631,30 +631,25 @@ nav ul li a.active {
     z-index: 5;
 }
 
-.cal-block-color-1 {
-    background: #e8f5e9;
-    border-left-color: #2e7d32;
-    color: #1b5e20;
-}
-.cal-block-color-2 {
-    background: #e3f2fd;
-    border-left-color: #1565c0;
-    color: #0d47a1;
-}
-.cal-block-color-3 {
-    background: #fff8e1;
-    border-left-color: #f57f17;
-    color: #e65100;
-}
-.cal-block-color-4 {
-    background: #fce4ec;
-    border-left-color: #ad1457;
-    color: #880e4f;
-}
-.cal-block-color-5 {
-    background: #ede7f6;
-    border-left-color: #4527a0;
-    color: #311b92;
+.cal-block-color-1  { background: #e8f5e9; border-left-color: #2e7d32; color: #1b5e20; }
+.cal-block-color-2  { background: #e3f2fd; border-left-color: #1565c0; color: #0d47a1; }
+.cal-block-color-3  { background: #fff8e1; border-left-color: #f57f17; color: #e65100; }
+.cal-block-color-4  { background: #fce4ec; border-left-color: #c2185b; color: #880e4f; }
+.cal-block-color-5  { background: #ede7f6; border-left-color: #512da8; color: #311b92; }
+.cal-block-color-6  { background: #e0f2f1; border-left-color: #00897b; color: #004d40; }
+.cal-block-color-7  { background: #fbe9e7; border-left-color: #e64a19; color: #bf360c; }
+.cal-block-color-8  { background: #e0f7fa; border-left-color: #0097a7; color: #006064; }
+.cal-block-color-9  { background: #f3e5f5; border-left-color: #8e24aa; color: #4a148c; }
+.cal-block-color-10 { background: #f9fbe7; border-left-color: #afb42b; color: #827717; }
+.cal-block-color-11 { background: #efebe9; border-left-color: #6d4c41; color: #3e2723; }
+.cal-block-color-12 { background: #eceff1; border-left-color: #546e7a; color: #263238; }
+.cal-block-color-13 { background: #ffebee; border-left-color: #d32f2f; color: #b71c1c; }
+.cal-block-color-14 { background: #e1f5fe; border-left-color: #0288d1; color: #01579b; }
+.cal-block-color-15 { background: #fffde7; border-left-color: #fbc02d; color: #f57f17; }
+.cal-block-color-16 { background: #e8f8f5; border-left-color: #16a085; color: #0e6655; }
+
+.cal-color-dot {
+    border: 1px solid rgba(0,0,0,0.15);
 }
 
 .cal-block-color-exam {

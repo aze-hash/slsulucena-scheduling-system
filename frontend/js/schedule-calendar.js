@@ -169,15 +169,37 @@ function groupOverlaps(blocks) {
     return clusters;
 }
 
+const TOTAL_CALENDAR_COLORS = 16;
+
+/**
+ * Builds a mapping from subject key to a dedicated .cal-block-color-N class.
+ * Ensures every unique subject gets its own distinct color across all days in the schedule.
+ */
+function buildSubjectColorMap(entries) {
+    const map = new Map();
+    let colorIndex = 1;
+
+    for (const entry of entries) {
+        const key = String(entry.code || entry.subjectCode || entry.name || entry.subjectName || "").trim().toUpperCase();
+        if (!key) continue;
+        if (!map.has(key)) {
+            map.set(key, `cal-block-color-${colorIndex}`);
+            colorIndex = (colorIndex % TOTAL_CALENDAR_COLORS) + 1;
+        }
+    }
+    return map;
+}
+
 // ─── Class Schedule Block Builder ─────────────────────────────────────────────
 
 /**
  * Build the positioned blocks HTML for a single day column in a class calendar.
  * @param {Array<Object>} entries - All class schedule entries
  * @param {string} day - e.g., "Monday"
+ * @param {Map<string, string>} [subjectColorMap] - Mapping of subject key to color class
  * @returns {string} HTML
  */
-function buildClassDayBlocks(entries, day) {
+function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
     // Collect blocks for this specific day
     const dayBlocks = [];
 
@@ -225,7 +247,8 @@ function buildClassDayBlocks(entries, day) {
             const leftPct   = widthPct * colIndex;
 
             const displayTime = `${minutesToDisplay(block.start)} – ${minutesToDisplay(block.end)}`;
-            const colorClass  = `cal-block-color-${(colIndex % 5) + 1}`;
+            const subjectKey  = String(block.code || block.name || "").trim().toUpperCase();
+            const colorClass  = subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`;
 
             html += `
 <div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} — ${esc(block.name)}">
@@ -335,28 +358,82 @@ function formatExamDateHeader(dateStr) {
 // ─── Public API: Render Class Calendar ────────────────────────────────────────
 
 /**
- * Render a weekly class schedule as a visual Mon–Fri timetable.
+ * Render a weekly class schedule as a visual Mon–Fri timetable with schedule details table.
  *
- * @param {Object} schedule  - A classSchedules document (with .entries[])
- * @returns {string} HTML string for the timetable (to be injected into a container)
+ * @param {Object} schedule  - A classSchedules document (with .entries[] or .rawEntries[])
+ * @returns {string} HTML string for the timetable and details table (to be injected into a container)
  */
 export function renderClassCalendar(schedule) {
-    const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
+    let entries = Array.isArray(schedule.entries) && schedule.entries.length > 0
+        ? schedule.entries
+        : (Array.isArray(schedule.rawEntries) ? schedule.rawEntries : []);
+
+    if (!entries || entries.length === 0) {
+        return `
+            <div style="padding:40px 20px; text-align:center; color:#777; font-size:14px; background:#fafaf7; border-radius:10px; border:1px solid #d0ccbf; margin-top:6px;">
+                <div style="font-size:32px; margin-bottom:8px;">📅</div>
+                <strong style="color:#333; font-size:15px;">No schedule entries found for this section.</strong>
+                <p style="margin-top:6px; font-size:12px; color:#888;">The schedule details may not have been saved or exported with entries.</p>
+            </div>
+        `;
+    }
 
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
+    const subjectColorMap = buildSubjectColorMap(entries);
 
     // Build day columns
     const dayColumnsHtml = CLASS_DAYS.map(day => {
-        const blocks = buildClassDayBlocks(entries, day);
+        const blocks = buildClassDayBlocks(entries, day, subjectColorMap);
         return `
 <div class="cal-day-col">
-  <div class="cal-day-header">${esc(day)}</div>
+  <div class="cal-day-header"><span class="cal-day-name">${esc(day)}</span></div>
   <div class="cal-day-body" style="height:${calendarHeight}px">
     ${buildHourLines()}
     ${blocks}
   </div>
 </div>`;
     }).join("");
+
+    // Build details table rows with matching subject color dots
+    const tableRows = entries.map(entry => {
+        const subjectKey = String(entry.code || entry.subjectCode || entry.name || entry.subjectName || "").trim().toUpperCase();
+        const colorClass = subjectColorMap.get(subjectKey) || "cal-block-color-1";
+
+        return `
+        <tr>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:bold; color:#1b5e20;">
+                <span class="cal-color-dot ${colorClass}" style="display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
+                ${esc(entry.code || entry.subjectCode || "—")}
+            </td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.name || entry.subjectName || "—")}</td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px; text-align:center;">${esc(entry.units ?? "—")}</td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.day || "—")}</td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:600;">${esc(entry.time || "—")}</td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.room || "—")}</td>
+        </tr>`;
+    }).join("");
+
+    const detailsTableHtml = `
+<div style="margin-top:20px;">
+    <h3 style="font-size:15px; margin-bottom:10px; color:#1b5e20; font-weight:bold;">Schedule Details</h3>
+    <div style="overflow-x:auto; border:1px solid #d0ccbf; border-radius:8px;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px; background:#fff;">
+            <thead>
+                <tr style="background:#e8f5e9; color:#1b5e20;">
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Code</th>
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Name</th>
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:center;">Units</th>
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Day</th>
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Time</th>
+                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Room</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${tableRows}
+            </tbody>
+        </table>
+    </div>
+</div>`;
 
     return `
 <div class="cal-timetable-wrapper">
@@ -369,7 +446,8 @@ export function renderClassCalendar(schedule) {
     </div>
     ${dayColumnsHtml}
   </div>
-</div>`;
+</div>
+${detailsTableHtml}`;
 }
 
 // ─── Public API: Render Exam Calendar ─────────────────────────────────────────

@@ -31,7 +31,7 @@ export function reportDocId(report) {
 
 /**
  * Save a report document to Firestore ("reports" collection).
- * @param {Object} report - { category, academicYear, semester, yearLevel, examType, title, filename, html }
+ * @param {Object} report - { category, academicYear, semester, yearLevel, examType, title, filename, html, section, entries, rawEntries }
  */
 export async function saveReportToFirestore(report) {
     const docId = report.id || reportDocId(report);
@@ -44,6 +44,9 @@ export async function saveReportToFirestore(report) {
         examType: report.examType || "",
         title: report.title || "",
         filename: report.filename || "",
+        section: report.section || "",
+        entries: report.entries || [],
+        rawEntries: report.rawEntries || [],
         html: report.html || "",
         createdAt: new Date(),
         updatedAt: new Date()
@@ -69,6 +72,9 @@ export async function loadReportsFromFirestore() {
                 examType: data.examType || "",
                 title: data.title || "",
                 filename: data.filename || "",
+                section: data.section || "",
+                entries: data.entries || [],
+                rawEntries: data.rawEntries || [],
                 html: data.html || "",
                 createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString()
             };

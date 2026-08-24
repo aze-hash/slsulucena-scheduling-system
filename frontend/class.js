@@ -802,10 +802,64 @@ async function generateSchedule() {
     }
 
     /**
-     * Finds a synchronized assignment for two-meeting subjects:
-     * - EXACT SAME TIME slot across BOTH days
-     * - Different days from standard paired days (Monday & Thursday, Tuesday & Friday, etc.)
-     * - Respects the 1 to 1.5 hour vacant gap limit on both days
+     * Finds the best available time slot and room for a single meeting on a given day.
+     */
+    function findBestMeetingSlotAndRoom(
+        day,
+        reqRoomType,
+        slots,
+        timetableInstance,
+        prog
+    ) {
+        const candidateSlots = slots.filter(time => {
+            const range = parseTimeRange(time);
+            if (!range) return false;
+            // Empty day must start at 7:30 AM (start === 450)
+            if (timetableInstance[day].length === 0 && range.start !== 450) return false;
+            return true;
+        }).sort((s1, s2) => {
+            const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day], s1);
+            const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day], s2);
+            if (gap1 !== gap2) return gap1 - gap2;
+            const start1 = parseTimeRange(s1)?.start || 0;
+            const start2 = parseTimeRange(s2)?.start || 0;
+            return start1 - start2;
+        });
+
+        for (const time of candidateSlots) {
+            // 1. Section conflict check on this day
+            const conflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
+            if (conflict) continue;
+
+            // 2. Vacant gap check
+            if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
+
+            // 3. Room availability check
+            const availableRooms = rooms.filter(room => {
+                if (room.roomType !== reqRoomType) return false;
+                return (
+                    !timetableInstance[day].some(item =>
+                        item.roomCode === room.roomCode && timesOverlap(item.time, time)
+                    ) &&
+                    !roomIsTaken(room, day, time)
+                );
+            });
+            if (availableRooms.length === 0) continue;
+
+            const room = selectBestRoom(availableRooms, reqRoomType, prog);
+            if (room) {
+                return { time, room };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Finds flexible multi-day assignment for two-meeting subjects:
+     * - Schedules the two meetings on TWO DISTINCT DAYS across Mon-Fri
+     * - Allows independent, non-synchronized time slots to prevent room deadlocks
+     * - Balances section load across days and respects vacant gap limits
      */
     function findAvailableTwoMeetingAssignment(
         meetings,
@@ -816,71 +870,62 @@ async function generateSchedule() {
         const [reqRoomType1, reqRoomType2] = meetings;
         const prog = programSelect.value;
 
-        // Sort candidate day pairs by section load to balance days evenly
-        const candidateDayPairs = [...DAY_PAIRS].sort((a, b) => {
+        // Generate all distinct day pairs from days ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        const allDayPairs = [];
+        for (let i = 0; i < days.length; i++) {
+            for (let j = i + 1; j < days.length; j++) {
+                allDayPairs.push([days[i], days[j]]);
+            }
+        }
+
+        // Sort candidate day pairs by total section load to balance days evenly across Mon-Fri
+        const candidateDayPairs = allDayPairs.sort((a, b) => {
             const loadA = (timetableInstance[a[0]]?.length || 0) + (timetableInstance[a[1]]?.length || 0);
             const loadB = (timetableInstance[b[0]]?.length || 0) + (timetableInstance[b[1]]?.length || 0);
             if (loadA !== loadB) return loadA - loadB;
+
+            const diffA = Math.abs((timetableInstance[a[0]]?.length || 0) - (timetableInstance[a[1]]?.length || 0));
+            const diffB = Math.abs((timetableInstance[b[0]]?.length || 0) - (timetableInstance[b[1]]?.length || 0));
+            if (diffA !== diffB) return diffA - diffB;
+
             return Math.random() - 0.5;
         });
 
         for (const [day1, day2] of candidateDayPairs) {
-            // Sort candidate slots by compactness (minimal vacant gap)
-            const candidateSlots = [...slots].sort((s1, s2) => {
-                const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day1], s1) +
-                             calculateDayPlacementVacantPenalty(timetableInstance[day2], s1);
-                const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day1], s2) +
-                             calculateDayPlacementVacantPenalty(timetableInstance[day2], s2);
-                if (gap1 !== gap2) return gap1 - gap2;
-                return Math.random() - 0.5;
-            });
+            // Meeting 1 on day1
+            const m1 = findBestMeetingSlotAndRoom(day1, reqRoomType1, slots, timetableInstance, prog);
+            if (!m1) continue;
 
-            for (const time of candidateSlots) {
-                // 1. Section conflict check on BOTH days
-                const conflict1 = timetableInstance[day1].some(item => timesOverlap(item.time, time));
-                const conflict2 = timetableInstance[day2].some(item => timesOverlap(item.time, time));
-                if (conflict1 || conflict2) continue;
+            // Meeting 2 on day2
+            const m2 = findBestMeetingSlotAndRoom(day2, reqRoomType2, slots, timetableInstance, prog);
+            if (!m2) continue;
 
-                // 2. Vacant gap check on BOTH days (max 1.5 hours vacant)
-                if (!isVacantGapAcceptable(timetableInstance[day1], time)) continue;
-                if (!isVacantGapAcceptable(timetableInstance[day2], time)) continue;
+            return {
+                day1,
+                time1: m1.time,
+                room1: m1.room,
+                day2,
+                time2: m2.time,
+                room2: m2.room
+            };
+        }
 
-                // 3. Find available room for Day 1
-                const availableRooms1 = rooms.filter(room => {
-                    if (room.roomType !== reqRoomType1) return false;
-                    return (
-                        !timetableInstance[day1].some(item =>
-                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
-                        ) &&
-                        !roomIsTaken(room, day1, time)
-                    );
-                });
-                if (availableRooms1.length === 0) continue;
+        // Try reversing day assignment if room types differ (e.g. Lecture + Laboratory)
+        if (reqRoomType1 !== reqRoomType2) {
+            for (const [day1, day2] of candidateDayPairs) {
+                const m1 = findBestMeetingSlotAndRoom(day2, reqRoomType1, slots, timetableInstance, prog);
+                if (!m1) continue;
+                const m2 = findBestMeetingSlotAndRoom(day1, reqRoomType2, slots, timetableInstance, prog);
+                if (!m2) continue;
 
-                // 4. Find available room for Day 2
-                const availableRooms2 = rooms.filter(room => {
-                    if (room.roomType !== reqRoomType2) return false;
-                    return (
-                        !timetableInstance[day2].some(item =>
-                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
-                        ) &&
-                        !roomIsTaken(room, day2, time)
-                    );
-                });
-                if (availableRooms2.length === 0) continue;
-
-                const room1 = selectBestRoom(availableRooms1, reqRoomType1, prog);
-                const room2 = selectBestRoom(availableRooms2, reqRoomType2, prog);
-
-                if (room1 && room2) {
-                    return {
-                        day1,
-                        day2,
-                        time,
-                        room1,
-                        room2
-                    };
-                }
+                return {
+                    day1: day2,
+                    time1: m1.time,
+                    room1: m1.room,
+                    day2: day1,
+                    time2: m2.time,
+                    room2: m2.room
+                };
             }
         }
 
@@ -890,6 +935,7 @@ async function generateSchedule() {
     /**
      * Finds an assignment for single-meeting subjects (Research, Activity/Gymnasium).
      * Respects vacant gap limit and gym constraints.
+     * Starts empty days at 7:30 AM (450) or 8:00 AM (480 for activity).
      */
     function findAvailableSingleAssignment(
         requiredRoomType,
@@ -901,21 +947,37 @@ async function generateSchedule() {
         const isActivity = /activity|gym/.test(subject.meetingType) || requiredRoomType === "Gymnasium";
         const prog = programSelect.value;
 
+        // For Activity, prefer Wednesday when days are empty to keep Mon/Thu & Tue/Fri pairs aligned
         const candidateDays = [...days].sort((a, b) => {
             const loadA = timetableInstance[a]?.length || 0;
             const loadB = timetableInstance[b]?.length || 0;
             if (loadA !== loadB) return loadA - loadB;
+            if (isActivity) {
+                if (a === "Wednesday") return -1;
+                if (b === "Wednesday") return 1;
+            }
             return Math.random() - 0.5;
         });
 
         for (const day of candidateDays) {
             if (isActivity && activityDays instanceof Set && activityDays.has(day)) continue;
 
-            const candidateSlots = [...slots].sort((s1, s2) => {
+            const candidateSlots = slots.filter(time => {
+                const range = parseTimeRange(time);
+                if (!range) return false;
+                if (isActivity) {
+                    if (timetableInstance[day].length === 0 && range.start !== 480) return false;
+                } else {
+                    if (timetableInstance[day].length === 0 && range.start !== 450) return false;
+                }
+                return true;
+            }).sort((s1, s2) => {
                 const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day], s1);
                 const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day], s2);
                 if (gap1 !== gap2) return gap1 - gap2;
-                return Math.random() - 0.5;
+                const start1 = parseTimeRange(s1)?.start || 0;
+                const start2 = parseTimeRange(s2)?.start || 0;
+                return start1 - start2;
             });
 
             for (const time of candidateSlots) {
@@ -947,7 +1009,18 @@ async function generateSchedule() {
         if (isActivity) {
             for (const day of candidateDays) {
                 if (activityDays instanceof Set && activityDays.has(day)) continue;
-                for (const time of slots) {
+                const candidateSlots = slots.filter(time => {
+                    const range = parseTimeRange(time);
+                    if (!range) return false;
+                    if (timetableInstance[day].length === 0 && range.start !== 480) return false;
+                    return true;
+                }).sort((s1, s2) => {
+                    const start1 = parseTimeRange(s1)?.start || 0;
+                    const start2 = parseTimeRange(s2)?.start || 0;
+                    return start1 - start2;
+                });
+
+                for (const time of candidateSlots) {
                     const sectionConflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
                     if (sectionConflict) continue;
                     if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
@@ -966,7 +1039,7 @@ async function generateSchedule() {
     let scheduleSuccess = false;
     let finalOutput = [];
     let lastFailureReason = "";
-    const MAX_SOLVER_ATTEMPTS = 5;
+    const MAX_SOLVER_ATTEMPTS = 20;
 
     for (let attempt = 1; attempt <= MAX_SOLVER_ATTEMPTS; attempt++) {
         const timetableInstance = {
@@ -1016,17 +1089,17 @@ async function generateSchedule() {
                 );
 
                 if (!result) {
-                    lastFailureReason = `No available synchronized day/time slot found for ${subject.code} (${subject.name}).`;
+                    lastFailureReason = `No available day/time slot found for ${subject.code} (${subject.name}).`;
                     attemptFailed = true;
                     break;
                 }
 
                 timetableInstance[result.day1].push({
-                    time: result.time,
+                    time: result.time1,
                     roomCode: result.room1.roomCode
                 });
                 timetableInstance[result.day2].push({
-                    time: result.time,
+                    time: result.time2,
                     roomCode: result.room2.roomCode
                 });
 
@@ -1035,7 +1108,7 @@ async function generateSchedule() {
                     name: subject.name,
                     units: subject.units,
                     day: result.day1,
-                    time: result.time,
+                    time: result.time1,
                     room: result.room1.roomName || result.room1.roomCode,
                     roomCode: result.room1.roomCode
                 });
@@ -1044,7 +1117,7 @@ async function generateSchedule() {
                     name: subject.name,
                     units: subject.units,
                     day: result.day2,
-                    time: result.time,
+                    time: result.time2,
                     room: result.room2.roomName || result.room2.roomCode,
                     roomCode: result.room2.roomCode
                 });
@@ -1082,6 +1155,34 @@ async function generateSchedule() {
                     room: result.room.roomName || result.room.roomCode,
                     roomCode: result.room.roomCode
                 });
+            }
+        }
+
+        // Validate that every scheduled day starts at 7:30 AM (or 8:00 AM for activity)
+        if (!attemptFailed && currentOutput.length > 0) {
+            for (const day of days) {
+                const dayClasses = timetableInstance[day];
+                if (dayClasses && dayClasses.length > 0) {
+                    const earliestClass = dayClasses.reduce((min, cur) => {
+                        const startCur = parseTimeRange(cur.time)?.start ?? 9999;
+                        const startMin = parseTimeRange(min.time)?.start ?? 9999;
+                        return startCur < startMin ? cur : min;
+                    }, dayClasses[0]);
+
+                    const earliestStart = parseTimeRange(earliestClass.time)?.start;
+                    const matchingOutput = currentOutput.find(o => o.day === day && o.time === earliestClass.time);
+                    const matchingSubject = matchingOutput ? subjects.find(s => s.code === matchingOutput.code) : null;
+                    const isActivitySubject = matchingSubject
+                        ? (/activity|gym/.test(matchingSubject.meetingType) || matchingSubject.requiredRoomType === "Gymnasium")
+                        : false;
+
+                    const expectedStart = isActivitySubject ? 480 : 450; // 8:00 AM for activity, 7:30 AM for regular
+                    if (earliestStart !== expectedStart) {
+                        attemptFailed = true;
+                        lastFailureReason = `Schedule on ${day} does not start at ${isActivitySubject ? "8:00 AM" : "7:30 AM"}.`;
+                        break;
+                    }
+                }
             }
         }
 

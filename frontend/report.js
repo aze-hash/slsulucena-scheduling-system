@@ -10,6 +10,7 @@ import { renderClassCalendar } from "./js/schedule-calendar.js";
 import {
     collection,
     getDocs,
+    getDoc,
     deleteDoc,
     doc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
@@ -270,22 +271,57 @@ async function loadClassArchiveData() {
         const reports = await loadReportsFromFirestore();
         const classReports = reports.filter(r => r.category !== "Exam Schedule");
 
-        /* Also fetch archived class schedules from classSchedules collection */
-        const snapshot = await getDocs(collection(db, "classSchedules"));
-        const classSchedules = snapshot.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter(s => s.status === "archived");
+        /* Also fetch all class schedules from classSchedules collection */
+        let classSchedules = [];
+        try {
+            const snapshot = await getDocs(collection(db, "classSchedules"));
+            classSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            console.warn("Could not load classSchedules from Firestore:", e);
+        }
 
-        /* Merge reports and archived class schedules so nothing is missed */
-        const merged = [...classReports];
+        // Also check local storage saved schedules
+        let localSchedules = [];
+        try {
+            localSchedules = JSON.parse(localStorage.getItem("chairpersonSavedSchedules")) || [];
+        } catch (e) {
+            localSchedules = [];
+        }
 
-        for (const sched of classSchedules) {
-            const exists = merged.some(r =>
+        const allSchedulesSource = [...classSchedules, ...localSchedules];
+
+        // Enrich classReports with entries from classSchedules/localSchedules if missing
+        const enrichedClassReports = classReports.map(r => {
+            if (r.entries && r.entries.length > 0) return r;
+            const matching = allSchedulesSource.find(s =>
+                s.id === r.id ||
+                ((s.name === r.title || s.section === r.section || s.section === r.title) &&
+                 (s.academicYear || "") === (r.academicYear || "") &&
+                 (s.semester || "") === (r.semester || ""))
+            );
+            if (matching && matching.entries && matching.entries.length > 0) {
+                return {
+                    ...r,
+                    entries: matching.entries,
+                    rawEntries: matching.rawEntries || []
+                };
+            }
+            return r;
+        });
+
+        // Add any archived schedules from classSchedules or localSchedules not present in classReports
+        const archivedSchedules = allSchedulesSource.filter(s => s.status === "archived");
+        const merged = [...enrichedClassReports];
+
+        for (const sched of archivedSchedules) {
+            const index = merged.findIndex(r =>
                 r.id === sched.id ||
-                (r.title === sched.name && r.academicYear === sched.academicYear && r.semester === sched.semester)
+                ((r.title === sched.name || r.section === sched.section) &&
+                 (r.academicYear || "") === (sched.academicYear || "") &&
+                 (r.semester || "") === (sched.semester || ""))
             );
 
-            if (!exists) {
+            if (index === -1) {
                 merged.push({
                     id: sched.id,
                     title: sched.name || sched.section,
@@ -293,14 +329,17 @@ async function loadClassArchiveData() {
                     academicYear: sched.academicYear,
                     semester: sched.semester,
                     yearLevel: sched.yearLevel,
-                    entries: sched.entries,
+                    entries: sched.entries || [],
+                    rawEntries: sched.rawEntries || [],
                     exportedAt: sched.exportedAt?.toDate?.()?.toISOString?.() || sched.exportedAt || sched.createdAt
                 });
+            } else if (!merged[index].entries || merged[index].entries.length === 0) {
+                merged[index].entries = sched.entries || [];
+                merged[index].rawEntries = sched.rawEntries || [];
             }
         }
 
-        classArchiveRecords = merged;
-        // Deduplicate merged records by title + academicYear + semester (keeping newest)
+        // Deduplicate merged records by title + academicYear + semester (keeping newest with entries)
         const dedupedMap = new Map();
         merged.forEach(item => {
             const key = [
@@ -313,10 +352,17 @@ async function loadClassArchiveData() {
             if (!existing) {
                 dedupedMap.set(key, item);
             } else {
+                const existingHasEntries = existing.entries && existing.entries.length > 0;
+                const itemHasEntries = item.entries && item.entries.length > 0;
                 const existingTime = new Date(existing.exportedAt || existing.createdAt || 0).getTime();
                 const itemTime = new Date(item.exportedAt || item.createdAt || 0).getTime();
-                if (itemTime > existingTime) {
-                    dedupedMap.set(key, item);
+
+                if ((!existingHasEntries && itemHasEntries) || (itemTime > existingTime && (itemHasEntries || !existingHasEntries))) {
+                    dedupedMap.set(key, {
+                        ...item,
+                        entries: item.entries?.length ? item.entries : existing.entries,
+                        rawEntries: item.rawEntries?.length ? item.rawEntries : existing.rawEntries
+                    });
                 }
             }
         });
@@ -675,11 +721,43 @@ document.addEventListener("click", event => {
 });
 
 /* Calendar modal – open */
-function viewClassScheduleCalendar(id) {
-    const item = classArchiveRecords.find(r => r.id === id);
+async function viewClassScheduleCalendar(id) {
+    let item = classArchiveRecords.find(r => r.id === id);
     if (!item) {
         showToast("Could not find the archived class schedule record.");
         return;
+    }
+
+    // If entries is still missing, attempt direct fetch from classSchedules Firestore doc or localStorage
+    if (!item.entries || item.entries.length === 0) {
+        try {
+            const schedDoc = await getDoc(doc(db, "classSchedules", item.id));
+            if (schedDoc.exists()) {
+                const data = schedDoc.data();
+                item.entries = data.entries || [];
+                item.rawEntries = data.rawEntries || [];
+            }
+        } catch (e) {
+            console.warn("Could not fetch schedule doc for calendar:", e);
+        }
+
+        if (!item.entries || item.entries.length === 0) {
+            try {
+                const localSchedules = JSON.parse(localStorage.getItem("chairpersonSavedSchedules")) || [];
+                const localMatch = localSchedules.find(s =>
+                    s.id === item.id ||
+                    ((s.name === item.title || s.section === item.section) &&
+                     (s.academicYear || "") === (item.academicYear || "") &&
+                     (s.semester || "") === (item.semester || ""))
+                );
+                if (localMatch) {
+                    item.entries = localMatch.entries || [];
+                    item.rawEntries = localMatch.rawEntries || [];
+                }
+            } catch (e) {
+                console.warn("Could not parse local schedules for calendar:", e);
+            }
+        }
     }
 
     const modal = document.getElementById("classCalendarModal");
