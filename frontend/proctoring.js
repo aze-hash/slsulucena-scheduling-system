@@ -271,7 +271,7 @@ function openProctoringSchedulePdf(recordId) {
             rowsHtml += `<tr>
                 <td>${escapeHtml(exam.time || "-")}</td>
                 <td>${escapeHtml(exam.code || exam.subjectCode || "-")} — ${escapeHtml(exam.name || exam.subjectName || "-")}</td>
-                <td>${proctorName || "-"}</td>
+                <td>${escapeHtml(exam.proctor || proctorName || "-")}</td>
                 <td>${escapeHtml(exam.room || "-")}</td>
             </tr>`;
         }

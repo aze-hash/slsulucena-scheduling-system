@@ -134,6 +134,7 @@ nav ul li a.active{
     display:grid;
     grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
     gap:10px;
+    grid-auto-flow: column dense;
 }
 
 .filters select{
@@ -207,6 +208,44 @@ nav ul li a.active{
     gap: 8px;
     flex-wrap: wrap;
     margin-top: 10px;
+}
+
+/* Section add UI */
+.section-plus {
+    display: none; /* hidden by default */
+    cursor: pointer;
+    font-size: 20px;
+    margin-left: 8px;
+    color: var(--primary);
+}
+/* Show plus button when the section select has focus */
+#section:focus + .section-plus {
+    display: inline;
+}
+.section-plus:hover {
+    color: var(--secondary);
+}
+.inline-section-input {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.inline-section-input input {
+    padding: 6px 10px;
+    border: 1px solid #c9c1b0;
+    border-radius: 6px;
+}
+.inline-section-input button {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    background: var(--primary);
+    color: #fff;
+    cursor: pointer;
+}
+.inline-section-input button:hover {
+    background: var(--secondary);
 }
 
 /* Modal overlay for export confirmation */
@@ -512,7 +551,7 @@ tr:hover{
 
 .modal-content{
     background:#fff;
-    width:35%;
+    width:90%;
     max-width:1600px;
     margin:40px auto;
     border-radius:16px;

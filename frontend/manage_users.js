@@ -10,7 +10,9 @@ import {
     getDoc,
     getDocs,
     collection,
-    deleteDoc
+    deleteDoc,
+    setDoc,
+    serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 /* =========================
@@ -24,10 +26,40 @@ const API_URL = "https://slsulucena-scheduling-system.onrender.com";
 ========================= */
 
 let allUsers = [];
+let facultyAssignmentsMap = new Map(); // maps facultyUserId -> string[] handledSubjects
+let prospectusSubjects = []; // cached prospectus subjects from Firestore
 let currentTab = "Student";
 let searchTerm = "";
 let programFilter = "";
 let majorFilter = "";
+
+// Modal State
+let activeFacultyUser = null;
+let selectedSubjectKeys = new Set(); // composite keys: `${programCode}_${majorCode}_${yearLevel}_${semester}_${subjectCode}`
+let modalSearchTerm = "";
+let modalProgramFilter = "";
+let modalMajorFilter = "";
+let modalYearFilter = "";
+let modalSemesterFilter = "";
+
+/* =========================
+   COMPOSITE SUBJECT KEY
+========================= */
+
+/**
+ * Returns a composite key that uniquely identifies a prospectus subject record,
+ * even when multiple subjects share the same subjectCode across different programs/majors.
+ * Format: `${programCode}_${majorCode}_${yearLevel}_${semester}_${subjectCode}`
+ */
+function getSubjectKey(subject) {
+    return [
+        String(subject.programCode  || "").trim(),
+        String(subject.majorCode    || "").trim(),
+        String(subject.yearLevel    || "").trim(),
+        String(subject.semester     || "").trim(),
+        String(subject.subjectCode  || "").trim()
+    ].join("_");
+}
 
 /* =========================
    AUTHENTICATION
@@ -50,7 +82,7 @@ onAuthStateChanged(auth, async user => {
         document.getElementById("adminName").textContent =
             profile.data().fullName || "SLSU Admin";
 
-        // Load users through the secure Render API
+        // Load users and faculty subject assignments
         await loadUsers();
 
     } catch (error) {
@@ -62,11 +94,75 @@ onAuthStateChanged(auth, async user => {
 });
 
 /* =========================
+   LOAD FACULTY SUBJECT ASSIGNMENTS
+========================= */
+
+async function loadFacultySubjectAssignments() {
+    facultyAssignmentsMap.clear();
+    try {
+        const snapshot = await getDocs(collection(db, "facultySubjectAssignments"));
+        snapshot.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            const handled = Array.isArray(data.handledSubjects) ? data.handledSubjects : [];
+            facultyAssignmentsMap.set(docSnap.id, handled);
+            if (data.facultyId && data.facultyId !== docSnap.id) {
+                facultyAssignmentsMap.set(data.facultyId, handled);
+            }
+        });
+        console.log("Faculty subject assignments loaded:", facultyAssignmentsMap.size);
+    } catch (error) {
+        console.warn("Could not load faculty subject assignments from Firestore:", error);
+    }
+}
+
+/* =========================
+   LOAD PROSPECTUS SUBJECTS
+========================= */
+
+async function loadProspectusSubjects() {
+    if (prospectusSubjects.length > 0) return prospectusSubjects;
+    try {
+        const snapshot = await getDocs(collection(db, "prospectus"));
+        const list = [];
+
+        snapshot.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            if (!data.subjectCode) return;
+
+            list.push({
+                id: docSnap.id,
+                subjectCode: String(data.subjectCode || "").trim(),
+                subjectName: String(data.subjectName || "").trim(),
+                programCode: String(data.programCode || "").trim(),
+                majorCode: String(data.majorCode || "").trim(),
+                yearLevel: data.yearLevel !== undefined ? Number(data.yearLevel) : "",
+                semester: data.semester !== undefined ? Number(data.semester) : "",
+                units: data.units !== undefined ? Number(data.units) : "",
+                subjectType: data.subjectType || ""
+            });
+        });
+
+        prospectusSubjects = list;
+        console.log("Prospectus subjects loaded:", prospectusSubjects.length);
+        return prospectusSubjects;
+    } catch (error) {
+        console.error("Could not load prospectus subjects:", error);
+        return [];
+    }
+}
+
+/* =========================
    LOAD USERS FROM RENDER API / FIRESTORE
 ========================= */
 
 async function loadUsers() {
     let rawUsers = [];
+
+    // Pre-load assignments and prospectus
+    await Promise.all([
+        loadFacultySubjectAssignments(),
+        loadProspectusSubjects()
+    ]);
 
     try {
         const user = auth.currentUser;
@@ -211,7 +307,7 @@ function getFilteredUsers() {
 }
 
 /* =========================
-   RENDER USERS
+   RENDER USERS TABLE
 ========================= */
 
 function renderUsers() {
@@ -227,14 +323,21 @@ function renderUsers() {
 
     const isStudent = currentTab === "Student";
 
-    // Show/hide Program / Major column
-    document.getElementById("programMajorHeader").style.display =
-        isStudent ? "" : "none";
+    // Toggle column headers: Students have Program/Major; Faculty have Assigned Subjects
+    const programMajorHeader = document.getElementById("programMajorHeader");
+    const assignedSubjectsHeader = document.getElementById("assignedSubjectsHeader");
+
+    if (programMajorHeader) {
+        programMajorHeader.style.display = isStudent ? "" : "none";
+    }
+    if (assignedSubjectsHeader) {
+        assignedSubjectsHeader.style.display = isStudent ? "none" : "";
+    }
 
     if (!users.length) {
         body.innerHTML = `
             <tr>
-                <td colspan="${isStudent ? 5 : 4}" class="empty-state">
+                <td colspan="5" class="empty-state">
                     No ${currentTab.toLowerCase()} users found.
                 </td>
             </tr>
@@ -244,99 +347,160 @@ function renderUsers() {
     }
 
     body.innerHTML = users.map(user => {
+        const userId = user.id || user.uid;
         const initials = getInitials(user.fullName);
 
-        const program = user.program
-            ? `<span class="program-tag">${safe(user.program)}</span>`
-            : "";
+        if (isStudent) {
+            const program = user.program
+                ? `<span class="program-tag">${safe(user.program)}</span>`
+                : "";
 
-        const major = user.major
-            ? `<span class="major-tag">${safe(user.major)}</span>`
-            : "";
+            const major = user.major
+                ? `<span class="major-tag">${safe(user.major)}</span>`
+                : "";
 
-        const programMajor = (program || major)
-            ? `<div>${program}${major}</div>`
-            : `<span class="date-text">—</span>`;
+            const programMajor = (program || major)
+                ? `<div>${program}${major}</div>`
+                : `<span class="date-text">—</span>`;
 
-        const roleClass =
-            isStudent
-                ? "role-student"
-                : "role-faculty";
-
-        return `
-            <tr>
-                <td>
-                    <div class="user-cell">
-                        <div class="user-avatar">
-                            ${safe(initials)}
-                        </div>
-
-                        <div>
-                            <div class="user-name">
-                                ${safe(user.fullName || "Unknown")}
+            return `
+                <tr>
+                    <td>
+                        <div class="user-cell">
+                            <div class="user-avatar">
+                                ${safe(initials)}
                             </div>
 
-                            <div class="user-email">
-                                ${safe(user.email || "—")}
+                            <div>
+                                <div class="user-name">
+                                    ${safe(user.fullName || "Unknown")}
+                                </div>
+
+                                <div class="user-email">
+                                    ${safe(user.email || "—")}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </td>
+                    </td>
 
-                <td>
-                    <span class="role-badge ${roleClass}">
-                        ${safe(currentTab)}
-                    </span>
-                </td>
+                    <td>
+                        <span class="role-badge role-student">
+                            Student
+                        </span>
+                    </td>
 
-                ${isStudent ? `<td>${programMajor}</td>` : ""}
+                    <td>${programMajor}</td>
 
-                <td class="date-text">
-                    ${safe(formatDate(getDate(user)))}
-                </td>
+                    <td class="date-text">
+                        ${safe(formatDate(getDate(user)))}
+                    </td>
 
-                <td>
-                    <button
-                        class="delete-btn"
-                        data-user-id="${safe(user.id || user.uid)}"
-                        data-user-name="${safe(user.fullName || "Unknown")}"
-                    >
-                        Delete
-                    </button>
-                </td>
-            </tr>
-        `;
+                    <td>
+                        <button
+                            class="delete-btn"
+                            data-user-id="${safe(userId)}"
+                            data-user-name="${safe(user.fullName || "Unknown")}"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+        } else {
+            // Faculty row
+            const handledList = facultyAssignmentsMap.get(userId) || [];
+            const count = handledList.length;
+            const countText = count > 0
+                ? `${count} subject${count === 1 ? "" : "s"} assigned`
+                : "No subjects assigned";
+
+            return `
+                <tr>
+                    <td>
+                        <div class="user-cell">
+                            <div class="user-avatar">
+                                ${safe(initials)}
+                            </div>
+
+                            <div>
+                                <div class="user-name">
+                                    ${safe(user.fullName || "Unknown")}
+                                </div>
+
+                                <div class="user-email">
+                                    ${safe(user.email || "—")}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+
+                    <td>
+                        <span class="role-badge role-faculty">
+                            Faculty
+                        </span>
+                    </td>
+
+                    <td class="date-text">
+                        ${safe(formatDate(getDate(user)))}
+                    </td>
+
+                    <td>
+                        <div class="assigned-subjects-cell">
+                            <button
+                                class="manage-subjects-btn"
+                                data-user-id="${safe(userId)}"
+                                data-user-name="${safe(user.fullName || "Unknown")}"
+                                data-user-email="${safe(user.email || "")}"
+                            >
+                                Manage Subjects
+                            </button>
+                            <span class="assigned-count-text ${count > 0 ? "has-subjects" : ""}">
+                                ${safe(countText)}
+                            </span>
+                        </div>
+                    </td>
+
+                    <td>
+                        <button
+                            class="delete-btn"
+                            data-user-id="${safe(userId)}"
+                            data-user-name="${safe(user.fullName || "Unknown")}"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }
     }).join("");
 
     /* =========================
-       DELETE BUTTONS
+       BUTTON EVENT LISTENERS
     ========================= */
 
     body.querySelectorAll(".delete-btn").forEach(button => {
-
         button.addEventListener("click", () => {
-
-            const userId =
-                button.dataset.userId;
-
-            const userName =
-                button.dataset.userName;
-
-            handleDeleteUser(
-                userId,
-                userName
-            );
+            const userId = button.dataset.userId;
+            const userName = button.dataset.userName;
+            handleDeleteUser(userId, userName);
         });
+    });
 
+    body.querySelectorAll(".manage-subjects-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            const userId = button.dataset.userId;
+            const userName = button.dataset.userName;
+            const userEmail = button.dataset.userEmail;
+            openAssignSubjectsModal(userId, userName, userEmail);
+        });
     });
 }
 
 /* =========================
-   DELETE USER
+   DELETE USER (WITH SUBJECT ASSIGNMENT CLEANUP)
 ========================= */
 
 async function handleDeleteUser(userId, userName) {
-
     if (!userId) {
         console.error("Cannot delete user: Missing user ID.");
         return;
@@ -353,9 +517,7 @@ async function handleDeleteUser(userId, userName) {
         const user = auth.currentUser;
 
         if (!user) {
-            throw new Error(
-                "You are not authenticated."
-            );
+            throw new Error("You are not authenticated.");
         }
 
         let deletedViaApi = false;
@@ -364,9 +526,7 @@ async function handleDeleteUser(userId, userName) {
             // Get Firebase ID token
             const token = await user.getIdToken();
 
-            console.log(
-                `Deleting user through Render API: ${userId}`
-            );
+            console.log(`Deleting user through Render API: ${userId}`);
 
             const response = await fetch(
                 `${API_URL}/users/${encodeURIComponent(userId)}`,
@@ -396,46 +556,369 @@ async function handleDeleteUser(userId, userName) {
             console.log(`User document deleted directly from Firestore: ${userId}`);
         }
 
-        alert(
-            `${userName} has been deleted successfully.`
-        );
+        // Clean up facultySubjectAssignments document to avoid orphaned subject records
+        try {
+            await deleteDoc(doc(db, "facultySubjectAssignments", userId));
+            facultyAssignmentsMap.delete(userId);
+            console.log(`Faculty subject assignment cleaned up for ${userId}`);
+        } catch (cleanupError) {
+            console.warn("Could not clean up facultySubjectAssignments:", cleanupError);
+        }
+
+        alert(`${userName} has been deleted successfully.`);
 
         // Remove immediately from local array
         allUsers = allUsers.filter(
-            user => (user.id !== userId && user.uid !== userId)
+            u => (u.id !== userId && u.uid !== userId)
         );
 
         updateCounts();
         renderUsers();
 
     } catch (error) {
-
-        console.error(
-            "Could not delete user:",
-            error
-        );
-
-        alert(
-            `Failed to delete ${userName}.\n\n${error.message}`
-        );
+        console.error("Could not delete user:", error);
+        alert(`Failed to delete ${userName}.\n\n${error.message}`);
     }
 }
 
 /* =========================
-   INITIALS
+   MANAGE SUBJECTS MODAL
+========================= */
+
+async function openAssignSubjectsModal(userId, userName, userEmail) {
+    activeFacultyUser = {
+        id: userId,
+        uid: userId,
+        fullName: userName,
+        email: userEmail
+    };
+
+    // Load existing assigned subjects (stored as composite keys)
+    const existing = facultyAssignmentsMap.get(userId) || [];
+    selectedSubjectKeys = new Set(existing);
+
+    // Reset filters
+    modalSearchTerm = "";
+    modalProgramFilter = "";
+    modalMajorFilter = "";
+    modalYearFilter = "";
+    modalSemesterFilter = "";
+
+    document.getElementById("subjectSearchInput").value = "";
+    document.getElementById("subjectProgramFilter").value = "";
+    document.getElementById("subjectYearFilter").value = "";
+    document.getElementById("subjectSemesterFilter").value = "";
+
+    updateModalMajorFilterDropdown();
+
+    // Populate faculty header banner
+    document.getElementById("modalFacultyName").textContent = userName || "Faculty Member";
+    document.getElementById("modalFacultyEmail").textContent = userEmail || "—";
+    updateModalHeaderBadge();
+
+    // Ensure prospectus subjects are loaded
+    if (!prospectusSubjects.length) {
+        await loadProspectusSubjects();
+    }
+
+    renderModalSubjectList();
+
+    // Display modal
+    const modalOverlay = document.getElementById("assignSubjectsModal");
+    if (modalOverlay) {
+        modalOverlay.style.display = "flex";
+    }
+}
+
+function closeAssignSubjectsModal() {
+    const modalOverlay = document.getElementById("assignSubjectsModal");
+    if (modalOverlay) {
+        modalOverlay.style.display = "none";
+    }
+    activeFacultyUser = null;
+    selectedSubjectKeys.clear();
+}
+
+function updateModalHeaderBadge() {
+    const count = selectedSubjectKeys.size;
+    const badge = document.getElementById("modalAssignedBadge");
+    if (badge) {
+        badge.textContent = count > 0
+            ? `${count} subject${count === 1 ? "" : "s"} assigned`
+            : "No subjects assigned";
+    }
+}
+
+function updateModalMajorFilterDropdown() {
+    const majorSelect = document.getElementById("subjectMajorFilter");
+    if (!majorSelect) return;
+
+    modalMajorFilter = "";
+    majorSelect.innerHTML = `<option value="">All Majors</option>`;
+
+    if (modalProgramFilter === "BIT" || modalProgramFilter === "BINDTECH") {
+        majorSelect.innerHTML += `<option value="CPT">CPT</option>`;
+    } else if (modalProgramFilter === "BTVTED") {
+        majorSelect.innerHTML += `
+            <option value="AT">AT</option>
+            <option value="MT">MT</option>
+            <option value="CP">CP</option>
+            <option value="FSM">FSM</option>
+            <option value="CT">CT</option>
+            <option value="ELT">ELT</option>
+            <option value="ELX">ELX</option>
+        `;
+    } else {
+        // All Programs or empty: collect unique majors from prospectus
+        const majors = [...new Set(prospectusSubjects.map(s => s.majorCode).filter(Boolean))].sort();
+        majors.forEach(m => {
+            majorSelect.innerHTML += `<option value="${safe(m)}">${safe(m)}</option>`;
+        });
+    }
+}
+
+function getFilteredProspectusSubjects() {
+    return prospectusSubjects.filter(item => {
+        if (modalSearchTerm) {
+            const term = modalSearchTerm.toLowerCase();
+            const code = item.subjectCode.toLowerCase();
+            const name = item.subjectName.toLowerCase();
+            if (!code.includes(term) && !name.includes(term)) {
+                return false;
+            }
+        }
+
+        if (modalProgramFilter) {
+            if (item.programCode.toUpperCase() !== modalProgramFilter.toUpperCase()) {
+                return false;
+            }
+        }
+
+        if (modalMajorFilter) {
+            if (item.majorCode.toUpperCase() !== modalMajorFilter.toUpperCase()) {
+                return false;
+            }
+        }
+
+        if (modalYearFilter) {
+            if (String(item.yearLevel) !== String(modalYearFilter)) {
+                return false;
+            }
+        }
+
+        if (modalSemesterFilter) {
+            if (String(item.semester) !== String(modalSemesterFilter)) {
+                return false;
+            }
+        }
+
+        return true;
+    }).sort((a, b) => a.subjectCode.localeCompare(b.subjectCode));
+}
+
+function renderModalSubjectList() {
+    const container = document.getElementById("subjectListContainer");
+    const countStatus = document.getElementById("subjectCountStatus");
+    const selectedCountStatus = document.getElementById("selectedTotalCountStatus");
+
+    if (!container) return;
+
+    const filtered = getFilteredProspectusSubjects();
+
+    if (countStatus) {
+        countStatus.textContent = `Showing ${filtered.length} of ${prospectusSubjects.length} subjects`;
+    }
+
+    if (selectedCountStatus) {
+        const selCount = selectedSubjectKeys.size;
+        selectedCountStatus.textContent = `${selCount} subject${selCount === 1 ? "" : "s"} selected`;
+    }
+
+    if (!filtered.length) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:30px 15px; color:#777; font-size:14px;">
+                No subjects found matching the active search or filters.
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = filtered.map(subject => {
+        // Use composite key so subjects with the same subjectCode but different
+        // program/major/year/semester are treated as completely independent records.
+        const subjectKey = getSubjectKey(subject);
+        const isChecked = selectedSubjectKeys.has(subjectKey);
+
+        return `
+            <label class="subject-item-label ${isChecked ? "checked" : ""}">
+                <input
+                    type="checkbox"
+                    class="subject-checkbox"
+                    data-subject-key="${safe(subjectKey)}"
+                    ${isChecked ? "checked" : ""}
+                >
+                <div class="subject-item-details">
+                    <span class="subject-code-badge">${safe(subject.subjectCode)}</span>
+                    <span class="subject-name-text">${safe(subject.subjectName)}</span>
+                    <div class="subject-meta-tags">
+                        ${subject.units ? `<span class="meta-tag units">${safe(subject.units)} Units</span>` : ""}
+                        ${subject.programCode ? `<span class="meta-tag curriculum">${safe(subject.programCode)}${subject.majorCode ? ` - ${safe(subject.majorCode)}` : ""}</span>` : ""}
+                        ${subject.yearLevel ? `<span class="meta-tag">Yr ${safe(subject.yearLevel)}</span>` : ""}
+                        ${subject.semester ? `<span class="meta-tag">Sem ${safe(subject.semester)}</span>` : ""}
+                    </div>
+                </div>
+            </label>
+        `;
+    }).join("");
+
+    // Checkbox click handlers — each row operates on its own unique composite key.
+    // No cross-row syncing by subject code to preserve independence of same-code subjects.
+    container.querySelectorAll(".subject-checkbox").forEach(cb => {
+        cb.addEventListener("change", event => {
+            const subjectKey = event.target.dataset.subjectKey;
+            const label = event.target.closest(".subject-item-label");
+
+            if (event.target.checked) {
+                selectedSubjectKeys.add(subjectKey);
+                label?.classList.add("checked");
+            } else {
+                selectedSubjectKeys.delete(subjectKey);
+                label?.classList.remove("checked");
+            }
+
+            updateModalHeaderBadge();
+            if (selectedCountStatus) {
+                const selCount = selectedSubjectKeys.size;
+                selectedCountStatus.textContent = `${selCount} subject${selCount === 1 ? "" : "s"} selected`;
+            }
+        });
+    });
+}
+
+/* =========================
+   MODAL ACTIONS & EVENT LISTENERS
+========================= */
+
+// Select All visible
+document.getElementById("selectAllVisibleBtn")?.addEventListener("click", () => {
+    const visible = getFilteredProspectusSubjects();
+    visible.forEach(s => selectedSubjectKeys.add(getSubjectKey(s)));
+    updateModalHeaderBadge();
+    renderModalSubjectList();
+});
+
+// Deselect All visible
+document.getElementById("deselectAllVisibleBtn")?.addEventListener("click", () => {
+    const visible = getFilteredProspectusSubjects();
+    visible.forEach(s => selectedSubjectKeys.delete(getSubjectKey(s)));
+    updateModalHeaderBadge();
+    renderModalSubjectList();
+});
+
+// Search input in modal
+document.getElementById("subjectSearchInput")?.addEventListener("input", event => {
+    modalSearchTerm = event.target.value.trim();
+    renderModalSubjectList();
+});
+
+// Program filter in modal
+document.getElementById("subjectProgramFilter")?.addEventListener("change", event => {
+    modalProgramFilter = event.target.value;
+    updateModalMajorFilterDropdown();
+    renderModalSubjectList();
+});
+
+// Major filter in modal
+document.getElementById("subjectMajorFilter")?.addEventListener("change", event => {
+    modalMajorFilter = event.target.value;
+    renderModalSubjectList();
+});
+
+// Year filter in modal
+document.getElementById("subjectYearFilter")?.addEventListener("change", event => {
+    modalYearFilter = event.target.value;
+    renderModalSubjectList();
+});
+
+// Semester filter in modal
+document.getElementById("subjectSemesterFilter")?.addEventListener("change", event => {
+    modalSemesterFilter = event.target.value;
+    renderModalSubjectList();
+});
+
+// Save subjects button
+document.getElementById("saveAssignBtn")?.addEventListener("click", async () => {
+    if (!activeFacultyUser || !activeFacultyUser.id) {
+        console.error("No active faculty user selected for assignment.");
+        return;
+    }
+
+    const saveBtn = document.getElementById("saveAssignBtn");
+    const originalText = saveBtn.textContent;
+
+    try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+
+        // Build the array of composite keys to store.
+        // Each key uniquely identifies a subject record: programCode_majorCode_yearLevel_semester_subjectCode
+        const handledArray = Array.from(selectedSubjectKeys).filter(Boolean);
+        const facultyUserId = activeFacultyUser.id;
+
+        console.log(`Saving assigned subjects for faculty ${facultyUserId}:`, handledArray);
+
+        // Save to Firestore facultySubjectAssignments collection
+        await setDoc(doc(db, "facultySubjectAssignments", facultyUserId), {
+            facultyId: facultyUserId,
+            handledSubjects: handledArray,
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        // Update local state map
+        facultyAssignmentsMap.set(facultyUserId, handledArray);
+
+        alert(`Assigned subjects updated successfully for ${activeFacultyUser.fullName} (${handledArray.length} subject${handledArray.length === 1 ? "" : "s"}).`);
+
+        closeAssignSubjectsModal();
+        renderUsers();
+
+    } catch (error) {
+        console.error("Error saving faculty subject assignments:", error);
+        alert(`Failed to save assigned subjects: ${error.message}`);
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+    }
+});
+
+// Cancel and Close buttons
+document.getElementById("closeAssignModalBtn")?.addEventListener("click", () => {
+    closeAssignSubjectsModal();
+});
+
+document.getElementById("cancelAssignBtn")?.addEventListener("click", () => {
+    closeAssignSubjectsModal();
+});
+
+// Close modal on outside overlay click
+document.getElementById("assignSubjectsModal")?.addEventListener("click", event => {
+    if (event.target === document.getElementById("assignSubjectsModal")) {
+        closeAssignSubjectsModal();
+    }
+});
+
+/* =========================
+   INITIALS & DATE UTILS
 ========================= */
 
 function getInitials(name) {
-
     if (!name) return "?";
 
     return name
         .split(" ")
         .filter(part => part.length > 0)
         .slice(0, 2)
-        .map(part =>
-            part[0].toUpperCase()
-        )
+        .map(part => part[0].toUpperCase())
         .join("");
 }
 
@@ -486,14 +969,10 @@ function formatDate(date) {
 ========================= */
 
 function safe(value) {
-
     if (value === undefined || value === null) return "";
 
-    const span =
-        document.createElement("span");
-
+    const span = document.createElement("span");
     span.textContent = value;
-
     return span.innerHTML;
 }
 
@@ -501,143 +980,88 @@ function safe(value) {
    TAB SWITCHING
 ========================= */
 
-document
-    .getElementById("tabStudents")
-    .addEventListener("click", () => {
+document.getElementById("tabStudents").addEventListener("click", () => {
+    currentTab = "Student";
 
-        currentTab = "Student";
+    document.getElementById("tabStudents").classList.add("active");
+    document.getElementById("tabFaculty").classList.remove("active");
 
-        document
-            .getElementById("tabStudents")
-            .classList.add("active");
+    document.getElementById("programFilter").style.display = "";
+    document.getElementById("majorFilter").style.display = "";
 
-        document
-            .getElementById("tabFaculty")
-            .classList.remove("active");
+    renderUsers();
+});
 
-        document
-            .getElementById("programFilter")
-            .style.display = "";
+document.getElementById("tabFaculty").addEventListener("click", () => {
+    currentTab = "Faculty";
 
-        document
-            .getElementById("majorFilter")
-            .style.display = "";
+    document.getElementById("tabFaculty").classList.add("active");
+    document.getElementById("tabStudents").classList.remove("active");
 
-        renderUsers();
-    });
+    document.getElementById("programFilter").style.display = "none";
+    document.getElementById("majorFilter").style.display = "none";
 
-document
-    .getElementById("tabFaculty")
-    .addEventListener("click", () => {
-
-        currentTab = "Faculty";
-
-        document
-            .getElementById("tabFaculty")
-            .classList.add("active");
-
-        document
-            .getElementById("tabStudents")
-            .classList.remove("active");
-
-        document
-            .getElementById("programFilter")
-            .style.display = "none";
-
-        document
-            .getElementById("majorFilter")
-            .style.display = "none";
-
-        renderUsers();
-    });
+    renderUsers();
+});
 
 /* =========================
-   SEARCH
+   SEARCH (MAIN PAGE)
 ========================= */
 
-document
-    .getElementById("searchInput")
-    .addEventListener("input", event => {
-
-        searchTerm =
-            event.target.value.trim();
-
-        renderUsers();
-    });
+document.getElementById("searchInput").addEventListener("input", event => {
+    searchTerm = event.target.value.trim();
+    renderUsers();
+});
 
 /* =========================
-   PROGRAM & MAJOR FILTERS
+   PROGRAM & MAJOR FILTERS (MAIN PAGE)
 ========================= */
 
-const programFilterEl =
-    document.getElementById("programFilter");
+const programFilterEl = document.getElementById("programFilter");
+const majorFilterEl = document.getElementById("majorFilter");
 
-const majorFilterEl =
-    document.getElementById("majorFilter");
+programFilterEl.addEventListener("change", () => {
+    programFilter = programFilterEl.value;
+    majorFilter = "";
 
-programFilterEl.addEventListener(
-    "change",
-    () => {
+    majorFilterEl.innerHTML = `<option value="">All Majors</option>`;
 
-        programFilter =
-            programFilterEl.value;
-
-        majorFilter = "";
-
-        majorFilterEl.innerHTML =
-            `<option value="">All Majors</option>`;
-
-        if (
-            programFilter === "BIT" ||
-            programFilter === "BINDTECH"
-        ) {
-            majorFilterEl.innerHTML +=
-                `<option value="CPT">CPT</option>`;
-        }
-
-        if (
-            programFilter === "BTVTED"
-        ) {
-            majorFilterEl.innerHTML += `
-                <option value="AT">AT</option>
-                <option value="MT">MT</option>
-                <option value="CP">CP</option>
-                <option value="FSM">FSM</option>
-                <option value="CT">CT</option>
-                <option value="ELT">ELT</option>
-                <option value="ELX">ELX</option>
-            `;
-        }
-
-        renderUsers();
+    if (programFilter === "BIT" || programFilter === "BINDTECH") {
+        majorFilterEl.innerHTML += `<option value="CPT">CPT</option>`;
     }
-);
 
-majorFilterEl.addEventListener(
-    "change",
-    () => {
-
-        majorFilter =
-            majorFilterEl.value;
-
-        renderUsers();
+    if (programFilter === "BTVTED") {
+        majorFilterEl.innerHTML += `
+            <option value="AT">AT</option>
+            <option value="MT">MT</option>
+            <option value="CP">CP</option>
+            <option value="FSM">FSM</option>
+            <option value="CT">CT</option>
+            <option value="ELT">ELT</option>
+            <option value="ELX">ELX</option>
+        `;
     }
-);
+
+    renderUsers();
+});
+
+majorFilterEl.addEventListener("change", () => {
+    majorFilter = majorFilterEl.value;
+    renderUsers();
+});
 
 /* =========================
    LOGOUT
 ========================= */
 
-document
-    .getElementById("logoutLink")
-    ?.addEventListener("click", async event => {
-        event.preventDefault();
-        try {
-            await signOut(auth);
-        } catch (e) {
-            console.error("Logout failed:", e);
-        }
-        sessionStorage.clear();
-        localStorage.clear();
-        window.location.replace("login.html");
-    });
+document.getElementById("logoutLink")?.addEventListener("click", async event => {
+    event.preventDefault();
+    try {
+        await signOut(auth);
+    } catch (e) {
+        console.error("Logout failed:", e);
+    }
+    sessionStorage.clear();
+    localStorage.clear();
+    window.location.replace("login.html");
+});

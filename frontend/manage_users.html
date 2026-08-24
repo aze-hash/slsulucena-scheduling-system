@@ -192,6 +192,378 @@
                 width: 100%;
             }
         }
+
+        /* =========================
+           ASSIGNED SUBJECTS & MODAL STYLES
+        ========================= */
+        .manage-subjects-btn {
+            background: #2e7d32;
+            color: #ffffff;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: .2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 105px;
+        }
+
+        .manage-subjects-btn:hover {
+            background: #1b5e20;
+            transform: translateY(-1px);
+        }
+
+        .assigned-subjects-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-start;
+        }
+
+        .assigned-count-text {
+            font-size: 12px;
+            color: #555;
+            font-weight: 500;
+            margin-left: 110px;
+        }
+
+        .assigned-count-text.has-subjects {
+            color: #1b5e20;
+            font-weight: 600;
+        }
+
+        .assign-subjects-modal {
+            max-width: 820px;
+            width: 95%;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        .faculty-summary-card {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border: 1px solid #a5d6a7;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .faculty-summary-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #020402;
+        }
+
+        .faculty-summary-email {
+            font-size: 13px;
+            color: #0d47a1;
+        }
+
+        .faculty-summary-badge {
+            background: #0d47a1;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 5px 12px;
+            border-radius: 20px;
+        }
+
+        .modal-filters-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 12px;
+            background: #fafafa;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #eee;
+        }
+
+        .modal-search-row input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            background: #ffffff;
+        }
+
+        .modal-search-row input:focus {
+            border-color: #2e7d32;
+        }
+
+        .modal-filter-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-item label {
+            font-size: 11px;
+            font-weight: bold;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-item select {
+            padding: 8px 10px;
+            border: 1px solid #c9c1b0;
+            border-radius: 6px;
+            font-size: 13px;
+            background: #ffffff;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .filter-item select:focus {
+            border-color: #2e7d32;
+        }
+
+        .selection-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 4px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .selection-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .toolbar-btn {
+            background: #f1f8e9;
+            border: 1px solid #c8e6c9;
+            color: #1b5e20;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s;
+        }
+
+        .toolbar-btn:hover {
+            background: #2e7d32;
+            color: #ffffff;
+            border-color: #2e7d32;
+        }
+
+        .toolbar-btn.text-btn {
+            background: transparent;
+            border: 1px solid #ddd;
+            color: #666;
+        }
+
+        .toolbar-btn.text-btn:hover {
+            background: #f5f5f5;
+            color: #333;
+            border-color: #ccc;
+        }
+
+        .selection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .showing-text {
+            color: #666;
+        }
+
+        .divider-dot {
+            color: #aaa;
+        }
+
+        .selected-text {
+            color: #1b5e20;
+            font-weight: bold;
+        }
+
+        .modal-body-scrollable {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 320px;
+            min-height: 180px;
+            padding-right: 4px;
+        }
+
+        .subject-checklist {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .subject-item-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all .2s ease;
+        }
+
+        .subject-item-label:hover {
+            background: #f9fbf9;
+            border-color: #a5d6a7;
+        }
+
+        .subject-item-label.checked {
+            background: #f1f8e9;
+            border-color: #81c784;
+        }
+
+        .subject-checkbox {
+            width: 18px;
+            height: 18px;
+            accent-color: #2e7d32;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .subject-item-details {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-grow: 1;
+            flex-wrap: wrap;
+        }
+
+        .subject-code-badge {
+            font-family: monospace;
+            font-weight: bold;
+            background: #e8f5e9;
+            color: #1b5e20;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .subject-name-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: #222;
+            flex-grow: 1;
+        }
+
+        .subject-meta-tags {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .meta-tag {
+            font-size: 11px;
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-weight: 600;
+            background: #eee;
+            color: #555;
+        }
+
+        .meta-tag.units {
+            background: #e3f2fd;
+            color: #0d47a1;
+        }
+
+        .meta-tag.curriculum {
+            background: #f3e5f5;
+            color: #6a1b9a;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding-top: 14px;
+            margin-top: 10px;
+            border-top: 1px solid #eee;
+        }
+
+        .btn-cancel {
+            background: #e0e0e0;
+            color: #333;
+            border: none;
+            padding: 9px 18px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s;
+        }
+
+        .btn-cancel:hover {
+            background: #d5d5d5;
+        }
+
+        .btn-save {
+            background: #2e7d32;
+            color: #ffffff;
+            border: none;
+            padding: 9px 22px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s;
+        }
+
+        .btn-save:hover:not(:disabled) {
+            background: #1b5e20;
+        }
+
+        .btn-save:disabled {
+            background: #a5d6a7;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+            .modal-filter-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .faculty-summary-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .modal-filter-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -265,6 +637,7 @@
                         <th>Role</th>
                         <th id="programMajorHeader">Program / Major</th>
                         <th>Registered Date</th>
+                        <th id="assignedSubjectsHeader" style="display:none;">Assigned Subjects</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -272,6 +645,89 @@
             </table>
         </div>
     </section>
+
+    <!-- Assign Subjects Modal -->
+    <div class="modal-overlay" id="assignSubjectsModal" style="display:none;">
+        <div class="modal assign-subjects-modal">
+            <div class="modal-header">
+                <div>
+                    <h3 style="color:var(--dark); margin:0;">Assign Subjects</h3>
+                    <p style="font-size:13px; color:#555; margin-top:2px;">Select subjects handled by this faculty member.</p>
+                </div>
+                <button class="modal-close" id="closeAssignModalBtn" aria-label="Close modal">&times;</button>
+            </div>
+            
+            <div class="faculty-summary-card">
+                <div class="faculty-summary-info">
+                    <div class="faculty-summary-name" id="modalFacultyName">—</div>
+                    <div class="faculty-summary-email" id="modalFacultyEmail">—</div>
+                </div>
+                <div class="faculty-summary-badge" id="modalAssignedBadge">0 subjects assigned</div>
+            </div>
+
+            <div class="modal-filters-section">
+                <div class="modal-search-row">
+                    <input type="text" id="subjectSearchInput" placeholder="🔍 Search subject code or subject name...">
+                </div>
+                <div class="modal-filter-grid">
+                    <div class="filter-item">
+                        <label for="subjectProgramFilter">Program</label>
+                        <select id="subjectProgramFilter">
+                            <option value="">All Programs</option>
+                            <option value="BIT">BIT</option>
+                            <option value="BINDTECH">BINDTECH</option>
+                            <option value="BTVTED">BTVTED</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="subjectMajorFilter">Major</label>
+                        <select id="subjectMajorFilter">
+                            <option value="">All Majors</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="subjectYearFilter">Year Level</label>
+                        <select id="subjectYearFilter">
+                            <option value="">All Years</option>
+                            <option value="1">1st Year</option>
+                            <option value="2">2nd Year</option>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label for="subjectSemesterFilter">Semester</label>
+                        <select id="subjectSemesterFilter">
+                            <option value="">All Semesters</option>
+                            <option value="1">1st Semester</option>
+                            <option value="2">2nd Semester</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="selection-toolbar">
+                <div class="selection-actions">
+                    <button type="button" id="selectAllVisibleBtn" class="toolbar-btn">Select All</button>
+                    <button type="button" id="deselectAllVisibleBtn" class="toolbar-btn text-btn">Deselect All</button>
+                </div>
+                <div class="selection-status">
+                    <span id="subjectCountStatus" class="showing-text">Showing 0 subjects</span>
+                    <span class="divider-dot">•</span>
+                    <strong id="selectedTotalCountStatus" class="selected-text">0 subjects selected</strong>
+                </div>
+            </div>
+
+            <div class="modal-body-scrollable">
+                <div id="subjectListContainer" class="subject-checklist"></div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="cancelAssignBtn">Cancel</button>
+                <button type="button" class="btn-save" id="saveAssignBtn">Save Subjects</button>
+            </div>
+        </div>
+    </div>
 </main>
 
 <script type="module" src="manage_users.js"></script>

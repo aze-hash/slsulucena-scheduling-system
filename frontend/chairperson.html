@@ -6,6 +6,7 @@
     <title>Chairperson Dashboard</title>
 
     <link rel="stylesheet" href="chairperson.css">
+    <script src="js/chart.umd.js"></script>
 </head>
 <body>
 
@@ -68,6 +69,63 @@
             <p>Exam Schedule</p>
             <h2 id="examScheduleCount">0</h2>
         </article>
+    </section>
+
+    <!-- Visualizations: Faculty Subject Assignments & Schedule Overview -->
+    <section class="dashboard-charts-grid">
+        <!-- 1. Faculty Subject Assignments Horizontal Bar Chart -->
+        <div class="card chart-card">
+            <div class="chart-card-header">
+                <div>
+                    <h3>Faculty Subject Assignments</h3>
+                    <p class="chart-subtitle">Assigned subjects per faculty member</p>
+                </div>
+                <div class="chart-controls">
+                    <select id="facultyChartFilter" class="chart-select">
+                        <option value="5" selected>Top 5 Faculty</option>
+                        <option value="10">Top 10 Faculty</option>
+                        <option value="all">All Faculty</option>
+                    </select>
+                </div>
+            </div>
+            <div class="chart-container" id="facultyChartWrapper">
+                <canvas id="facultySubjectsChart"></canvas>
+                <div id="facultyChartEmptyState" class="chart-empty-state" style="display:none;">
+                    No subject assignments yet.
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Schedule Overview Donut Chart -->
+        <div class="card chart-card">
+            <div class="chart-card-header">
+                <div>
+                    <h3>Schedule Overview</h3>
+                    <p class="chart-subtitle">Distribution of existing schedules</p>
+                </div>
+                <div class="chart-controls">
+                    <select id="scheduleOverviewFilter" class="chart-select">
+                        <option value="this_semester" selected>This Semester</option>
+                        <option value="1st Semester">1st Semester</option>
+                        <option value="2nd Semester">2nd Semester</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+            </div>
+            <div class="chart-container donut-chart-container" id="scheduleChartWrapper">
+                <div class="donut-canvas-wrapper">
+                    <canvas id="scheduleOverviewChart"></canvas>
+                    <div id="donutCenterTotal" class="donut-center-text">
+                        <span class="donut-total-count" id="donutTotalCount">0</span>
+                        <span class="donut-total-label">Total Schedules</span>
+                    </div>
+                </div>
+                <div id="scheduleOverviewLegend" class="custom-chart-legend"></div>
+                <div id="scheduleChartEmptyState" class="chart-empty-state" style="display:none;">
+                    No schedule data available.
+                </div>
+            </div>
+        </div>
     </section>
 
     <section class="card">

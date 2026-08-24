@@ -12,6 +12,8 @@ import {
     doc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
+import { renderClassCalendar, renderExamCalendar } from "./js/schedule-calendar.js";
+
 const classScheduleContainer = document.getElementById("classScheduleContainer");
 const examScheduleContainer = document.getElementById("examScheduleContainer");
 const classSearchInput = document.getElementById("classSearchInput");
@@ -76,7 +78,7 @@ function setPinnedExamId(id) {
 
 function renderClassSchedules() {
     if (!allClassSchedules.length) {
-        classScheduleContainer.innerHTML = '<div class="empty-state">No class schedules found for your program and major.</div>';
+        classScheduleContainer.innerHTML = '<div class="empty-state">No class schedule has been released yet.</div>';
         return;
     }
 
@@ -103,20 +105,7 @@ function renderClassSchedules() {
 
     classScheduleContainer.innerHTML = displayList.map(schedule => {
         const isPinned = schedule.id === pinnedId;
-        const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
-
-        const rows = entries.length
-            ? entries.map(entry => `
-                <tr>
-                    <td data-label="Subject Code">${safe(entry.subjectCode || entry.code || "-")}</td>
-                    <td data-label="Subject Name">${safe(entry.subjectName || entry.name || "-")}</td>
-                    <td data-label="Units">${safe(entry.units || "-")}</td>
-                    <td data-label="Day">${safe(entry.day || "-")}</td>
-                    <td data-label="Time">${safe(entry.time || "-")}</td>
-                    <td data-label="Room">${safe(entry.room || "-")}</td>
-                </tr>
-            `).join("")
-            : `<tr><td colspan="6">No class entries available.</td></tr>`;
+        const calendarHtml = renderClassCalendar(schedule);
 
         return `
             <article class="schedule-card" data-id="${safe(schedule.id)}">
@@ -129,29 +118,16 @@ function renderClassSchedules() {
                         ${isPinned ? "📌 Pinned" : "📌 Pin"}
                     </button>
                 </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Subject Code</th>
-                                <th>Subject Name</th>
-                                <th>Units</th>
-                                <th>Day</th>
-                                <th>Time</th>
-                                <th>Room</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
+                ${calendarHtml}
             </article>
         `;
     }).join("");
 }
 
+
 function renderExamSchedules() {
     if (!allExamSchedules.length) {
-        examScheduleContainer.innerHTML = '<div class="empty-state">No exam schedules found for your program and major.</div>';
+        examScheduleContainer.innerHTML = '<div class="empty-state">No examination schedule has been released yet.</div>';
         return;
     }
 
@@ -164,45 +140,21 @@ function renderExamSchedules() {
 
     examScheduleContainer.innerHTML = displayList.map(schedule => {
         const isPinned = schedule.id === pinnedId;
-        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-
-        const rows = exams.length
-            ? exams.map(exam => `
-                <tr>
-                    <td data-label="Code">${safe(exam.code || exam.subjectCode || "-")}</td>
-                    <td data-label="Subject">${safe(exam.name || exam.subjectName || "-")}</td>
-                    <td data-label="Day">${safe(exam.day || "-")}</td>
-                    <td data-label="Time">${safe(exam.time || "-")}</td>
-                    <td data-label="Room">${safe(exam.room || "-")}</td>
-                </tr>
-            `).join("")
-            : `<tr><td colspan="5">No exam entries available.</td></tr>`;
+        const examType = schedule.examType ? ` — ${safe(schedule.examType)}` : "";
+        const calendarHtml = renderExamCalendar(schedule);
 
         return `
             <article class="schedule-card" data-id="${safe(schedule.id)}">
                 <div class="schedule-header">
                     <div class="schedule-header-title">
-                        <h4>${safe(schedule.section || schedule.title || "Exam Schedule")}</h4>
+                        <h4>${safe(schedule.section || schedule.title || "Exam Schedule")}${examType}</h4>
                         <small>${safe(formatAcademicInfo(schedule))}</small>
                     </div>
                     <button type="button" class="pin-btn ${isPinned ? "pinned" : ""}" data-type="exam" data-id="${safe(schedule.id)}">
                         ${isPinned ? "📌 Pinned" : "📌 Pin"}
                     </button>
                 </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Subject</th>
-                                <th>Day</th>
-                                <th>Time</th>
-                                <th>Room</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
+                ${calendarHtml}
             </article>
         `;
     }).join("");

@@ -241,16 +241,115 @@ async function deleteScheduleFromFirestore(docId) {
 }
 
 function parseTime(value) {
-    const [hour, minute] = value.split(":").map(Number);
+    if (!value) return 0;
+    const parts = String(value).trim().split(":").map(Number);
+    let hour = parts[0] || 0;
+    const minute = parts[1] || 0;
+    // School operating hours: 7:00 AM to 6:30 PM.
+    // Hours 1 to 6 are PM (13:00 to 18:00).
+    if (hour >= 1 && hour <= 6) {
+        hour += 12;
+    }
     return hour * 60 + minute;
 }
 
+function parseTimeRange(slotStr) {
+    if (!slotStr || !slotStr.includes("-")) return null;
+    const [firstStart, firstEnd] = slotStr.split("-").map(parseTime);
+    return { start: firstStart, end: firstEnd };
+}
+
 function timesOverlap(firstTime, secondTime) {
+    if (!firstTime || !secondTime) return false;
     const [firstStart, firstEnd] = firstTime.split("-").map(parseTime);
     const [secondStart, secondEnd] = secondTime.split("-").map(parseTime);
 
     return firstStart < secondEnd && secondStart < firstEnd;
 }
+
+/**
+ * Checks if adding candidateTime to existingDayEntries maintains an acceptable vacant gap.
+ * Allows: 0 min (back-to-back), up to 90 min (1.5 hours) vacant.
+ * Disallows: long vacant gaps (> 90 minutes / 1.5 hours).
+ */
+function isVacantGapAcceptable(existingDayEntries, candidateTime) {
+    const candidateRange = parseTimeRange(candidateTime);
+    if (!candidateRange) return false;
+
+    const allRanges = (existingDayEntries || [])
+        .map(t => typeof t === "string" ? parseTimeRange(t) : parseTimeRange(t.time))
+        .filter(Boolean);
+    allRanges.push(candidateRange);
+
+    allRanges.sort((a, b) => a.start - b.start);
+
+    for (let i = 0; i < allRanges.length - 1; i++) {
+        const currentEnd = allRanges[i].end;
+        const nextStart = allRanges[i + 1].start;
+
+        const rawGap = nextStart - currentEnd;
+        if (rawGap <= 0) continue; // back-to-back or overlapping
+
+        // Lunch break allowance (12:00-13:00 or 12:30-13:00)
+        let lunchAllowance = 0;
+        const lunchStart = 12 * 60; // 720 (12:00 PM)
+        const lunchEnd = 13 * 60;   // 780 (1:00 PM)
+
+        if (currentEnd <= lunchStart && nextStart >= lunchEnd) {
+            lunchAllowance = 60; // 1-hour lunch break
+        } else if (currentEnd <= 750 && nextStart >= lunchEnd) {
+            lunchAllowance = 30; // 30-min lunch break
+        }
+
+        const netVacantGap = Math.max(0, rawGap - lunchAllowance);
+
+        // Disallow long vacant time (> 1.5 hours / 90 minutes)
+        if (netVacantGap > 90) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Calculates a compactness penalty for ranking candidate slots.
+ * Prefers back-to-back (0 penalty) and smaller vacant gaps over larger gaps.
+ */
+function calculateDayPlacementVacantPenalty(existingDayEntries, candidateTime) {
+    if (!existingDayEntries || existingDayEntries.length === 0) return 0;
+    const candidateRange = parseTimeRange(candidateTime);
+    if (!candidateRange) return 0;
+
+    let minGap = Infinity;
+    for (const item of existingDayEntries) {
+        const r = typeof item === "string" ? parseTimeRange(item) : parseTimeRange(item.time);
+        if (!r) continue;
+
+        if (candidateRange.start >= r.end) {
+            let gap = candidateRange.start - r.end;
+            if (r.end <= 720 && candidateRange.start >= 780) gap = Math.max(0, gap - 60);
+            else if (r.end <= 750 && candidateRange.start >= 780) gap = Math.max(0, gap - 30);
+            if (gap < minGap) minGap = gap;
+        } else if (r.start >= candidateRange.end) {
+            let gap = r.start - candidateRange.end;
+            if (candidateRange.end <= 720 && r.start >= 780) gap = Math.max(0, gap - 60);
+            else if (candidateRange.end <= 750 && r.start >= 780) gap = Math.max(0, gap - 30);
+            if (gap < minGap) minGap = gap;
+        }
+    }
+
+    return minGap === Infinity ? 0 : minGap;
+}
+
+const DAY_PAIRS = [
+    ["Monday", "Thursday"],
+    ["Tuesday", "Friday"],
+    ["Monday", "Wednesday"],
+    ["Wednesday", "Friday"],
+    ["Tuesday", "Thursday"],
+    ["Monday", "Friday"]
+];
 
 function normalizeRoomType(roomType) {
     const type = String(roomType || "").trim();
@@ -413,7 +512,98 @@ async function loadSections() {
         console.error(error);
         showToast(`Could not load sections: ${error.message}`);
     }
+} 
+
+// Section add UI handlers (modal version)
+const addSectionBtn = document.getElementById("addSectionBtn");
+const addSectionModal = document.getElementById("addSectionModal");
+const newSectionInput = document.getElementById("newSectionInput");
+const saveNewSectionBtn = document.getElementById("saveNewSectionBtn");
+const cancelNewSectionBtn = document.getElementById("cancelNewSectionBtn");
+
+addSectionBtn.style.display = "none"; // hidden initially
+
+// Show plus button when the section dropdown is interacted with
+function showPlusButton() {
+    addSectionBtn.style.display = "inline";
 }
+function hidePlusButton() {
+    // Hide only if modal is not open
+    if (addSectionModal.style.display !== "flex") {
+        addSectionBtn.style.display = "none";
+    }
+}
+// Show on focus and click of the select
+sectionSelect.addEventListener("focus", showPlusButton);
+sectionSelect.addEventListener("click", showPlusButton);
+// Hide when clicking outside the select and button
+document.addEventListener("click", (e) => {
+    if (!sectionSelect.contains(e.target) && !addSectionBtn.contains(e.target) && !addSectionModal.contains(e.target)) {
+        hidePlusButton();
+    }
+});
+
+
+
+cancelNewSectionBtn.addEventListener("click", () => {
+    addSectionModal.style.display = "none";
+    newSectionInput.value = "";
+    // hide plus button after closing modal
+    hidePlusButton();
+});
+
+addSectionBtn.addEventListener("click", () => {
+    addSectionModal.style.display = "flex";
+    newSectionInput.focus();
+});
+saveNewSectionBtn.addEventListener("click", async () => {
+    const newCode = newSectionInput.value.trim();
+    if (!newCode) {
+        showToast("Section code cannot be empty.");
+        return;
+    }
+    // Validate format: allow alphanumeric, hyphens, underscores
+    if (!/^[A-Za-z0-9_-]+$/.test(newCode)) {
+        showToast("Section code must be alphanumeric (letters, numbers, _ or -).");
+        return;
+    }
+    // Check for duplicate section code
+    const exists = Array.from(sectionSelect.options).some(opt => opt.value === newCode);
+    if (exists) {
+        showToast("Section already exists.");
+        return;
+    }
+    const programCode = programSelect.value;
+    const majorCode = majorSelect.value;
+    const yearLevel = Number(yearLevelSelect.value);
+    if (!programCode || !majorCode || !yearLevel) {
+        showToast("Select Program, Major, and Year Level before adding a section.");
+        return;
+    }
+    try {
+        const docRef = doc(collection(db, "sections"), newCode);
+        await setDoc(docRef, {
+            sectionCode: newCode,
+            programCode,
+            majorCode,
+            yearLevel,
+            createdAt: serverTimestamp()
+        });
+        const option = document.createElement("option");
+        option.value = newCode;
+        option.textContent = newCode;
+        sectionSelect.appendChild(option);
+        sectionSelect.value = newCode;
+        showToast("Section added successfully.");
+        addSectionModal.style.display = "none";
+        newSectionInput.value = "";
+    } catch (e) {
+        console.error(e);
+        showToast(`Failed to add section: ${e.message}`);
+    }
+});
+
+
 
 document.getElementById("loadSubjectsBtn").addEventListener("click", loadSubjects);
 
@@ -563,251 +753,352 @@ async function generateSchedule() {
     const output = [];
 
     function roomIsTaken(room, day, time, allowGymSharing = false) {
-    const matchingBookings = savedBookings.filter(booking =>
-        booking.day === day &&
-        booking.time &&
-        timesOverlap(booking.time, time) &&
-        (
-            booking.roomCode === room.roomCode ||
-            booking.room === room.roomCode ||
-            booking.room === room.roomName
-        )
-    );
+        const matchingBookings = savedBookings.filter(booking =>
+            booking.day === day &&
+            booking.time &&
+            timesOverlap(booking.time, time) &&
+            (
+                booking.roomCode === room.roomCode ||
+                booking.room === room.roomCode ||
+                booking.room === room.roomName
+            )
+        );
 
-    /* The gymnasium is assigned one section per slot by default so each
-       section fills a unique Monday-Friday slot first.  When no unique
-       slot is available, the fallback enables allowGymSharing, which lets
-       a SECOND section join the same day/time (never more than two). */
-    if (room.roomType === "Gymnasium") {
-        return allowGymSharing
-            ? matchingBookings.length >= 2
-            : matchingBookings.length > 0;
+        /* The gymnasium is assigned one section per slot by default so each
+           section fills a unique Monday-Friday slot first. When no unique
+           slot is available, the fallback enables allowGymSharing, which lets
+           a SECOND section join the same day/time (never more than two). */
+        if (room.roomType === "Gymnasium") {
+            return allowGymSharing
+                ? matchingBookings.length >= 2
+                : matchingBookings.length > 0;
+        }
+
+        /* Lecture rooms and laboratories can hold only one course. */
+        return matchingBookings.length > 0;
     }
 
-    /* Lecture rooms and laboratories can hold only one course. */
-    return matchingBookings.length > 0;
-}
-function findAvailableAssignment(
-    requiredRoomType,
-    slots,
-    excludedDays,
-    preferredRoomCode = null,
-    subject = null,
-    activityDays = null
-) {
-    if (!(activityDays instanceof Set)) {
-        activityDays = new Set(activityDays || []);
+    function selectBestRoom(availableRooms, requiredRoomType, prog) {
+        if (!availableRooms || availableRooms.length === 0) return null;
+        if (requiredRoomType !== "Lecture Room") {
+            return availableRooms[Math.floor(Math.random() * availableRooms.length)];
+        }
+
+        /* Group available lecture rooms by building priority */
+        const priorityGroups = {};
+        for (const r of availableRooms) {
+            const p = getBuildingPriority(r.building, prog);
+            if (!priorityGroups[p]) priorityGroups[p] = [];
+            priorityGroups[p].push(r);
+        }
+
+        const bestPriority = Math.min(...Object.keys(priorityGroups).map(Number));
+        const bestRooms = priorityGroups[bestPriority] || [];
+
+        if (bestRooms.length > 0) {
+            return bestRooms[Math.floor(Math.random() * bestRooms.length)];
+        }
+        return availableRooms[0];
     }
 
-    /* Shuffle days first so days with equal load are randomized across runs */
-    const shuffledDays = [...days].sort(() => Math.random() - 0.5);
-    const orderedDays = shuffledDays.sort(
-        (first, second) =>
-            (timetable[first] || []).length -
-            (timetable[second] || []).length
-    );
+    /**
+     * Finds a synchronized assignment for two-meeting subjects:
+     * - EXACT SAME TIME slot across BOTH days
+     * - Different days from standard paired days (Monday & Thursday, Tuesday & Friday, etc.)
+     * - Respects the 1 to 1.5 hour vacant gap limit on both days
+     */
+    function findAvailableTwoMeetingAssignment(
+        meetings,
+        slots,
+        subject,
+        timetableInstance
+    ) {
+        const [reqRoomType1, reqRoomType2] = meetings;
+        const prog = programSelect.value;
 
-    for (const day of orderedDays) {
-        if (excludedDays.has(day)) continue;
+        // Sort candidate day pairs by section load to balance days evenly
+        const candidateDayPairs = [...DAY_PAIRS].sort((a, b) => {
+            const loadA = (timetableInstance[a[0]]?.length || 0) + (timetableInstance[a[1]]?.length || 0);
+            const loadB = (timetableInstance[b[0]]?.length || 0) + (timetableInstance[b[1]]?.length || 0);
+            if (loadA !== loadB) return loadA - loadB;
+            return Math.random() - 0.5;
+        });
 
-        /* A section may only use the gymnasium for one 2-hour
-           activity meeting per day. */
-        if (activityDays instanceof Set && activityDays.has(day)) continue;
-
-        /* Randomize slot iteration order so each generation explores different valid times */
-        const candidateSlots = [...slots].sort(() => Math.random() - 0.5);
-
-        for (const time of candidateSlots) {
-            const sectionConflict = timetable[day].some(item =>
-                timesOverlap(item.time, time)
-            );
-
-            if (sectionConflict) continue;
-
-            const availableRooms = rooms.filter(room => {
-                // Direct match: room.roomType must equal requiredRoomType
-                if (room.roomType !== requiredRoomType) {
-                    return false;
-                }
-
-                return (
-                    !timetable[day].some(item =>
-                        item.roomCode === room.roomCode &&
-                        timesOverlap(item.time, time)
-                    ) &&
-                    !roomIsTaken(room, day, time)
-                );
-            }).sort((a, b) => {
-                /* Sort by building preference for Lecture Rooms only */
-                if (requiredRoomType !== "Lecture Room") return 0;
-                const prog = programSelect.value;
-                return getBuildingPriority(a.building, prog) - getBuildingPriority(b.building, prog);
+        for (const [day1, day2] of candidateDayPairs) {
+            // Sort candidate slots by compactness (minimal vacant gap)
+            const candidateSlots = [...slots].sort((s1, s2) => {
+                const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day1], s1) +
+                             calculateDayPlacementVacantPenalty(timetableInstance[day2], s1);
+                const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day1], s2) +
+                             calculateDayPlacementVacantPenalty(timetableInstance[day2], s2);
+                if (gap1 !== gap2) return gap1 - gap2;
+                return Math.random() - 0.5;
             });
 
-            let room;
-            if (preferredRoomCode) {
-                room = availableRooms.find(item =>
-                    item.roomCode === preferredRoomCode
-                );
-            }
+            for (const time of candidateSlots) {
+                // 1. Section conflict check on BOTH days
+                const conflict1 = timetableInstance[day1].some(item => timesOverlap(item.time, time));
+                const conflict2 = timetableInstance[day2].some(item => timesOverlap(item.time, time));
+                if (conflict1 || conflict2) continue;
 
-            if (!room && availableRooms.length > 0) {
-                if (requiredRoomType !== "Lecture Room") {
-                    room = availableRooms[Math.floor(Math.random() * availableRooms.length)];
-                } else {
-                    /* Group available rooms by building priority */
-                    const prog = programSelect.value;
-                    const priorityGroups = {};
+                // 2. Vacant gap check on BOTH days (max 1.5 hours vacant)
+                if (!isVacantGapAcceptable(timetableInstance[day1], time)) continue;
+                if (!isVacantGapAcceptable(timetableInstance[day2], time)) continue;
 
-                    for (const r of availableRooms) {
-                        const p = getBuildingPriority(r.building, prog);
-                        if (!priorityGroups[p]) priorityGroups[p] = [];
-                        priorityGroups[p].push(r);
-                    }
-
-                    /* Pick the highest-priority group (lowest priority number) */
-                    const bestPriority = Math.min(
-                        ...Object.keys(priorityGroups).map(Number)
+                // 3. Find available room for Day 1
+                const availableRooms1 = rooms.filter(room => {
+                    if (room.roomType !== reqRoomType1) return false;
+                    return (
+                        !timetableInstance[day1].some(item =>
+                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
+                        ) &&
+                        !roomIsTaken(room, day1, time)
                     );
-                    const bestRooms = priorityGroups[bestPriority] || [];
+                });
+                if (availableRooms1.length === 0) continue;
 
-                    /* Randomly select one room from the best group */
-                    if (bestRooms.length > 0) {
-                        room = bestRooms[Math.floor(Math.random() * bestRooms.length)];
-                    } else {
-                        continue;
+                // 4. Find available room for Day 2
+                const availableRooms2 = rooms.filter(room => {
+                    if (room.roomType !== reqRoomType2) return false;
+                    return (
+                        !timetableInstance[day2].some(item =>
+                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
+                        ) &&
+                        !roomIsTaken(room, day2, time)
+                    );
+                });
+                if (availableRooms2.length === 0) continue;
+
+                const room1 = selectBestRoom(availableRooms1, reqRoomType1, prog);
+                const room2 = selectBestRoom(availableRooms2, reqRoomType2, prog);
+
+                if (room1 && room2) {
+                    return {
+                        day1,
+                        day2,
+                        time,
+                        room1,
+                        room2
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Finds an assignment for single-meeting subjects (Research, Activity/Gymnasium).
+     * Respects vacant gap limit and gym constraints.
+     */
+    function findAvailableSingleAssignment(
+        requiredRoomType,
+        slots,
+        subject,
+        timetableInstance,
+        activityDays
+    ) {
+        const isActivity = /activity|gym/.test(subject.meetingType) || requiredRoomType === "Gymnasium";
+        const prog = programSelect.value;
+
+        const candidateDays = [...days].sort((a, b) => {
+            const loadA = timetableInstance[a]?.length || 0;
+            const loadB = timetableInstance[b]?.length || 0;
+            if (loadA !== loadB) return loadA - loadB;
+            return Math.random() - 0.5;
+        });
+
+        for (const day of candidateDays) {
+            if (isActivity && activityDays instanceof Set && activityDays.has(day)) continue;
+
+            const candidateSlots = [...slots].sort((s1, s2) => {
+                const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day], s1);
+                const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day], s2);
+                if (gap1 !== gap2) return gap1 - gap2;
+                return Math.random() - 0.5;
+            });
+
+            for (const time of candidateSlots) {
+                const sectionConflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
+                if (sectionConflict) continue;
+
+                if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
+
+                const availableRooms = rooms.filter(room => {
+                    if (room.roomType !== requiredRoomType) return false;
+                    return (
+                        !timetableInstance[day].some(item =>
+                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
+                        ) &&
+                        !roomIsTaken(room, day, time)
+                    );
+                });
+
+                if (availableRooms.length > 0) {
+                    const room = selectBestRoom(availableRooms, requiredRoomType, prog);
+                    if (room) {
+                        return { day, time, room };
                     }
                 }
             }
-
-            if (room) {
-                return { day, time, room };
-            }
         }
-    }
 
-    return null;
-}
+        // Fallback for Gymnasium with sharing enabled if needed
+        if (isActivity) {
+            for (const day of candidateDays) {
+                if (activityDays instanceof Set && activityDays.has(day)) continue;
+                for (const time of slots) {
+                    const sectionConflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
+                    if (sectionConflict) continue;
+                    if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
-    /* Track the days this section already has an activity/gymnasium
-       meeting so it never exceeds 2 hours of gym use in a single day
-       (one 2-hour activity meeting per day, per section). */
-    const activityDays = new Set();
-
-    for (const subject of subjects) {
-        const isActivity =
-            /activity|gym/.test(subject.meetingType) ||
-            subject.requiredRoomType === "Gymnasium";
-        const isLectureLab = /lecture.*lab|lab.*lecture/.test(subject.meetingType);
-        const isMajor = subject.subjectType.toLowerCase() === "major";
-
-        /* Research subjects (RES01, RES02) have only 1 meeting per week, 3 hours */
-        const isResearch = /^RES\d/i.test(subject.code);
-
-        const slots = isResearch
-            ? majorSlots       /* 3-hour slots for research */
-            : isActivity
-                ? activitySlots
-                : (isLectureLab || isMajor ? majorSlots : minorSlots);
-
-        /* Research subjects: only 1 meeting entry */
-        /* Major subjects: first meeting in Lecture Room, second in its lab/room type */
-        const meetings = isResearch
-    ? [subject.requiredRoomType]
-    : isActivity
-        ? ["Gymnasium"]
-        : isMajor
-            ? ["Lecture Room", subject.requiredRoomType]
-            : isLectureLab
-                ? ["Lecture Room", subject.requiredRoomType]
-                : isLabRoomType(subject.requiredRoomType)
-                    ? ["Lecture Room", subject.requiredRoomType]
-                    : [subject.requiredRoomType, subject.requiredRoomType];
-
-        const assignedDays = [];
-
-        for (const requiredRoomType of meetings) {
-            const excludedDays = new Set();
-
-            assignedDays.forEach(day => {
-                const index = days.indexOf(day);
-
-                if (days[index - 1]) excludedDays.add(days[index - 1]);
-                excludedDays.add(day);
-                if (days[index + 1]) excludedDays.add(days[index + 1]);
-            });
-
-let selected = findAvailableAssignment(
-    requiredRoomType,
-    slots,
-    excludedDays,
-    null,    // Do NOT reuse the same lecture room — scatter across buildings
-    subject, // Pass the current subject for lab room matching
-    isActivity ? (activityDays || []) : []
-);
-
-/* Fallback for activity/gymnasium subjects: only reached when no unique
-   free slot exists on Monday-Friday.  Allow a SECOND section to share a
-   gymnasium slot that already has exactly one section (never more than
-   two sections at the same day and time). */
-if (!selected && isActivity) {
-    const gymDays = [...days].sort(() => Math.random() - 0.5);
-    for (const day of gymDays) {
-        if (excludedDays.has(day)) continue;
-        if (activityDays.has(day)) continue;
-
-        const candidateActivitySlots = [...activitySlots].sort(() => Math.random() - 0.5);
-        for (const time of candidateActivitySlots) {
-            const sectionConflict = timetable[day].some(item =>
-                timesOverlap(item.time, time)
-            );
-            if (sectionConflict) continue;
-
-            const gym = rooms.find(r => r.roomType === "Gymnasium");
-            if (gym && !roomIsTaken(gym, day, time, true)) {
-                selected = { day, time, room: gym };
-                break;
+                    const gym = rooms.find(r => r.roomType === "Gymnasium");
+                    if (gym && !roomIsTaken(gym, day, time, true)) {
+                        return { day, time, room: gym };
+                    }
+                }
             }
         }
 
-        if (selected) break;
+        return null;
     }
-}
 
-            if (!selected) {
-                showToast(
-                    `No available day, time, and room is available for ${subject.code}.`
+    let scheduleSuccess = false;
+    let finalOutput = [];
+    let lastFailureReason = "";
+    const MAX_SOLVER_ATTEMPTS = 5;
+
+    for (let attempt = 1; attempt <= MAX_SOLVER_ATTEMPTS; attempt++) {
+        const timetableInstance = {
+            Monday: [],
+            Tuesday: [],
+            Wednesday: [],
+            Thursday: [],
+            Friday: []
+        };
+
+        const currentOutput = [];
+        const activityDays = new Set();
+        let attemptFailed = false;
+
+        for (const subject of subjects) {
+            const isActivity =
+                /activity|gym/.test(subject.meetingType) ||
+                subject.requiredRoomType === "Gymnasium";
+            const isLectureLab = /lecture.*lab|lab.*lecture/.test(subject.meetingType);
+            const isMajor = subject.subjectType.toLowerCase() === "major";
+            const isResearch = /^RES\d/i.test(subject.code);
+
+            const slots = isResearch
+                ? majorSlots
+                : isActivity
+                    ? activitySlots
+                    : (isLectureLab || isMajor ? majorSlots : minorSlots);
+
+            const meetings = isResearch
+                ? [subject.requiredRoomType]
+                : isActivity
+                    ? ["Gymnasium"]
+                    : isMajor
+                        ? ["Lecture Room", subject.requiredRoomType]
+                        : isLectureLab
+                            ? ["Lecture Room", subject.requiredRoomType]
+                            : isLabRoomType(subject.requiredRoomType)
+                                ? ["Lecture Room", subject.requiredRoomType]
+                                : [subject.requiredRoomType, subject.requiredRoomType];
+
+            if (meetings.length === 2) {
+                const result = findAvailableTwoMeetingAssignment(
+                    meetings,
+                    slots,
+                    subject,
+                    timetableInstance
                 );
-                return;
+
+                if (!result) {
+                    lastFailureReason = `No available synchronized day/time slot found for ${subject.code} (${subject.name}).`;
+                    attemptFailed = true;
+                    break;
+                }
+
+                timetableInstance[result.day1].push({
+                    time: result.time,
+                    roomCode: result.room1.roomCode
+                });
+                timetableInstance[result.day2].push({
+                    time: result.time,
+                    roomCode: result.room2.roomCode
+                });
+
+                currentOutput.push({
+                    code: subject.code,
+                    name: subject.name,
+                    units: subject.units,
+                    day: result.day1,
+                    time: result.time,
+                    room: result.room1.roomName || result.room1.roomCode,
+                    roomCode: result.room1.roomCode
+                });
+                currentOutput.push({
+                    code: subject.code,
+                    name: subject.name,
+                    units: subject.units,
+                    day: result.day2,
+                    time: result.time,
+                    room: result.room2.roomName || result.room2.roomCode,
+                    roomCode: result.room2.roomCode
+                });
+            } else {
+                const reqRoomType = meetings[0];
+                const result = findAvailableSingleAssignment(
+                    reqRoomType,
+                    slots,
+                    subject,
+                    timetableInstance,
+                    activityDays
+                );
+
+                if (!result) {
+                    lastFailureReason = `No available day/time slot found for ${subject.code} (${subject.name}).`;
+                    attemptFailed = true;
+                    break;
+                }
+
+                if (isActivity) {
+                    activityDays.add(result.day);
+                }
+
+                timetableInstance[result.day].push({
+                    time: result.time,
+                    roomCode: result.room.roomCode
+                });
+
+                currentOutput.push({
+                    code: subject.code,
+                    name: subject.name,
+                    units: subject.units,
+                    day: result.day,
+                    time: result.time,
+                    room: result.room.roomName || result.room.roomCode,
+                    roomCode: result.room.roomCode
+                });
             }
-
-            assignedDays.push(selected.day);
-
-            /* Record that this section already uses the gymnasium on this
-               day so a second activity meeting cannot be placed there. */
-            if (isActivity) {
-                activityDays.add(selected.day);
-            }
-
-            timetable[selected.day].push({
-                time: selected.time,
-                roomCode: selected.room.roomCode
-            });
-
-            output.push({
-                code: subject.code,
-                name: subject.name,
-                units: subject.units,
-                day: selected.day,
-                time: selected.time,
-                room: selected.room.roomName || selected.room.roomCode,
-                roomCode: selected.room.roomCode
-            });
         }
+
+        if (!attemptFailed && currentOutput.length > 0) {
+            scheduleSuccess = true;
+            finalOutput = currentOutput;
+            break;
+        }
+    }
+
+    if (!scheduleSuccess) {
+        showToast(lastFailureReason || "Could not generate a complete schedule without conflicts.");
+        return;
     }
 
     const aggregatedSchedule = [
-        ...output.reduce((map, item) => {
+        ...finalOutput.reduce((map, item) => {
             if (!map.has(item.code)) {
                 map.set(item.code, {
                     code: item.code,
@@ -849,7 +1140,7 @@ if (!selected && isActivity) {
         yearLevel: yearLevelSelect.options[yearLevelSelect.selectedIndex].text,
         createdAt: new Date().toISOString(),
         entries: aggregatedSchedule,
-        rawEntries: output
+        rawEntries: finalOutput
     };
 
     saveScheduleBtn.disabled = false;
@@ -1146,45 +1437,21 @@ document.getElementById("exportPdfBtn").addEventListener("click", async () => {
         noBtn.addEventListener("click", onNo);
     });
     if (!confirmed) return;
-    /* Only ACTIVE schedules are eligible for export + archiving.
-       Archived schedules stay in the archive and are never re-exported here. */
+
+    /* Only ACTIVE schedules are eligible for archiving */
     const schedules = getSavedSchedules().filter(
         schedule => (schedule.status || "active") !== "archived"
     );
 
     if (!schedules.length) {
-        showToast("There are no active saved schedules to export.");
+        showToast("There are no active saved schedules to archive.");
         return;
     }
 
-    // Build absolute URL for the logo image
-    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
-    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+    const archivedScheduleIds = new Set();
+    const now = new Date().toISOString();
 
-    // Shared printable CSS for each class schedule PDF
-    const printStyles = `
-        <style>
-            @page { size: A4 portrait; margin: 12mm 15mm; }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color: #1a1a1a; }
-            .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
-            .logo-img { width: 65px; height: 65px; }
-            .logo-left, .logo-right { flex-shrink: 0; }
-            .header-text { text-align: center; flex-grow: 1; }
-            .uni-name { font-size: 15px; font-weight: bold; color: #1b5e20; letter-spacing: 0.5px; }
-            .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
-            .city-name { font-size: 11px; color: #555; margin-top: 1px; }
-            .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
-            h1 { color: #1b5e20; margin-bottom: 5px; font-size: 22px;}
-            p { margin-top: 0; margin-bottom: 20px; font-size: 13px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #bdbdbd; padding: 8px; text-align: left; }
-            th { background: #e4e8dc; color: #1b5e20; }
-        </style>
-    `;
-
-    // Build a standalone printable HTML document for each schedule
-    const documents = schedules.map(schedule => {
+    for (const schedule of schedules) {
         const academicYear = schedule.academicYear || "";
         const semester = schedule.semester || "";
         const yearLevel = schedule.yearLevel || "";
@@ -1193,133 +1460,35 @@ document.getElementById("exportPdfBtn").addEventListener("click", async () => {
             semester
         ].filter(Boolean).join(" ");
 
-        const body = `
-            <div class="header-section">
-                <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
-                <div class="header-text">
-                    <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
-                    <div class="dtlc-name">Dual Training and Livelihood Center</div>
-                    <div class="campus-name">LUCENA CAMPUS</div>
-                    <div class="city-name">Lucena City</div>
-                </div>
-                <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
-            </div>
-            <div class="divider"></div>
-            <h1>${escapeHtml(schedule.name)}</h1>
-            <p>${escapeHtml([academicYear ? `A.Y. ${academicYear}` : "", semester, yearLevel].filter(Boolean).join(" \u2022 "))}</p>
-            <table>
-                <thead><tr><th>Subject Code</th><th>Subject Name</th><th>Units</th><th>Day</th><th>Time</th><th>Room</th></tr></thead>
-                <tbody>${scheduleRows(schedule.entries)}</tbody>
-            </table>
-        `;
-
-        const html = `<!DOCTYPE html><html><head><title>${escapeHtml(filename)}</title>${printStyles}</head><body>${body}</body></html>`;
-
-        return {
-            schedule,
-            html,
-            filename,
-            report: {
+        try {
+            // Save report record to Firestore reports collection for archive history
+            await saveReportToFirestore({
                 category: "Class Schedule",
                 academicYear,
                 semester,
                 yearLevel,
-                title: schedule.name,
+                title: schedule.name || schedule.section,
+                section: schedule.section,
                 filename,
-                html
-            }
-        };
-    });
+                entries: schedule.entries || [],
+                rawEntries: schedule.rawEntries || []
+            });
 
-    /* Open the print window first so we know the export UI will be available.
-       If the browser blocks it we abort WITHOUT archiving anything. */
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-        showToast("The print window was blocked by the browser. No schedules were archived.");
-        return;
-    }
-
-    /* Save each exported schedule to the Firestore reports collection (full history).
-       Only schedules whose report is successfully saved count as exported. */
-    const exportedScheduleIds = new Set();
-
-    for (const doc of documents) {
-        try {
-            await saveReportToFirestore(doc.report);
-            console.log("Report saved to Firestore:", doc.report.filename);
-            exportedScheduleIds.add(doc.schedule.id);
+            // Update status in classSchedules collection to archived
+            await archiveScheduleInFirestore(schedule);
+            archivedScheduleIds.add(schedule.id);
         } catch (error) {
-            console.error("Could not save report to Firestore for", doc.schedule.name, ":", error);
+            console.error("Could not archive schedule in Firestore:", schedule.name, error);
         }
     }
 
-    /* Write the combined printable document to the print window,
-       then print.  Content is written AFTER the reports are persisted so the
-       export is only considered successful once every required step passed. */
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>All Section Schedules</title>
-            ${printStyles}
-            <style>
-                .schedule-page { break-after: page; page-break-after: always; }
-                .schedule-page:last-child { break-after: auto; page-break-after: auto; }
-            </style>
-        </head>
-        <body>
-            ${documents.map(doc => `
-                <section class="schedule-page">
-                    <div class="header-section">
-                        <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
-                        <div class="header-text">
-                            <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
-                            <div class="dtlc-name">Dual Training and Livelihood Center</div>
-                            <div class="campus-name">LUCENA CAMPUS</div>
-                            <div class="city-name">Lucena City</div>
-                        </div>
-                        <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
-                    </div>
-                    <div class="divider"></div>
-                    <h1>${escapeHtml(doc.schedule.name)}</h1>
-                    <p>${escapeHtml([doc.schedule.academicYear ? `A.Y. ${doc.schedule.academicYear}` : "", doc.schedule.semester, doc.schedule.yearLevel].filter(Boolean).join(" \u2022 "))}</p>
-                    <table>
-                        <thead><tr><th>Subject Code</th><th>Subject Name</th><th>Units</th><th>Day</th><th>Time</th><th>Room</th></tr></thead>
-                        <tbody>${scheduleRows(doc.schedule.entries)}</tbody>
-                    </table>
-                </section>
-            `).join("")}
-        </body>
-        </html>
-    `);
+    const archivedSchedules = schedules.filter(schedule => archivedScheduleIds.has(schedule.id));
+    const failedSchedules = schedules.filter(schedule => !archivedScheduleIds.has(schedule.id));
 
-    printWindow.document.close();
-
-    printWindow.onload = () => {
-        printWindow.focus();
-        printWindow.print();
-    };
-
-    /* Only mark schedules as ARCHIVED after their PDF export completed
-       successfully.  Failed schedules stay ACTIVE so the admin can retry. */
-    const exportedSchedules = schedules.filter(schedule => exportedScheduleIds.has(schedule.id));
-    const failedSchedules = schedules.filter(schedule => !exportedScheduleIds.has(schedule.id));
-
-    if (exportedSchedules.length) {
-        const now = new Date().toISOString();
+    if (archivedSchedules.length) {
         const allSchedules = getSavedSchedules();
-
-        /* Update Firestore first (authoritative), then localStorage. */
-        for (const schedule of exportedSchedules) {
-            try {
-                await archiveScheduleInFirestore(schedule);
-            } catch (error) {
-                console.error("Could not archive schedule in Firestore:", schedule.name, error);
-            }
-        }
-
         const updated = allSchedules.map(schedule =>
-            exportedScheduleIds.has(schedule.id)
+            archivedScheduleIds.has(schedule.id)
                 ? { ...schedule, status: "archived", exportedAt: now }
                 : schedule
         );
@@ -1330,11 +1499,11 @@ document.getElementById("exportPdfBtn").addEventListener("click", async () => {
 
     if (failedSchedules.length > 0) {
         showToast(
-            `${exportedSchedules.length} schedule(s) exported successfully. ${failedSchedules.length} schedule(s) could not be exported.`
+            `${archivedSchedules.length} schedule(s) moved to archive. ${failedSchedules.length} schedule(s) could not be archived.`
         );
     } else {
         showToast(
-            `${exportedSchedules.length} schedule(s) exported successfully and archived.`
+            `${archivedSchedules.length} schedule(s) moved to archive successfully.`
         );
     }
 });

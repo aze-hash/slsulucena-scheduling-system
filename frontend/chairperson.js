@@ -45,6 +45,10 @@ onAuthStateChanged(auth, async user => {
     watchClassSchedules();
     watchExamSchedules();
     watchRescheduleRequests();
+
+    // Initialize the two dashboard visualization charts independently
+    initFacultySubjectAssignmentsChart();
+    initScheduleOverviewChart();
 });
 
 function watchStudents() {
@@ -385,10 +389,46 @@ async function handleRequestDecision(requestId, action) {
 
             // 1. Fetch registered faculty from users collection
             const usersSnapshot = await getDocs(collection(db, "users"));
-            const facultyUsers = usersSnapshot.docs
+            const rawFacultyUsers = usersSnapshot.docs
                 .map(d => ({ uid: d.id, ...d.data() }))
                 .filter(u => String(u.role || "").toLowerCase() === "faculty")
                 .filter(u => u.uid !== currentRequest.requestingFacultyId && u.uid !== currentRequest.facultyUid);
+
+            // 1.1 Fetch facultySubjectAssignments to exclude faculty who teach the affected exam subjects
+            const affectedSubjectCodes = new Set(
+                affectedExams.map(e => String(e.code || e.subjectCode || "").trim().toLowerCase()).filter(Boolean)
+            );
+            const assignmentsSnapshot = await getDocs(collection(db, "facultySubjectAssignments"));
+            const facultySubjectMap = new Map();
+            assignmentsSnapshot.docs.forEach(d => {
+                const data = d.data();
+                const handled = Array.isArray(data.handledSubjects)
+                    ? [...new Set(data.handledSubjects.flatMap(s => {
+                        if (!s) return [];
+                        if (typeof s === "object") {
+                            const c = s.subjectCode || s.code || s.id || "";
+                            return c ? [String(c).trim().toLowerCase()] : [];
+                        }
+                        const str = String(s).trim().toLowerCase();
+                        if (!str) return [];
+                        const res = [str];
+                        if (str.includes("_")) {
+                            const parts = str.split("_");
+                            const last = parts[parts.length - 1].trim();
+                            if (last) res.push(last);
+                        }
+                        return res;
+                    }))]
+                    : [];
+                facultySubjectMap.set(d.id, handled);
+                if (data.facultyId) facultySubjectMap.set(data.facultyId, handled);
+            });
+
+            const facultyUsers = rawFacultyUsers.filter(faculty => {
+                const handled = facultySubjectMap.get(faculty.uid) || facultySubjectMap.get(faculty.id) || [];
+                const handlesExamSubject = handled.some(c => affectedSubjectCodes.has(c));
+                return !handlesExamSubject;
+            });
 
             // 2. Fetch all examSchedules to check proctoring assignments on examDate
             const examSchedulesSnapshot = await getDocs(collection(db, "examSchedules"));
@@ -618,3 +658,485 @@ document.getElementById("requestModal")?.addEventListener("click", event => {
         closeRequestModal();
     }
 });
+
+/* ================================================================== */
+/*  1. Faculty Subject Assignments — Horizontal Bar Chart             */
+/* ================================================================== */
+
+let facultyChartInstance = null;
+let cachedFacultyAssignments = []; // [{ facultyId, fullName, count }]
+let facultyNameMap = new Map();
+
+async function initFacultySubjectAssignmentsChart() {
+    try {
+        const filterSelect = document.getElementById("facultyChartFilter");
+        if (filterSelect) {
+            filterSelect.addEventListener("change", () => {
+                renderFacultyChart();
+            });
+        }
+
+        // Fetch registered and legacy faculty names for lookup
+        await loadFacultyNamesMap();
+
+        // Listen in real-time to facultySubjectAssignments
+        onSnapshot(
+            collection(db, "facultySubjectAssignments"),
+            snapshot => {
+                const list = [];
+                snapshot.docs.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const handled = Array.isArray(data.handledSubjects) ? data.handledSubjects : [];
+                    const facultyId = data.facultyId || docSnap.id;
+                    const name = facultyNameMap.get(facultyId) || facultyNameMap.get(docSnap.id) || "Faculty Member";
+
+                    if (handled.length > 0) {
+                        list.push({
+                            facultyId,
+                            fullName: name,
+                            count: handled.length
+                        });
+                    }
+                });
+
+                // Sort from highest to lowest
+                list.sort((a, b) => b.count - a.count);
+                cachedFacultyAssignments = list;
+                renderFacultyChart();
+            },
+            error => {
+                console.error("Error watching faculty subject assignments:", error);
+                showFacultyChartEmptyState("No subject assignments yet.");
+            }
+        );
+    } catch (err) {
+        console.error("Failed to initialize faculty subject assignments chart:", err);
+        showFacultyChartEmptyState("No subject assignments yet.");
+    }
+}
+
+async function loadFacultyNamesMap() {
+    try {
+        const [usersSnap, legacySnap] = await Promise.all([
+            getDocs(collection(db, "users")),
+            getDocs(collection(db, "faculty"))
+        ]);
+
+        usersSnap.docs.forEach(d => {
+            const data = d.data();
+            const name = data.fullName || data.name || "";
+            if (name) {
+                facultyNameMap.set(d.id, name);
+                if (data.uid) facultyNameMap.set(data.uid, name);
+            }
+        });
+
+        legacySnap.docs.forEach(d => {
+            const data = d.data();
+            const name = data.fullName || data.name || data.facultyName || "";
+            if (name) {
+                if (!facultyNameMap.has(d.id)) facultyNameMap.set(d.id, name);
+                if (data.uid && !facultyNameMap.has(data.uid)) facultyNameMap.set(data.uid, name);
+            }
+        });
+    } catch (e) {
+        console.warn("Could not load faculty name map:", e);
+    }
+}
+
+function showFacultyChartEmptyState(message) {
+    const emptyEl = document.getElementById("facultyChartEmptyState");
+    const canvas = document.getElementById("facultySubjectsChart");
+    if (emptyEl) {
+        emptyEl.textContent = message || "No subject assignments yet.";
+        emptyEl.style.display = "flex";
+    }
+    if (canvas) {
+        canvas.style.display = "none";
+    }
+    if (facultyChartInstance) {
+        facultyChartInstance.destroy();
+        facultyChartInstance = null;
+    }
+}
+
+function renderFacultyChart() {
+    const canvas = document.getElementById("facultySubjectsChart");
+    const emptyEl = document.getElementById("facultyChartEmptyState");
+    const filterSelect = document.getElementById("facultyChartFilter");
+
+    if (!canvas) return;
+
+    if (!cachedFacultyAssignments || cachedFacultyAssignments.length === 0) {
+        showFacultyChartEmptyState("No subject assignments yet.");
+        return;
+    }
+
+    const filterVal = filterSelect ? filterSelect.value : "5";
+    let dataToDisplay = [...cachedFacultyAssignments];
+
+    if (filterVal === "5") {
+        dataToDisplay = dataToDisplay.slice(0, 5);
+    } else if (filterVal === "10") {
+        dataToDisplay = dataToDisplay.slice(0, 10);
+    }
+
+    if (dataToDisplay.length === 0) {
+        showFacultyChartEmptyState("No subject assignments yet.");
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = "none";
+    canvas.style.display = "block";
+
+    const labels = dataToDisplay.map(d => d.fullName);
+    const dataValues = dataToDisplay.map(d => d.count);
+    const maxVal = Math.max(...dataValues, 1);
+
+    if (facultyChartInstance) {
+        facultyChartInstance.destroy();
+    }
+
+    if (typeof Chart === "undefined") {
+        console.warn("Chart.js is not loaded.");
+        return;
+    }
+
+    const endOfBarPlugin = {
+        id: "endOfBarValues",
+        afterDatasetsDraw(chart) {
+            const { ctx, scales: { x } } = chart;
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+                const meta = chart.getDatasetMeta(datasetIndex);
+                meta.data.forEach((bar, index) => {
+                    const value = dataset.data[index];
+                    ctx.save();
+                    ctx.fillStyle = "#1b5e20";
+                    ctx.font = "bold 12px Arial, sans-serif";
+                    ctx.textAlign = "left";
+                    ctx.textBaseline = "middle";
+                    const xPos = bar.x + 8;
+                    const yPos = bar.y;
+                    ctx.fillText(String(value), xPos, yPos);
+                    ctx.restore();
+                });
+            });
+        }
+    };
+
+    facultyChartInstance = new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Assigned Subjects",
+                data: dataValues,
+                backgroundColor: "rgba(46, 125, 50, 0.85)",
+                borderColor: "#2e7d32",
+                borderWidth: 1,
+                borderRadius: 6,
+                barPercentage: 0.7,
+                categoryPercentage: 0.85
+            }]
+        },
+        options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    right: 35
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: "rgba(27, 94, 32, 0.92)",
+                    titleFont: { weight: "bold", size: 13 },
+                    bodyFont: { size: 12 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    displayColors: false,
+                    callbacks: {
+                        label: context => ` ${context.parsed.x} assigned subject${context.parsed.x === 1 ? "" : "s"}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    suggestedMax: maxVal + 1,
+                    ticks: {
+                        precision: 0,
+                        color: "#555",
+                        font: { size: 11 }
+                    },
+                    grid: {
+                        color: "rgba(0, 0, 0, 0.05)"
+                    },
+                    title: {
+                        display: true,
+                        text: "Number of Assigned Subjects",
+                        color: "#666",
+                        font: { size: 11, weight: "bold" }
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: "#1a1a1a",
+                        font: { size: 12, weight: "bold" }
+                    },
+                    grid: {
+                        display: false
+                    }
+                }
+            },
+            animation: {
+                duration: 600,
+                easing: "easeOutQuart"
+            }
+        },
+        plugins: [endOfBarPlugin]
+    });
+}
+
+/* ================================================================== */
+/*  2. Schedule Overview — Donut Chart                                */
+/* ================================================================== */
+
+let scheduleOverviewChartInstance = null;
+let rawClassSchedules = [];
+let rawExamSchedules = [];
+let rawRescheduleRequests = [];
+
+function initScheduleOverviewChart() {
+    try {
+        const filterSelect = document.getElementById("scheduleOverviewFilter");
+        if (filterSelect) {
+            filterSelect.addEventListener("change", () => {
+                renderScheduleOverviewChart();
+            });
+        }
+
+        // Real-time watchers for the 3 categories
+        onSnapshot(collection(db, "classSchedules"), snapshot => {
+            rawClassSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderScheduleOverviewChart();
+        }, err => console.warn("Chart classSchedules watch error:", err));
+
+        onSnapshot(collection(db, "examSchedules"), snapshot => {
+            rawExamSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderScheduleOverviewChart();
+        }, err => console.warn("Chart examSchedules watch error:", err));
+
+        onSnapshot(collection(db, "rescheduleRequests"), snapshot => {
+            rawRescheduleRequests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderScheduleOverviewChart();
+        }, err => console.warn("Chart rescheduleRequests watch error:", err));
+
+    } catch (err) {
+        console.error("Failed to initialize schedule overview chart:", err);
+        showScheduleOverviewEmptyState("No schedule data available.");
+    }
+}
+
+function matchSemesterFilter(recordSemester, filterValue) {
+    if (filterValue === "all") return true;
+
+    const semStr = String(recordSemester || "").trim().toLowerCase();
+
+    if (filterValue === "1st Semester") {
+        return semStr.includes("1") || semStr.includes("first");
+    }
+
+    if (filterValue === "2nd Semester") {
+        return semStr.includes("2") || semStr.includes("second");
+    }
+
+    if (filterValue === "this_semester") {
+        // Dynamic detection of current academic semester: Aug-Dec is 1st sem, Jan-Jul is 2nd sem
+        const month = new Date().getMonth(); // 0-indexed: 7=Aug, 11=Dec
+        const isFirstSem = (month >= 7 || month === 0);
+        return isFirstSem
+            ? (semStr.includes("1") || semStr.includes("first") || !semStr)
+            : (semStr.includes("2") || semStr.includes("second"));
+    }
+
+    return true;
+}
+
+function showScheduleOverviewEmptyState(message) {
+    const emptyEl = document.getElementById("scheduleChartEmptyState");
+    const legendEl = document.getElementById("scheduleOverviewLegend");
+    const totalCountEl = document.getElementById("donutTotalCount");
+
+    if (emptyEl) {
+        emptyEl.textContent = message || "No schedule data available.";
+        emptyEl.style.display = "flex";
+    }
+    if (totalCountEl) totalCountEl.textContent = "0";
+
+    if (legendEl) {
+        legendEl.innerHTML = `
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#2e7d32;"></span>
+                    <span class="legend-name">Class Schedules</span>
+                </div>
+                <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#3b82f6;"></span>
+                    <span class="legend-name">Exam Schedules</span>
+                </div>
+                <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#f59e0b;"></span>
+                    <span class="legend-name">Reschedule Requests</span>
+                </div>
+                <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
+            </div>
+        `;
+    }
+
+    if (scheduleOverviewChartInstance) {
+        scheduleOverviewChartInstance.destroy();
+        scheduleOverviewChartInstance = null;
+    }
+}
+
+function renderScheduleOverviewChart() {
+    const canvas = document.getElementById("scheduleOverviewChart");
+    const emptyEl = document.getElementById("scheduleChartEmptyState");
+    const legendEl = document.getElementById("scheduleOverviewLegend");
+    const totalCountEl = document.getElementById("donutTotalCount");
+    const filterSelect = document.getElementById("scheduleOverviewFilter");
+
+    if (!canvas) return;
+
+    const filterVal = filterSelect ? filterSelect.value : "this_semester";
+
+    const classCount = rawClassSchedules.filter(s => matchSemesterFilter(s.semester, filterVal)).length;
+    const examCount = rawExamSchedules.filter(s => matchSemesterFilter(s.semester, filterVal)).length;
+    const requestCount = rawRescheduleRequests.filter(s => {
+        // If request has semester, check it; otherwise, check if its affectedExams have matching semester
+        if (s.semester) return matchSemesterFilter(s.semester, filterVal);
+        if (Array.isArray(s.affectedExams) && s.affectedExams.length > 0) {
+            return matchSemesterFilter(s.affectedExams[0]?.semester, filterVal);
+        }
+        return matchSemesterFilter("", filterVal);
+    }).length;
+
+    const totalCount = classCount + examCount + requestCount;
+
+    if (totalCountEl) {
+        totalCountEl.textContent = totalCount;
+    }
+
+    // Calculate percentages
+    const classPct = totalCount > 0 ? ((classCount / totalCount) * 100).toFixed(1) : "0.0";
+    const examPct = totalCount > 0 ? ((examCount / totalCount) * 100).toFixed(1) : "0.0";
+    const requestPct = totalCount > 0 ? ((requestCount / totalCount) * 100).toFixed(1) : "0.0";
+
+    // Render legend
+    if (legendEl) {
+        legendEl.innerHTML = `
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#2e7d32;"></span>
+                    <span class="legend-name">Class Schedules</span>
+                </div>
+                <div class="legend-values">
+                    <span class="legend-count">${classCount}</span>
+                    <span class="legend-pct">${classPct}%</span>
+                </div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#3b82f6;"></span>
+                    <span class="legend-name">Exam Schedules</span>
+                </div>
+                <div class="legend-values">
+                    <span class="legend-count">${examCount}</span>
+                    <span class="legend-pct">${examPct}%</span>
+                </div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#f59e0b;"></span>
+                    <span class="legend-name">Reschedule Requests</span>
+                </div>
+                <div class="legend-values">
+                    <span class="legend-count">${requestCount}</span>
+                    <span class="legend-pct">${requestPct}%</span>
+                </div>
+            </div>
+        `;
+    }
+
+    if (totalCount === 0) {
+        showScheduleOverviewEmptyState("No schedule data available.");
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = "none";
+    canvas.style.display = "block";
+
+    if (scheduleOverviewChartInstance) {
+        scheduleOverviewChartInstance.destroy();
+    }
+
+    if (typeof Chart === "undefined") {
+        console.warn("Chart.js is not loaded.");
+        return;
+    }
+
+    scheduleOverviewChartInstance = new Chart(canvas, {
+        type: "doughnut",
+        data: {
+            labels: ["Class Schedules", "Exam Schedules", "Reschedule Requests"],
+            datasets: [{
+                data: [classCount, examCount, requestCount],
+                backgroundColor: [
+                    "#2e7d32",
+                    "#3b82f6",
+                    "#f59e0b"
+                ],
+                borderColor: "#ffffff",
+                borderWidth: 2,
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            cutout: "70%",
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: "rgba(27, 94, 32, 0.92)",
+                    titleFont: { weight: "bold", size: 13 },
+                    bodyFont: { size: 12 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: context => {
+                            const val = context.parsed;
+                            const pct = totalCount > 0 ? ((val / totalCount) * 100).toFixed(1) : 0;
+                            return ` ${context.label}: ${val} (${pct}%)`;
+                        }
+                    }
+                }
+            },
+            animation: {
+                animateRotate: true,
+                animateScale: true,
+                duration: 700,
+                easing: "easeOutQuart"
+            }
+        }
+    });
+}

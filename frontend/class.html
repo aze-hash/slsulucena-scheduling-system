@@ -66,6 +66,15 @@
             <select id="section">
                 <option value="">Select Section</option>
             </select>
+            <span id="addSectionBtn" class="section-plus" title="Add new section">+</span>
+            <div id="addSectionModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <p>Add new section</p>
+        <input type="text" id="newSectionInput" placeholder="New section code"/>
+        <button id="saveNewSectionBtn" class="modal-btn">Save</button>
+        <button id="cancelNewSectionBtn" class="modal-btn">Cancel</button>
+    </div>
+</div>
         </div>
     </div>
 
@@ -99,7 +108,7 @@
         <div class="section-header">
             <h3>Saved Schedules</h3>
             <div class="export-btn-container">
-                <button id="exportPdfBtn" type="button">Export All to PDF</button>
+                <button id="exportPdfBtn" type="button">Move to Archive</button>
                 <button id="deleteAllBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
             </div>
         </div>
@@ -188,7 +197,7 @@
 
 <div id="exportConfirmModal" class="modal-overlay" style="display:none;">
   <div class="modal-content">
-    <p>Are you sure you want to export all of this to PDF?</p>
+    <p>Are you sure you want to move all active saved schedules to the archive?</p>
     <button id="exportConfirmYes" class="modal-btn">Yes</button>
     <button id="exportConfirmNo" class="modal-btn">No</button>
   </div>

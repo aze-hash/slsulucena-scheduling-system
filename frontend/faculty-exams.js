@@ -704,7 +704,9 @@ function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
     // 1. Direct UID match (primary check)
     const matchesUid = schedule.proctorUid === userUid ||
                        schedule.facultyUid === userUid ||
-                       schedule.assignedFacultyUid === userUid;
+                       schedule.assignedFacultyUid === userUid ||
+                       (schedule.proctorUid && schedule.proctorUid.split(",").map(u => u.trim()).includes(userUid)) ||
+                       (Array.isArray(schedule.exams) && schedule.exams.some(e => e.proctorUid === userUid));
     if (matchesUid) return true;
 
     // 2. Flexible name matching (handles titles/honorifics/formatting variations)
@@ -720,6 +722,14 @@ function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
             const allTokensMatch = nameTokens.every(token => normProctor.includes(token));
             if (allTokensMatch) return true;
         }
+    }
+
+    if (Array.isArray(schedule.exams) && normFullName) {
+        const matchesExamProctor = schedule.exams.some(e => {
+            const ep = normalize(e.proctor || "");
+            return ep && (ep === normFullName || ep.includes(normFullName) || normFullName.includes(ep));
+        });
+        if (matchesExamProctor) return true;
     }
 
     return false;

@@ -5,6 +5,7 @@ import {
     deleteReportsByCategoryFromFirestore,
     deleteArchivedClassSchedulesFromFirestore
 } from "./reportStorage.js";
+import { renderClassCalendar } from "./js/schedule-calendar.js";
 
 import {
     collection,
@@ -187,7 +188,7 @@ function renderClassArchive() {
             <td>${escapeHtml(item.semester || "—")}</td>
             <td>${escapeHtml(formatDate(item.exportedAt || item.createdAt))}</td>
             <td>
-                <button type="button" class="archive-view-pdf" data-view-class-id="${escapeHtml(item.id)}">View PDF</button>
+                <button type="button" class="archive-view-schedule" data-view-class-id="${escapeHtml(item.id)}">View Schedule</button>
             </td>
         </tr>
     `).join("");
@@ -626,10 +627,11 @@ document.getElementById("deleteAllExamArchiveBtn")?.addEventListener("click", as
 });
 
 document.addEventListener("click", event => {
-    /* Class Archive view PDF & pagination */
-    const classReportId = event.target.dataset?.viewClassId;
-    if (classReportId) {
-        viewClassSchedulePdf(classReportId);
+    /* Class Archive – View Schedule (calendar modal) */
+    if (event.target.classList.contains("archive-view-schedule")) {
+        const classReportId = event.target.dataset?.viewClassId;
+        if (classReportId) viewClassScheduleCalendar(classReportId);
+        return;
     }
 
     if (event.target.id === "classArchivePrevPage") {
@@ -665,6 +667,51 @@ document.addEventListener("click", event => {
         examCurrentPage = Number(examPageNum);
         renderExamArchive();
     }
+
+    /* Close calendar modal when clicking the backdrop */
+    if (event.target.id === "classCalendarModal") {
+        closeCalendarModal();
+    }
+});
+
+/* Calendar modal – open */
+function viewClassScheduleCalendar(id) {
+    const item = classArchiveRecords.find(r => r.id === id);
+    if (!item) {
+        showToast("Could not find the archived class schedule record.");
+        return;
+    }
+
+    const modal = document.getElementById("classCalendarModal");
+    const titleEl = document.getElementById("calModalTitle");
+    const subtitleEl = document.getElementById("calModalSubtitle");
+    const bodyEl = document.getElementById("calModalBody");
+
+    if (!modal || !bodyEl) return;
+
+    if (titleEl) titleEl.textContent = item.title || item.section || item.name || "Class Schedule";
+    if (subtitleEl) {
+        subtitleEl.textContent = [
+            item.academicYear ? `A.Y. ${item.academicYear}` : "",
+            item.semester,
+            item.yearLevel
+        ].filter(Boolean).join(" • ");
+    }
+
+    bodyEl.innerHTML = renderClassCalendar(item);
+    modal.style.display = "flex";
+}
+
+/* Calendar modal – close */
+function closeCalendarModal() {
+    const modal = document.getElementById("classCalendarModal");
+    if (modal) modal.style.display = "none";
+}
+
+document.getElementById("calModalClose")?.addEventListener("click", closeCalendarModal);
+
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeCalendarModal();
 });
 
 /* ------------------------------------------------------------------ */

@@ -16,6 +16,8 @@ import {
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
+import { renderClassCalendar, renderExamCalendar } from "./js/schedule-calendar.js";
+
 const classScheduleContainer = document.getElementById("classScheduleContainer");
 const examScheduleContainer = document.getElementById("examScheduleContainer");
 const classSearchInput = document.getElementById("classSearchInput");
@@ -144,25 +146,12 @@ function renderClassSchedules(schedules) {
     if (!filtered.length) {
         classScheduleContainer.innerHTML = classSearchTerm
             ? '<div class="empty-state">No class schedules match your search.</div>'
-            : '<div class="empty-state">No class schedules have been created yet.</div>';
+            : '<div class="empty-state">No class schedule has been released yet.</div>';
         return;
     }
 
     classScheduleContainer.innerHTML = filtered.map(schedule => {
-        const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
-
-        const rows = entries.length
-            ? entries.map(entry => `
-                <tr>
-                    <td>${safe(entry.subjectCode || entry.code || "-")}</td>
-                    <td>${safe(entry.subjectName || entry.name || "-")}</td>
-                    <td>${safe(entry.units || "-")}</td>
-                    <td>${safe(entry.day || "-")}</td>
-                    <td>${safe(entry.time || "-")}</td>
-                    <td>${safe(entry.room || "-")}</td>
-                </tr>
-            `).join("")
-            : `<tr><td colspan="6">No class entries available.</td></tr>`;
+        const calendarHtml = renderClassCalendar(schedule);
 
         return `
             <article class="schedule-card">
@@ -170,25 +159,12 @@ function renderClassSchedules(schedules) {
                     <h4>${safe(schedule.name || schedule.section || "Class Schedule")}</h4>
                     <small>${safe(formatAcademicInfo(schedule))}</small>
                 </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Subject Code</th>
-                                <th>Subject Name</th>
-                                <th>Units</th>
-                                <th>Day</th>
-                                <th>Time</th>
-                                <th>Room</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
+                ${calendarHtml}
             </article>
         `;
     }).join("");
 }
+
 
 function formatExamDate(dateStr) {
     if (!dateStr) return "";
@@ -234,74 +210,15 @@ function formatExamAcademicInfo(schedule) {
 
 function renderExamSchedules(schedules) {
     if (!schedules.length) {
-        examScheduleContainer.innerHTML = '<div class="empty-state">No exam schedules are assigned to you as proctor.</div>';
+        examScheduleContainer.innerHTML = '<div class="empty-state">No examination schedule has been released yet.</div>';
         return;
     }
 
     examScheduleContainer.innerHTML = schedules.map(schedule => {
-        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-        const examDates = schedule.examDates || {};
-        const proctor = schedule.proctor || "";
-        const daySet = new Set(exams.map(exam => exam.day).filter(Boolean));
-        const DAYS_ORDER = (Object.keys(examDates).length > 0
-            ? Object.keys(examDates)
-            : [...daySet]
-        ).sort((a, b) => {
-            const dateA = examDates[a] || "";
-            const dateB = examDates[b] || "";
-            return dateA.localeCompare(dateB);
-        });
-
-        function groupExamsByDay(examList) {
-            const groups = {};
-            for (const day of DAYS_ORDER) {
-                groups[day] = examList.filter(exam =>
-                    normalize(exam.day) === normalize(day) || exam.day === day
-                );
-            }
-            return groups;
-        }
-
-        const examsByDay = groupExamsByDay(exams);
-
-        let dayTablesHtml = "";
-        for (const day of DAYS_ORDER) {
-            const dayExams = examsByDay[day];
-            if (!dayExams || dayExams.length === 0) continue;
-
-            const dateStr = examDates[day] || "";
-            const formattedDate = formatExamDate(dateStr);
-            const dayLabel = formattedDate ? `${formattedDate} (${day})` : day;
-
-            const rows = dayExams.map(exam => `
-                <tr>
-                    <td>${safe(exam.time || "-")}</td>
-                    <td>${safe(exam.code || exam.subjectCode || "-")} — ${safe(exam.name || exam.subjectName || "-")}</td>
-                    <td>${safe(exam.room || "-")}</td>
-                </tr>
-            `).join("");
-
-            dayTablesHtml += `
-                <div class="exam-day-section">
-                    <div class="exam-day-header">${safe(dayLabel)}</div>
-                    <div class="table-container">
-                        <table class="exam-pdf-style">
-                            <thead>
-                                <tr>
-                                    <th>TIME</th>
-                                    <th>SUBJECT</th>
-                                    <th>ROOM</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
-
-        const examTypeTitle = getExamTypeTitle(schedule);
-        const academicSubtext = formatExamAcademicInfo(schedule);
+        const proctor          = schedule.proctor || "";
+        const examTypeTitle    = getExamTypeTitle(schedule);
+        const academicSubtext  = formatExamAcademicInfo(schedule);
+        const calendarHtml     = renderExamCalendar(schedule);
 
         return `
             <article class="schedule-card">
@@ -315,7 +232,7 @@ function renderExamSchedules(schedules) {
                         <strong>${safe(proctor || "-")}</strong>
                     </div>
                 </div>
-                ${dayTablesHtml}
+                ${calendarHtml}
             </article>
         `;
     }).join("");
@@ -647,7 +564,9 @@ function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
     // 1. Direct UID match (primary check)
     const matchesUid = schedule.proctorUid === userUid ||
                        schedule.facultyUid === userUid ||
-                       schedule.assignedFacultyUid === userUid;
+                       schedule.assignedFacultyUid === userUid ||
+                       (schedule.proctorUid && schedule.proctorUid.split(",").map(u => u.trim()).includes(userUid)) ||
+                       (Array.isArray(schedule.exams) && schedule.exams.some(e => e.proctorUid === userUid));
     if (matchesUid) return true;
 
     // 2. Flexible name matching (handles titles/honorifics/formatting variations)
@@ -663,6 +582,14 @@ function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
             const allTokensMatch = nameTokens.every(token => normProctor.includes(token));
             if (allTokensMatch) return true;
         }
+    }
+
+    if (Array.isArray(schedule.exams) && normFullName) {
+        const matchesExamProctor = schedule.exams.some(e => {
+            const ep = normalize(e.proctor || "");
+            return ep && (ep === normFullName || ep.includes(normFullName) || normFullName.includes(ep));
+        });
+        if (matchesExamProctor) return true;
     }
 
     return false;

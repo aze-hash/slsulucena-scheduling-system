@@ -271,6 +271,19 @@ app.delete("/users/:uid", async (req, res) => {
     }
 
     // ----------------------------------
+    // 3. Delete faculty subject assignments if present
+    // ----------------------------------
+    try {
+      const assignmentDoc = await db.collection("facultySubjectAssignments").doc(uid).get();
+      if (assignmentDoc.exists) {
+        await db.collection("facultySubjectAssignments").doc(uid).delete();
+        console.log(`Firestore facultySubjectAssignments document deleted: ${uid}`);
+      }
+    } catch (assignError) {
+      console.warn(`Note on deleting facultySubjectAssignments for ${uid}:`, assignError.message);
+    }
+
+    // ----------------------------------
     // SUCCESS
     // ----------------------------------
     return res.status(200).json({
