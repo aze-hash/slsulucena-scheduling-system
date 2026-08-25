@@ -100,13 +100,21 @@ let archiveFilterSearch = "";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
+/* Subjects that don't require a room/day/time (e.g. OJT, Field Study, etc.) */
+const TBA_SUBJECT_CODES = new Set([
+    "SIP01", "SIP02", "OJT01", "OJT02",
+    "AMC01", "FS001", "FS002", "PED11", "TCC01"
+]);
+
 const minorSlots = [
     "7:30-9:00", "9:00-10:30", "10:30-12:00",
-    "1:00-2:30", "2:30-4:00", "4:00-5:30"
+    "1:00-2:30", "2:30-4:00", "4:00-5:30",
+    "5:00-6:30"
 ];
 
 const majorSlots = [
-    "7:30-10:00", "10:00-12:30", "1:00-3:30", "3:30-6:00"
+    "7:30-10:00", "10:00-12:30", "1:00-3:30", "3:30-6:00",
+    "4:00-6:30"
 ];
 
 const activitySlots = [
@@ -268,47 +276,12 @@ function timesOverlap(firstTime, secondTime) {
 }
 
 /**
- * Checks if adding candidateTime to existingDayEntries maintains an acceptable vacant gap.
- * Allows: 0 min (back-to-back), up to 90 min (1.5 hours) vacant.
- * Disallows: long vacant gaps (> 90 minutes / 1.5 hours).
+ * Vacant-gap restriction REMOVED.
+ * Gaps between classes no longer disqualify a slot - only real conflicts
+ * (section time overlaps and room double-bookings) block placement. This
+ * prevents the solver from failing when many sections compete for slots.
  */
 function isVacantGapAcceptable(existingDayEntries, candidateTime) {
-    const candidateRange = parseTimeRange(candidateTime);
-    if (!candidateRange) return false;
-
-    const allRanges = (existingDayEntries || [])
-        .map(t => typeof t === "string" ? parseTimeRange(t) : parseTimeRange(t.time))
-        .filter(Boolean);
-    allRanges.push(candidateRange);
-
-    allRanges.sort((a, b) => a.start - b.start);
-
-    for (let i = 0; i < allRanges.length - 1; i++) {
-        const currentEnd = allRanges[i].end;
-        const nextStart = allRanges[i + 1].start;
-
-        const rawGap = nextStart - currentEnd;
-        if (rawGap <= 0) continue; // back-to-back or overlapping
-
-        // Lunch break allowance (12:00-13:00 or 12:30-13:00)
-        let lunchAllowance = 0;
-        const lunchStart = 12 * 60; // 720 (12:00 PM)
-        const lunchEnd = 13 * 60;   // 780 (1:00 PM)
-
-        if (currentEnd <= lunchStart && nextStart >= lunchEnd) {
-            lunchAllowance = 60; // 1-hour lunch break
-        } else if (currentEnd <= 750 && nextStart >= lunchEnd) {
-            lunchAllowance = 30; // 30-min lunch break
-        }
-
-        const netVacantGap = Math.max(0, rawGap - lunchAllowance);
-
-        // Disallow long vacant time (> 1.5 hours / 90 minutes)
-        if (netVacantGap > 90) {
-            return false;
-        }
-    }
-
     return true;
 }
 
@@ -340,6 +313,16 @@ function calculateDayPlacementVacantPenalty(existingDayEntries, candidateTime) {
     }
 
     return minGap === Infinity ? 0 : minGap;
+}
+
+/* Fisher-Yates shuffle - returns a new shuffled array */
+function shuffle(array) {
+    const copy = [...array];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
 }
 
 const DAY_PAIRS = [
@@ -423,7 +406,13 @@ function getSavedBookings(academicYear, semester) {
         if (semester && schedule.semester !== semester) return [];
 
         if (schedule.rawEntries?.length) {
-            return schedule.rawEntries;
+            /* Tag each booking with its source section so the conflict
+               validator can ignore a section's OWN previous schedule when
+               that section is being regenerated. */
+            return schedule.rawEntries.map(entry => ({
+                ...entry,
+                section: schedule.section || ""
+            }));
         }
 
         return (schedule.entries || []).flatMap(entry => {
@@ -435,7 +424,8 @@ function getSavedBookings(academicYear, semester) {
                 day: day.trim(),
                 time: (entryTimes[index] || entryTimes[0] || "").trim(),
                 room: (entryRooms[index] || entryRooms[0] || "").trim(),
-                roomCode: ""
+                roomCode: "",
+                section: schedule.section || ""
             }));
         });
     });
@@ -750,11 +740,25 @@ async function generateSchedule() {
         return second.units - first.units;
     });
 
+    /* RANDOMIZATION: shuffle subject order within each priority group so
+       different sections don't all grab the same first room/slot combination.
+       This spreads demand across rooms and times when many sections are
+       scheduled, greatly reducing cross-section conflicts. */
+    const activitySubjects = shuffle(subjects.filter(s =>
+        /activity|gym/.test(s.meetingType) || s.requiredRoomType === "Gymnasium"
+    ));
+    const otherSubjects = shuffle(subjects.filter(s =>
+        !(/activity|gym/.test(s.meetingType) || s.requiredRoomType === "Gymnasium")
+    ));
+    subjects.length = 0;
+    subjects.push(...activitySubjects, ...otherSubjects);
+
     const output = [];
 
     function roomIsTaken(room, day, time, allowGymSharing = false) {
         const matchingBookings = savedBookings.filter(booking =>
             booking.day === day &&
+            booking.section !== section &&
             booking.time &&
             timesOverlap(booking.time, time) &&
             (
@@ -811,16 +815,17 @@ async function generateSchedule() {
         timetableInstance,
         prog
     ) {
+        /* No forced 7:30 AM start - days may begin at whatever earliest slot
+           is actually free, which avoids artificial deadlocks and conflicts
+           when the 7:30 AM room is already taken by another section. */
+        /* EARLIEST-FIRST + NO VACANT-GAP LOGIC: slots are tried strictly in
+           start-time order so each day begins at 7:30 AM whenever a room of
+           the required type is free. A later slot is used only when there is
+           a room conflict at the earlier time. No vacant-gap penalty. */
         const candidateSlots = slots.filter(time => {
             const range = parseTimeRange(time);
-            if (!range) return false;
-            // Empty day must start at 7:30 AM (start === 450)
-            if (timetableInstance[day].length === 0 && range.start !== 450) return false;
-            return true;
+            return Boolean(range);
         }).sort((s1, s2) => {
-            const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day], s1);
-            const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day], s2);
-            if (gap1 !== gap2) return gap1 - gap2;
             const start1 = parseTimeRange(s1)?.start || 0;
             const start2 = parseTimeRange(s2)?.start || 0;
             return start1 - start2;
@@ -835,8 +840,18 @@ async function generateSchedule() {
             if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
             // 3. Room availability check
+            /* FALLBACK: if no room of the exact required type is free,
+               any non-laboratory, non-gym room in the Admin Building or
+               Building B may host a lecture class instead. */
             const availableRooms = rooms.filter(room => {
-                if (room.roomType !== reqRoomType) return false;
+                const typeMatches =
+                    room.roomType === reqRoomType ||
+                    (reqRoomType === "Lecture Room" &&
+                        !isLabRoomType(room.roomType) &&
+                        room.roomType !== "Gymnasium" &&
+                        (room.building === "Admin Building" ||
+                            room.building === "Building B"));
+                if (!typeMatches) return false;
                 return (
                     !timetableInstance[day].some(item =>
                         item.roomCode === room.roomCode && timesOverlap(item.time, time)
@@ -870,7 +885,9 @@ async function generateSchedule() {
         const [reqRoomType1, reqRoomType2] = meetings;
         const prog = programSelect.value;
 
-        // Generate all distinct day pairs from days ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        /* DAY PAIRING REMOVED: the two meetings may fall on ANY two
+           distinct days Monday-Friday. All combinations are generated,
+           then shuffled and sorted by section load for balance. */
         const allDayPairs = [];
         for (let i = 0; i < days.length; i++) {
             for (let j = i + 1; j < days.length; j++) {
@@ -878,8 +895,8 @@ async function generateSchedule() {
             }
         }
 
-        // Sort candidate day pairs by total section load to balance days evenly across Mon-Fri
-        const candidateDayPairs = allDayPairs.sort((a, b) => {
+        // Shuffle first so equal-load pairs are chosen randomly, then sort by load
+        const candidateDayPairs = shuffle(allDayPairs).sort((a, b) => {
             const loadA = (timetableInstance[a[0]]?.length || 0) + (timetableInstance[a[1]]?.length || 0);
             const loadB = (timetableInstance[b[0]]?.length || 0) + (timetableInstance[b[1]]?.length || 0);
             if (loadA !== loadB) return loadA - loadB;
@@ -947,37 +964,31 @@ async function generateSchedule() {
         const isActivity = /activity|gym/.test(subject.meetingType) || requiredRoomType === "Gymnasium";
         const prog = programSelect.value;
 
-        // For Activity, prefer Wednesday when days are empty to keep Mon/Thu & Tue/Fri pairs aligned
-        const candidateDays = [...days].sort((a, b) => {
+        /* ACTIVITY SPREAD: activities can go on ANY day Monday-Friday.
+           Days are ranked by the section's current load (fewest classes
+           first, random tie-break), so each activity lands on a different,
+           least-busy day and spreads across the whole week. The activityDays
+           set ensures one activity per day per section. */
+        const candidateDays = shuffle([...days]).sort((a, b) => {
             const loadA = timetableInstance[a]?.length || 0;
             const loadB = timetableInstance[b]?.length || 0;
-            if (loadA !== loadB) return loadA - loadB;
-            if (isActivity) {
-                if (a === "Wednesday") return -1;
-                if (b === "Wednesday") return 1;
-            }
-            return Math.random() - 0.5;
+            return loadA - loadB;
         });
 
         for (const day of candidateDays) {
             if (isActivity && activityDays instanceof Set && activityDays.has(day)) continue;
 
+            /* Activity subjects may start at ANY activity slot time
+               (8:00 AM, 10:00 AM, 1:00 PM, 3:00 PM) - not forced to 8:00 AM -
+               so multiple PATHFit sections can be distributed across the day. */
             const candidateSlots = slots.filter(time => {
                 const range = parseTimeRange(time);
-                if (!range) return false;
-                if (isActivity) {
-                    if (timetableInstance[day].length === 0 && range.start !== 480) return false;
-                } else {
-                    if (timetableInstance[day].length === 0 && range.start !== 450) return false;
-                }
-                return true;
+                return Boolean(range);
             }).sort((s1, s2) => {
-                const gap1 = calculateDayPlacementVacantPenalty(timetableInstance[day], s1);
-                const gap2 = calculateDayPlacementVacantPenalty(timetableInstance[day], s2);
-                if (gap1 !== gap2) return gap1 - gap2;
-                const start1 = parseTimeRange(s1)?.start || 0;
-                const start2 = parseTimeRange(s2)?.start || 0;
-                return start1 - start2;
+                /* RANDOM TIE-BREAK: spread activity sections across the
+                   available gym time slots instead of all taking 8:00 AM.
+                   (No vacant-gap penalty for activities.) */
+                return Math.random() - 0.5;
             });
 
             for (const time of candidateSlots) {
@@ -986,13 +997,25 @@ async function generateSchedule() {
 
                 if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
+                /* Gymnasium sharing: allow a SECOND section to book the same
+                   gym day/time (never more than two sections per slot).
+                   Sharing is enabled by default for activities on ALL days,
+                   Monday-Friday. */
                 const availableRooms = rooms.filter(room => {
-                    if (room.roomType !== requiredRoomType) return false;
+                    const typeMatches =
+                        room.roomType === requiredRoomType ||
+                        (!isActivity &&
+                            requiredRoomType === "Lecture Room" &&
+                            !isLabRoomType(room.roomType) &&
+                            room.roomType !== "Gymnasium" &&
+                            (room.building === "Admin Building" ||
+                                room.building === "Building B"));
+                    if (!typeMatches) return false;
                     return (
                         !timetableInstance[day].some(item =>
                             item.roomCode === room.roomCode && timesOverlap(item.time, time)
                         ) &&
-                        !roomIsTaken(room, day, time)
+                        !roomIsTaken(room, day, time, isActivity)
                     );
                 });
 
@@ -1011,14 +1034,8 @@ async function generateSchedule() {
                 if (activityDays instanceof Set && activityDays.has(day)) continue;
                 const candidateSlots = slots.filter(time => {
                     const range = parseTimeRange(time);
-                    if (!range) return false;
-                    if (timetableInstance[day].length === 0 && range.start !== 480) return false;
-                    return true;
-                }).sort((s1, s2) => {
-                    const start1 = parseTimeRange(s1)?.start || 0;
-                    const start2 = parseTimeRange(s2)?.start || 0;
-                    return start1 - start2;
-                });
+                    return Boolean(range);
+                }).sort(() => Math.random() - 0.5);
 
                 for (const time of candidateSlots) {
                     const sectionConflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
@@ -1028,6 +1045,45 @@ async function generateSchedule() {
                     const gym = rooms.find(r => r.roomType === "Gymnasium");
                     if (gym && !roomIsTaken(gym, day, time, true)) {
                         return { day, time, room: gym };
+                    }
+                }
+            }
+        }
+
+        /* FINAL GYM FALLBACK: activities may share a gym slot with a second
+           section even when saved bookings from other semesters/years exist.
+           Only blocks a slot once TWO other sections already occupy it. */
+        if (isActivity) {
+            const gym = rooms.find(r => r.roomType === "Gymnasium");
+            if (gym) {
+                for (const day of shuffle([...days])) {
+                    if (activityDays instanceof Set && activityDays.has(day)) continue;
+                    const candidateSlots = slots.filter(time => {
+                        const range = parseTimeRange(time);
+                        return Boolean(range);
+                    }).sort((s1, s2) => Math.random() - 0.5);
+
+                    for (const time of candidateSlots) {
+                        const sectionConflict = timetableInstance[day].some(item =>
+                            timesOverlap(item.time, time)
+                        );
+                        if (sectionConflict) continue;
+
+                        const occupancy = savedBookings.filter(booking =>
+                            booking.day === day &&
+                            booking.section !== section &&
+                            booking.time &&
+                            timesOverlap(booking.time, time) &&
+                            (
+                                booking.roomCode === gym.roomCode ||
+                                booking.room === gym.roomCode ||
+                                booking.room === gym.roomName
+                            )
+                        ).length;
+
+                        if (occupancy < 2) {
+                            return { day, time, room: gym };
+                        }
                     }
                 }
             }
@@ -1055,6 +1111,10 @@ async function generateSchedule() {
         let attemptFailed = false;
 
         for (const subject of subjects) {
+            /* TBA subjects are skipped by the solver; they are appended
+               after generation with day/time/room set to "TBA". */
+            if (TBA_SUBJECT_CODES.has(subject.code)) continue;
+
             const isActivity =
                 /activity|gym/.test(subject.meetingType) ||
                 subject.requiredRoomType === "Gymnasium";
@@ -1158,31 +1218,99 @@ async function generateSchedule() {
             }
         }
 
-        // Validate that every scheduled day starts at 7:30 AM (or 8:00 AM for activity)
+        // Final validation: verify there are NO real conflicts in the schedule.
+        // Checks section time overlaps and room double-bookings per day.
         if (!attemptFailed && currentOutput.length > 0) {
             for (const day of days) {
-                const dayClasses = timetableInstance[day];
-                if (dayClasses && dayClasses.length > 0) {
-                    const earliestClass = dayClasses.reduce((min, cur) => {
-                        const startCur = parseTimeRange(cur.time)?.start ?? 9999;
-                        const startMin = parseTimeRange(min.time)?.start ?? 9999;
-                        return startCur < startMin ? cur : min;
-                    }, dayClasses[0]);
+                const dayEntries = currentOutput.filter(o => o.day === day);
 
-                    const earliestStart = parseTimeRange(earliestClass.time)?.start;
-                    const matchingOutput = currentOutput.find(o => o.day === day && o.time === earliestClass.time);
-                    const matchingSubject = matchingOutput ? subjects.find(s => s.code === matchingOutput.code) : null;
-                    const isActivitySubject = matchingSubject
-                        ? (/activity|gym/.test(matchingSubject.meetingType) || matchingSubject.requiredRoomType === "Gymnasium")
-                        : false;
+                // 1. Section conflict check: this section can't be in two classes at once
+                for (let i = 0; i < dayEntries.length; i++) {
+                    for (let j = i + 1; j < dayEntries.length; j++) {
+                        if (timesOverlap(dayEntries[i].time, dayEntries[j].time)) {
+                            attemptFailed = true;
+                            lastFailureReason =
+                                `Section conflict on ${day}: ${dayEntries[i].code} overlaps ${dayEntries[j].code}.`;
+                            break;
+                        }
+                    }
+                    if (attemptFailed) break;
+                }
+                if (attemptFailed) break;
 
-                    const expectedStart = isActivitySubject ? 480 : 450; // 8:00 AM for activity, 7:30 AM for regular
-                    if (earliestStart !== expectedStart) {
+                // 2. Room double-booking check: same room can't host two overlapping classes
+                for (let i = 0; i < dayEntries.length; i++) {
+                    for (let j = i + 1; j < dayEntries.length; j++) {
+                        const sameRoom = dayEntries[i].roomCode === dayEntries[j].roomCode;
+                        if (sameRoom && timesOverlap(dayEntries[i].time, dayEntries[j].time)) {
+                            attemptFailed = true;
+                            lastFailureReason =
+                                `Room conflict on ${day}: ${dayEntries[i].roomCode} is double-booked ` +
+                                `(${dayEntries[i].code} / ${dayEntries[j].code}).`;
+                            break;
+                        }
+                    }
+                    if (attemptFailed) break;
+                }
+                if (attemptFailed) break;
+
+                // 3. Cross-section room check against OTHER sections' bookings
+                //    (a section's own previous schedule is ignored so it can
+                //    be regenerated without self-conflicts)
+                //    GYM CAPACITY RULE: The Gymnasium holds up to TWO sections
+                //    per time slot Monday-Friday. Valid 2-section sharing is
+                //    NOT counted as a room conflict. A THIRD section on the
+                //    same day/time IS flagged as a conflict.
+                const gymRoomCodes = new Set(
+                    rooms.filter(r => r.roomType === "Gymnasium").map(r => r.roomCode)
+                );
+                for (const entry of dayEntries) {
+                    /* Gym capacity check instead of a hard single-booking rule */
+                    if (gymRoomCodes.has(entry.roomCode)) {
+                        const otherGymBookings = savedBookings.filter(booking =>
+                            booking.day === day &&
+                            booking.section !== section &&
+                            (
+                                booking.roomCode === entry.roomCode ||
+                                booking.room === entry.roomCode ||
+                                booking.room === entry.room
+                            ) &&
+                            timesOverlap(booking.time, entry.time)
+                        );
+
+                        /* Count distinct OTHER sections occupying this slot */
+                        const distinctSections = new Set(
+                            otherGymBookings.map(b => b.section || "")
+                        );
+
+                        if (distinctSections.size >= 2) {
+                            attemptFailed = true;
+                            lastFailureReason =
+                                `Gymnasium capacity exceeded on ${day} at ${entry.time}: ` +
+                                `already used by 2 sections (${entry.code}).`;
+                            break;
+                        }
+                        continue;
+                    }
+
+                    const clash = savedBookings.some(booking =>
+                        booking.day === day &&
+                        booking.section !== section &&
+                        (
+                            booking.roomCode === entry.roomCode ||
+                            booking.room === entry.roomCode ||
+                            booking.room === entry.room
+                        ) &&
+                        timesOverlap(booking.time, entry.time)
+                    );
+                    if (clash) {
                         attemptFailed = true;
-                        lastFailureReason = `Schedule on ${day} does not start at ${isActivitySubject ? "8:00 AM" : "7:30 AM"}.`;
+                        lastFailureReason =
+                            `Room ${entry.room} on ${day} at ${entry.time} is already booked by another section.`;
                         break;
                     }
                 }
+                if (attemptFailed) break;
             }
         }
 
@@ -1196,6 +1324,20 @@ async function generateSchedule() {
     if (!scheduleSuccess) {
         showToast(lastFailureReason || "Could not generate a complete schedule without conflicts.");
         return;
+    }
+
+    /* Append TBA subjects with no room/day/time assignment */
+    for (const subject of subjects) {
+        if (!TBA_SUBJECT_CODES.has(subject.code)) continue;
+        finalOutput.push({
+            code: subject.code,
+            name: subject.name,
+            units: subject.units,
+            day: "MTWThF",
+            time: "7:30am-6:30pm",
+            room: "TBA",
+            roomCode: ""
+        });
     }
 
     const aggregatedSchedule = [
