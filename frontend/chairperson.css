@@ -218,7 +218,7 @@ nav ul li a.active{
 .chart-card-header h3 {
     margin: 0;
     font-size: 18px;
-    color: var(--dark);
+    color: black;
     font-weight: bold;
 }
 
@@ -519,7 +519,7 @@ nav ul li a.active{
     align-items:center;
     padding:16px 20px;
     background:#e3d7be;
-    color:#fff;
+    color:#060303;
 }
 
 .modal-header h3{
@@ -543,6 +543,7 @@ nav ul li a.active{
 
 .modal-body{
     padding:20px;
+    width: 100%;
 }
 
 .modal-body p{
@@ -552,7 +553,7 @@ nav ul li a.active{
 }
 
 .modal-body p strong{
-    color:var(--dark);
+    color:#100f4b;
 }
 
 .modal-reason{

@@ -698,6 +698,36 @@ async function handleRescheduleSubmit(event) {
     }
 }
 
+function isIndividualExamAssignedToFaculty(exam, schedule, userUid, facultyFullName) {
+    if (!schedule) return false;
+
+    // 1. Exam-level UID check
+    if (exam.proctorUid && exam.proctorUid === userUid) {
+        return true;
+    }
+
+    // 2. Exam-level Name check
+    const normExamProctor = normalize(exam.proctor || "");
+    const normFullName = normalize(facultyFullName || "");
+
+    if (normExamProctor && normFullName) {
+        if (normExamProctor === normFullName) return true;
+        if (normExamProctor.includes(normFullName) || normFullName.includes(normExamProctor)) return true;
+
+        const nameTokens = normFullName.split(/\s+/).filter(t => t.length > 2);
+        if (nameTokens.length >= 2 && nameTokens.every(token => normExamProctor.includes(token))) {
+            return true;
+        }
+    }
+
+    // 3. Fallback: if exam has no specific proctor set, it inherits the schedule assignment
+    if (!exam.proctorUid && !exam.proctor) {
+        return isAssignedToCurrentFaculty(schedule, userUid, facultyFullName);
+    }
+
+    return false;
+}
+
 function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
     if (!schedule) return false;
 
@@ -739,16 +769,29 @@ function watchAssignedExamSchedules(user, fullName) {
     onSnapshot(
         collection(db, "examSchedules"),
         snapshot => {
-            const examSchedules = snapshot.docs
-                .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule => {
-                    const status = normalize(schedule.status || "generated");
-                    const isValidStatus = status === "generated" || status === "published" || status === "active";
-                    if (!isValidStatus) return false;
+            const examSchedules = [];
 
-                    // STRICT isolation: ONLY exam schedules assigned to THIS faculty account
-                    return isAssignedToCurrentFaculty(schedule, user.uid, fullName);
-                });
+            snapshot.docs.forEach(docSnap => {
+                const schedule = { id: docSnap.id, ...docSnap.data() };
+                const status = normalize(schedule.status || "generated");
+                const isValidStatus = status === "generated" || status === "published" || status === "active";
+                if (!isValidStatus) return;
+
+                const allExams = Array.isArray(schedule.exams) ? schedule.exams : [];
+                // STRICT isolation: ONLY exam subjects assigned specifically to THIS faculty account
+                const myExams = allExams.filter(exam =>
+                    isIndividualExamAssignedToFaculty(exam, schedule, user.uid, fullName)
+                );
+
+                // Only include the schedule if there is at least one subject assigned to this faculty
+                if (myExams.length > 0) {
+                    examSchedules.push({
+                        ...schedule,
+                        exams: myExams,
+                        proctor: fullName
+                    });
+                }
+            });
 
             examSchedules.sort((a, b) => getScheduleTimestamp(b) - getScheduleTimestamp(a));
             assignedExamSchedules = examSchedules;

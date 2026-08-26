@@ -400,6 +400,32 @@ nav ul li a.active {
     gap:16px;
 }
 
+.schedule-sub-badges {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:6px;
+    flex-wrap:wrap;
+}
+
+.schedule-section-tag {
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    background:#e8f5e9;
+    color:var(--dark);
+    border:1px solid #c8e6c9;
+    font-size:12px;
+    font-weight:600;
+    padding:3px 9px;
+    border-radius:6px;
+}
+
+.schedule-section-tag strong {
+    color:#1b5e20;
+    font-weight:700;
+}
+
 .schedule-proctor {
     text-align:right;
     flex-shrink:0;
@@ -568,6 +594,29 @@ nav ul li a.active {
     margin-bottom:8px;
 }
 
+.modal-header-actions {
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+
+.mark-all-read-btn {
+    background:none;
+    border:1px solid var(--primary);
+    color:var(--primary);
+    font-size:12px;
+    font-weight:bold;
+    padding:5px 10px;
+    border-radius:6px;
+    cursor:pointer;
+    transition:.2s ease;
+}
+
+.mark-all-read-btn:hover {
+    background:var(--primary);
+    color:#fff;
+}
+
 .modal-header h3 {
     color:var(--dark);
     font-size:20px;
@@ -607,6 +656,34 @@ nav ul li a.active {
     border-radius:10px;
     border:1px solid #d9d2c5;
     background:#fff;
+    cursor:pointer;
+    position:relative;
+    transition:transform .15s ease, box-shadow .15s ease, opacity .2s ease;
+}
+
+.notification-item:hover {
+    transform:translateY(-2px);
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+}
+
+.notification-item.notification-unread {
+    border-color:#cbd5e1;
+    box-shadow:0 2px 8px rgba(0,0,0,.06);
+}
+
+.notification-item.notification-unread::after {
+    content:"";
+    position:absolute;
+    top:12px;
+    right:12px;
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:var(--primary);
+}
+
+.notification-item.notification-read {
+    opacity:0.8;
 }
 
 .notification-icon {
@@ -660,6 +737,52 @@ nav ul li a.active {
 .notification-denied {
     border-left:5px solid var(--danger);
     background:#fdecea;
+}
+
+/* Exam Details Preview Card */
+.exam-details-card {
+    background:#f8fafc;
+    border:1px solid #cbd5e1;
+    border-radius:10px;
+    padding:14px 16px;
+    margin:10px 0;
+    font-size:13px;
+}
+
+.exam-details-card-header {
+    font-weight:700;
+    color:var(--dark);
+    font-size:14px;
+    margin-bottom:10px;
+    padding-bottom:6px;
+    border-bottom:1px solid #e2e8f0;
+}
+
+.exam-details-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px 14px;
+}
+
+.exam-detail-item {
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+}
+
+.exam-detail-label {
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    font-weight:600;
+    letter-spacing:0.5px;
+}
+
+.exam-detail-value {
+    font-size:13px;
+    color:#1e293b;
+    font-weight:600;
+    word-break:break-word;
 }
 
 .request-status {

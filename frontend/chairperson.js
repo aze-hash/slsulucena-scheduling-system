@@ -172,7 +172,7 @@ function renderRescheduleRequests(requests) {
     const body = document.getElementById("rescheduleRequestsBody");
 
     if (!requests.length) {
-        body.innerHTML = `<tr><td colspan="6">No reschedule requests have been submitted yet.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="7">No reschedule requests have been submitted yet.</td></tr>`;
         return;
     }
 
@@ -185,10 +185,14 @@ function renderRescheduleRequests(requests) {
             status === "denied" ? "status-denied" : "status-pending";
 
         const examTypeDisplay = request.examType || (request.affectedExams && request.affectedExams[0]?.examType) || "Exam Schedule";
+        const subjectDisplay = request.subjectCode
+            ? `${safe(request.subjectCode)}${request.subjectName ? ` - ${safe(request.subjectName)}` : ""}`
+            : (request.affectedExams?.[0]?.code || "-");
 
         return `
             <tr>
                 <td>${safe(request.facultyName || request.requestingFacultyName || "Unknown Faculty")}</td>
+                <td><strong>${subjectDisplay}</strong></td>
                 <td>${safe(request.section || "-")}</td>
                 <td>${safe(examTypeDisplay)}</td>
                 <td>${safe(formatDate(getDate(request)))}</td>
@@ -242,6 +246,14 @@ function openRequestModal(request) {
 
     document.getElementById("modalFacultyName").textContent =
         request.facultyName || request.requestingFacultyName || "-";
+
+    const modalSubject = document.getElementById("modalSubject");
+    if (modalSubject) {
+        modalSubject.textContent = request.subjectCode
+            ? `${request.subjectCode}${request.subjectName ? ` - ${request.subjectName}` : ""}`
+            : (request.affectedExams?.[0]?.code || "-");
+    }
+
     document.getElementById("modalSection").textContent =
         request.section || "-";
 
@@ -249,6 +261,19 @@ function openRequestModal(request) {
     if (modalExamType) {
         modalExamType.textContent = request.examType || (request.affectedExams && request.affectedExams[0]?.examType) || "Exam Schedule";
     }
+
+    const modalScheduleTime = document.getElementById("modalScheduleTime");
+    if (modalScheduleTime) {
+        const dateStr = request.examDate || "-";
+        const timeStr = request.examTime || "-";
+        modalScheduleTime.textContent = `${dateStr} (${timeStr})`;
+    }
+
+    const modalRoom = document.getElementById("modalRoom");
+    if (modalRoom) {
+        modalRoom.textContent = request.examRoom || "-";
+    }
+
     document.getElementById("modalReason").textContent =
         request.reason || "-";
 
@@ -262,15 +287,24 @@ function openRequestModal(request) {
     modalStatus.textContent = statusLabel;
     modalStatus.className = `status-badge ${statusClass}`;
 
-    // Render journey preview
+    // Render details preview
     const previewContainer = document.getElementById("modalJourneyPreview");
-    const affectedExams = Array.isArray(request.affectedExams) ? request.affectedExams : [];
+    const affectedExams = Array.isArray(request.affectedExams) && request.affectedExams.length
+        ? request.affectedExams
+        : (request.subjectCode ? [{
+            time: request.examTime || "-",
+            code: request.subjectCode,
+            name: request.subjectName || "",
+            room: request.examRoom || "-",
+            day: request.examDate || "-"
+        }] : []);
 
     if (affectedExams.length) {
         const rows = affectedExams.map(exam => `
             <tr>
+                <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.day || request.examDate || "-")}</td>
                 <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.time || "-")}</td>
-                <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.code || "-")} — ${safe(exam.name || "-")}</td>
+                <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;"><strong>${safe(exam.code || "-")}</strong> — ${safe(exam.name || "-")}</td>
                 <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.room || "-")}</td>
             </tr>
         `).join("");
@@ -279,6 +313,7 @@ function openRequestModal(request) {
             <table class="exam-pdf-style" style="width: 100%; border-collapse: collapse; font-size: 0.9em; border: 1px solid #cbd5e1;">
                 <thead>
                     <tr style="background: #f1f5f9; text-align: left;">
+                        <th style="padding: 6px;">DATE</th>
                         <th style="padding: 6px;">TIME</th>
                         <th style="padding: 6px;">SUBJECT</th>
                         <th style="padding: 6px;">ROOM</th>
@@ -345,6 +380,68 @@ function intervalsOverlap(intA, intB) {
     return Math.max(intA.start, intB.start) < Math.min(intA.end, intB.end);
 }
 
+async function applyExamSubjectReassignment(request, replacementUid, replacementName) {
+    const schedId = request.examScheduleId;
+    if (!schedId) {
+        const affectedScheduleIds = Array.isArray(request.affectedExamScheduleIds)
+            ? request.affectedExamScheduleIds
+            : [];
+        for (const id of affectedScheduleIds) {
+            await updateDoc(doc(db, "examSchedules", id), {
+                proctor: replacementName,
+                proctorUid: replacementUid,
+                facultyUid: replacementUid,
+                assignedFacultyUid: replacementUid,
+                updatedAt: new Date()
+            });
+        }
+        return;
+    }
+
+    const schedDocRef = doc(db, "examSchedules", schedId);
+    const schedSnap = await getDoc(schedDocRef);
+    if (!schedSnap.exists()) {
+        console.warn("Target exam schedule doc not found:", schedId);
+        return;
+    }
+
+    const schedData = schedSnap.data();
+    const exams = Array.isArray(schedData.exams) ? schedData.exams : [];
+
+    const reqSubject = normalize(request.subjectCode || "");
+    const reqDay = normalize(request.examDay || request.examDate || "");
+    const reqTime = normalize(request.examTime || "");
+
+    const updatedExams = exams.map(exam => {
+        const examCode = normalize(exam.code || exam.subjectCode || "");
+        const examDay = normalize(exam.day || exam.date || "");
+        const examTime = normalize(exam.time || "");
+
+        const codeMatches = examCode === reqSubject || (reqSubject && (examCode.includes(reqSubject) || reqSubject.includes(examCode)));
+        const dayMatches = !reqDay || examDay === reqDay || examDay.includes(reqDay) || reqDay.includes(examDay);
+        const timeMatches = !reqTime || examTime === reqTime;
+
+        if (codeMatches && (dayMatches || timeMatches || exams.length === 1)) {
+            return {
+                ...exam,
+                proctor: replacementName,
+                proctorUid: replacementUid
+            };
+        }
+        return exam;
+    });
+
+    const uniqueProctors = [...new Set(updatedExams.map(e => e.proctor).filter(Boolean))].join(", ");
+    const uniqueProctorUids = [...new Set(updatedExams.map(e => e.proctorUid).filter(Boolean))].join(",");
+
+    await updateDoc(schedDocRef, {
+        exams: updatedExams,
+        proctor: uniqueProctors || replacementName,
+        proctorUid: uniqueProctorUids || replacementUid,
+        updatedAt: new Date()
+    });
+}
+
 async function handleRequestDecision(requestId, action) {
     if (!requestId || !currentRequest) return;
 
@@ -378,13 +475,18 @@ async function handleRequestDecision(requestId, action) {
 
         try {
             const examDate = currentRequest.examDate;
-            const affectedExams = Array.isArray(currentRequest.affectedExams) ? currentRequest.affectedExams : [];
-            const affectedScheduleIds = Array.isArray(currentRequest.affectedExamScheduleIds)
-                ? currentRequest.affectedExamScheduleIds
-                : (currentRequest.examScheduleId ? [currentRequest.examScheduleId] : []);
+            const affectedExams = Array.isArray(currentRequest.affectedExams) && currentRequest.affectedExams.length
+                ? currentRequest.affectedExams
+                : (currentRequest.subjectCode ? [{
+                    time: currentRequest.examTime,
+                    code: currentRequest.subjectCode,
+                    name: currentRequest.subjectName,
+                    room: currentRequest.examRoom,
+                    day: currentRequest.examDate
+                }] : []);
 
-            const affectedIntervals = affectedExams
-                .map(e => parseTimeInterval(e.time))
+            const affectedIntervals = (currentRequest.examTime ? [currentRequest.examTime] : affectedExams.map(e => e.time))
+                .map(parseTimeInterval)
                 .filter(Boolean);
 
             // 1. Fetch registered faculty from users collection
@@ -396,7 +498,9 @@ async function handleRequestDecision(requestId, action) {
 
             // 1.1 Fetch facultySubjectAssignments to exclude faculty who teach the affected exam subjects
             const affectedSubjectCodes = new Set(
-                affectedExams.map(e => String(e.code || e.subjectCode || "").trim().toLowerCase()).filter(Boolean)
+                (currentRequest.subjectCode ? [currentRequest.subjectCode] : affectedExams.map(e => e.code || e.subjectCode))
+                    .map(c => String(c || "").trim().toLowerCase())
+                    .filter(Boolean)
             );
             const assignmentsSnapshot = await getDocs(collection(db, "facultySubjectAssignments"));
             const facultySubjectMap = new Map();
@@ -440,27 +544,28 @@ async function handleRequestDecision(requestId, action) {
 
                 const assignedOnDate = [];
                 allExamSchedules.forEach(schedule => {
-                    const matchesFaculty = schedule.proctorUid === faculty.uid ||
-                        schedule.facultyUid === faculty.uid ||
-                        schedule.assignedFacultyUid === faculty.uid ||
-                        String(schedule.proctor || "").trim().toLowerCase() === String(fullName).trim().toLowerCase();
-
-                    if (!matchesFaculty) return;
-
-                    const examDatesObj = schedule.examDates || {};
                     const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+                    const examDatesObj = schedule.examDates || {};
 
                     const matchingDays = Object.entries(examDatesObj)
-                        .filter(([dayLabel, dateStr]) => !examDate || examDate === "All Exam Days" || dateStr === examDate)
+                        .filter(([dayLabel, dateStr]) => !examDate || examDate === "All Exam Days" || dateStr === examDate || dayLabel === examDate)
                         .map(([dayLabel]) => dayLabel);
 
-                    const dayExams = exams.filter(e => !examDate || examDate === "All Exam Days" || matchingDays.includes(e.day) || e.day === examDate);
-                    dayExams.forEach(exam => {
-                        assignedOnDate.push({
-                            scheduleId: schedule.id,
-                            time: exam.time,
-                            interval: parseTimeInterval(exam.time)
-                        });
+                    exams.forEach(exam => {
+                        const isAssigned = exam.proctorUid === faculty.uid ||
+                            String(exam.proctor || "").trim().toLowerCase() === String(fullName).trim().toLowerCase() ||
+                            ((!exam.proctorUid && !exam.proctor) && (schedule.proctorUid === faculty.uid || String(schedule.proctor || "").trim().toLowerCase() === String(fullName).trim().toLowerCase()));
+
+                        if (!isAssigned) return;
+
+                        const matchesDate = !examDate || examDate === "All Exam Days" || matchingDays.includes(exam.day) || exam.day === examDate;
+                        if (matchesDate) {
+                            assignedOnDate.push({
+                                scheduleId: schedule.id,
+                                time: exam.time,
+                                interval: parseTimeInterval(exam.time)
+                            });
+                        }
                     });
                 });
 
@@ -487,15 +592,8 @@ async function handleRequestDecision(requestId, action) {
                 zeroConflictCandidates.sort((a, b) => a.assignedCount - b.assignedCount);
                 const selected = zeroConflictCandidates[0];
 
-                for (const schedId of affectedScheduleIds) {
-                    await updateDoc(doc(db, "examSchedules", schedId), {
-                        proctor: selected.fullName,
-                        proctorUid: selected.uid,
-                        facultyUid: selected.uid,
-                        assignedFacultyUid: selected.uid,
-                        updatedAt: new Date()
-                    });
-                }
+                // Update the exam schedule document at subject level
+                await applyExamSubjectReassignment(currentRequest, selected.uid, selected.fullName);
 
                 await updateDoc(doc(db, "rescheduleRequests", requestId), {
                     status: "approved",
@@ -506,7 +604,8 @@ async function handleRequestDecision(requestId, action) {
                     updatedAt: new Date()
                 });
 
-                alert(`Reschedule request approved! System automatically assigned ${selected.fullName} (0 time conflicts) as the replacement proctor for the entire day.`);
+                const subjectLabel = currentRequest.subjectCode || "subject";
+                alert(`Reschedule request approved! System automatically assigned ${selected.fullName} (0 time conflicts) as the replacement proctor for ${subjectLabel}.`);
                 closeRequestModal();
             } else {
                 approveBtn.disabled = false;
@@ -553,7 +652,8 @@ async function handleManualReassign() {
         return;
     }
 
-    const confirmed = confirm(`Are you sure you want to manually reassign this exam journey to ${replacementName}?`);
+    const subjectLabel = currentRequest.subjectCode || "this exam";
+    const confirmed = confirm(`Are you sure you want to manually reassign ${subjectLabel} to ${replacementName}?`);
     if (!confirmed) return;
 
     const confirmBtn = document.getElementById("confirmManualReassignBtn");
@@ -561,19 +661,7 @@ async function handleManualReassign() {
     confirmBtn.textContent = "Reassigning...";
 
     try {
-        const affectedScheduleIds = Array.isArray(currentRequest.affectedExamScheduleIds)
-            ? currentRequest.affectedExamScheduleIds
-            : (currentRequest.examScheduleId ? [currentRequest.examScheduleId] : []);
-
-        for (const schedId of affectedScheduleIds) {
-            await updateDoc(doc(db, "examSchedules", schedId), {
-                proctor: replacementName,
-                proctorUid: replacementUid,
-                facultyUid: replacementUid,
-                assignedFacultyUid: replacementUid,
-                updatedAt: new Date()
-            });
-        }
+        await applyExamSubjectReassignment(currentRequest, replacementUid, replacementName);
 
         await updateDoc(doc(db, "rescheduleRequests", currentRequestId), {
             status: "approved",
@@ -584,7 +672,7 @@ async function handleManualReassign() {
             updatedAt: new Date()
         });
 
-        alert(`Proctoring successfully reassigned to ${replacementName}.`);
+        alert(`Proctoring for ${subjectLabel} successfully reassigned to ${replacementName}.`);
         closeRequestModal();
     } catch (error) {
         console.error("Could not execute manual reassign:", error);

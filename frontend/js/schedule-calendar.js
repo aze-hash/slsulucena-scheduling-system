@@ -269,9 +269,10 @@ function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
  * Build the positioned blocks HTML for a single day column in an exam calendar.
  * @param {Array<Object>} exams - All exam entries
  * @param {string} day - e.g., "Monday"
+ * @param {Map<string, string>} [subjectColorMap] - Mapping of subject key to color class
  * @returns {string} HTML
  */
-function buildExamDayBlocks(exams, day) {
+function buildExamDayBlocks(exams, day, subjectColorMap = new Map()) {
     const dayBlocks = [];
 
     for (const exam of exams) {
@@ -309,7 +310,8 @@ function buildExamDayBlocks(exams, day) {
             const leftPct   = widthPct * colIndex;
 
             const displayTime = `${minutesToDisplay(block.start)} – ${minutesToDisplay(block.end)}`;
-            const colorClass  = `cal-block-color-exam`;
+            const subjectKey  = String(block.code || block.name || "").trim().toUpperCase();
+            const colorClass  = subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`;
 
             html += `
 <div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} — ${esc(block.name)}">
@@ -484,11 +486,12 @@ export function renderExamCalendar(schedule) {
     if (!dayOrder.length) return `<div class="empty-state">No examination schedule has been released yet.</div>`;
 
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
+    const subjectColorMap = buildSubjectColorMap(exams);
 
     const dayColumnsHtml = dayOrder.map(day => {
         const dateStr   = examDates[day] || "";
         const dateLabel = formatExamDateHeader(dateStr);
-        const blocks    = buildExamDayBlocks(exams, day);
+        const blocks    = buildExamDayBlocks(exams, day, subjectColorMap);
 
         return `
 <div class="cal-day-col">

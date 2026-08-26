@@ -26,9 +26,8 @@ const navFacultyRole = document.getElementById("navFacultyRole");
 const logoutBtn = document.getElementById("logoutBtn");
 
 const rescheduleForm = document.getElementById("rescheduleForm");
-const sectionSelect = document.getElementById("sectionSelect");
-const examDateSelect = document.getElementById("examDateSelect");
-const examJourneyPreview = document.getElementById("examJourneyPreview");
+const examSelect = document.getElementById("examSelect");
+const examDetailsPreview = document.getElementById("examDetailsPreview") || document.getElementById("examJourneyPreview");
 const reasonInput = document.getElementById("reasonInput");
 const submitRequestBtn = document.getElementById("submitRequestBtn");
 const requestStatus = document.getElementById("requestStatus");
@@ -41,14 +40,17 @@ const closeRescheduleModalBtn = document.getElementById("closeRescheduleModalBtn
 const notificationsModal = document.getElementById("notificationsModal");
 const openNotificationsModalBtn = document.getElementById("openNotificationsModalBtn");
 const closeNotificationsModalBtn = document.getElementById("closeNotificationsModalBtn");
+const markAllNotificationsReadBtn = document.getElementById("markAllNotificationsReadBtn");
 const notificationBadge = document.getElementById("notificationBadge");
 const recentExamsBadge = document.getElementById("recentExamsBadge");
 
 let currentFacultyName = "";
 let currentFacultyUid = "";
 let assignedExamSchedules = [];
+let assignedExamsList = [];
 let allClassSchedules = [];
 let classSearchTerm = "";
+let latestNotificationsList = [];
 
 function getScheduleTimestamp(schedule) {
     const raw = schedule.generatedAt || schedule.createdAt || schedule.updatedAt;
@@ -165,7 +167,6 @@ function renderClassSchedules(schedules) {
     }).join("");
 }
 
-
 function formatExamDate(dateStr) {
     if (!dateStr) return "";
     const parts = String(dateStr).split("-");
@@ -221,11 +222,14 @@ function renderExamSchedules(schedules) {
         const calendarHtml     = renderExamCalendar(schedule);
 
         return `
-            <article class="schedule-card">
+            <article class="schedule-card" data-schedule-id="${safe(schedule.id)}">
                 <div class="schedule-header exam-schedule-header">
                     <div class="schedule-title-info">
                         <h4>${safe(examTypeTitle)}</h4>
-                        <small>${safe(academicSubtext)}</small>
+                        <div class="schedule-sub-badges">
+                            <span class="schedule-section-tag">Section: <strong>${safe(schedule.section || "-")}</strong></span>
+                            <small>${safe(academicSubtext)}</small>
+                        </div>
                     </div>
                     <div class="schedule-proctor">
                         <span>Proctor:</span>
@@ -244,96 +248,154 @@ function showRequestStatus(message, type = "success") {
     requestStatus.className = `request-status ${type}`;
 }
 
-function populateSectionSelect() {
-    if (!sectionSelect) return;
-    const sections = [...new Set(assignedExamSchedules.map(schedule => schedule.section).filter(Boolean))];
+function isIndividualExamAssignedToFaculty(exam, schedule, userUid, facultyFullName) {
+    if (!schedule) return false;
 
-    if (!sections.length) {
-        sectionSelect.innerHTML = '<option value="">No sections assigned to you yet</option>';
-        sectionSelect.disabled = true;
-        if (examJourneyPreview) {
-            examJourneyPreview.hidden = true;
-            examJourneyPreview.innerHTML = "";
+    // 1. Exam-level UID check
+    if (exam.proctorUid && exam.proctorUid === userUid) {
+        return true;
+    }
+
+    // 2. Exam-level Name check
+    const normExamProctor = normalize(exam.proctor || "");
+    const normFullName = normalize(facultyFullName || "");
+
+    if (normExamProctor && normFullName) {
+        if (normExamProctor === normFullName) return true;
+        if (normExamProctor.includes(normFullName) || normFullName.includes(normExamProctor)) return true;
+
+        const nameTokens = normFullName.split(/\s+/).filter(t => t.length > 2);
+        if (nameTokens.length >= 2 && nameTokens.every(token => normExamProctor.includes(token))) {
+            return true;
         }
-        return;
     }
 
-    sectionSelect.disabled = false;
-    sectionSelect.innerHTML = `
-        <option value="">-- Select the section you are assigned to --</option>
-        ${sections.map(section => `<option value="${safe(section)}">${safe(section)}</option>`).join("")}
-    `;
-
-    if (examJourneyPreview) {
-        examJourneyPreview.hidden = true;
-        examJourneyPreview.innerHTML = "";
+    // 3. Fallback: if exam has no specific proctor set, it inherits the schedule assignment
+    if (!exam.proctorUid && !exam.proctor) {
+        return isAssignedToCurrentFaculty(schedule, userUid, facultyFullName);
     }
+
+    return false;
 }
 
-function handleSectionChange() {
-    const selectedSection = sectionSelect.value;
-    if (examJourneyPreview) {
-        examJourneyPreview.hidden = true;
-        examJourneyPreview.innerHTML = "";
-    }
+function populateExamSelect() {
+    if (!examSelect) return;
 
-    if (!selectedSection) return;
+    assignedExamsList = [];
 
-    const matchingSchedules = assignedExamSchedules.filter(s => s.section === selectedSection);
-    const affectedExams = [];
-
-    matchingSchedules.forEach(schedule => {
+    assignedExamSchedules.forEach(schedule => {
         const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+        const examType = schedule.examType || schedule.title || "Exam Schedule";
+
         exams.forEach(exam => {
-            affectedExams.push({
-                day: exam.day || "-",
-                time: exam.time || "-",
-                code: exam.code || exam.subjectCode || "-",
-                name: exam.name || exam.subjectName || "-",
-                room: exam.room || "-",
-                scheduleId: schedule.id
-            });
+            if (isIndividualExamAssignedToFaculty(exam, schedule, currentFacultyUid, currentFacultyName)) {
+                const subjectCode = exam.code || exam.subjectCode || "N/A";
+                const subjectName = exam.name || exam.subjectName || "N/A";
+                const section = schedule.section || exam.section || "N/A";
+                const examDay = exam.day || "";
+                const rawDate = schedule.examDates?.[examDay] || exam.date || "";
+                const formattedDate = rawDate ? formatExamDate(rawDate) : (examDay || "TBA");
+                const examTime = exam.time || "TBA";
+                const examRoom = exam.room || schedule.room || "TBA";
+                const assignedProctor = exam.proctor || schedule.proctor || currentFacultyName || "TBA";
+
+                assignedExamsList.push({
+                    examScheduleId: schedule.id,
+                    subjectCode,
+                    subjectName,
+                    section,
+                    examType,
+                    examDate: formattedDate,
+                    rawDate,
+                    examDay,
+                    examTime,
+                    examRoom,
+                    assignedProctor
+                });
+            }
         });
     });
 
-    if (!affectedExams.length) {
-        if (examJourneyPreview) {
-            examJourneyPreview.hidden = false;
-            examJourneyPreview.innerHTML = '<div class="empty-state">No scheduled exams found for this section.</div>';
+    if (!assignedExamsList.length) {
+        examSelect.innerHTML = '<option value="">No exam assignments found for you</option>';
+        examSelect.disabled = true;
+        if (examDetailsPreview) {
+            examDetailsPreview.hidden = true;
+            examDetailsPreview.innerHTML = "";
         }
         return;
     }
 
-    const rows = affectedExams.map(exam => `
-        <tr>
-            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.day)}</td>
-            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.time)}</td>
-            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.code)} — ${safe(exam.name)}</td>
-            <td style="padding: 6px; border-bottom: 1px solid #e2e8f0;">${safe(exam.room)}</td>
-        </tr>
-    `).join("");
+    examSelect.disabled = false;
+    examSelect.innerHTML = `
+        <option value="">-- Select an exam assigned to you --</option>
+        ${assignedExamsList.map((item, index) => `
+            <option value="${index}">
+                [${safe(item.subjectCode)}] ${safe(item.subjectName)} — ${safe(item.section)} (${safe(item.examType)} • ${safe(item.examDate)})
+            </option>
+        `).join("")}
+    `;
 
-    if (examJourneyPreview) {
-        examJourneyPreview.hidden = false;
-        examJourneyPreview.innerHTML = `
-            <div class="exam-journey-card" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin: 10px 0;">
-                <div style="font-weight: 600; margin-bottom: 8px; color: #1e293b;">
-                    Section Timetable Preview (${safe(selectedSection)}):
-                </div>
-                <table class="exam-pdf-style" style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
-                    <thead>
-                        <tr style="background: #e2e8f0; text-align: left;">
-                            <th style="padding: 6px;">DAY</th>
-                            <th style="padding: 6px;">TIME</th>
-                            <th style="padding: 6px;">SUBJECT</th>
-                            <th style="padding: 6px;">ROOM</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-        `;
+    if (examDetailsPreview) {
+        examDetailsPreview.hidden = true;
+        examDetailsPreview.innerHTML = "";
     }
+}
+
+function handleExamChange() {
+    if (!examDetailsPreview) return;
+
+    const selectedIndex = examSelect.value;
+    if (selectedIndex === "" || !assignedExamsList[selectedIndex]) {
+        examDetailsPreview.hidden = true;
+        examDetailsPreview.innerHTML = "";
+        return;
+    }
+
+    const exam = assignedExamsList[selectedIndex];
+
+    examDetailsPreview.hidden = false;
+    examDetailsPreview.innerHTML = `
+        <div class="exam-details-card">
+            <div class="exam-details-card-header">
+                Selected Exam Details
+            </div>
+            <div class="exam-details-grid">
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Subject Code</span>
+                    <span class="exam-detail-value">${safe(exam.subjectCode)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Subject Name</span>
+                    <span class="exam-detail-value">${safe(exam.subjectName)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Section</span>
+                    <span class="exam-detail-value">${safe(exam.section)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Exam Type</span>
+                    <span class="exam-detail-value">${safe(exam.examType)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Date</span>
+                    <span class="exam-detail-value">${safe(exam.examDate)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Time</span>
+                    <span class="exam-detail-value">${safe(exam.examTime)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Room</span>
+                    <span class="exam-detail-value">${safe(exam.examRoom)}</span>
+                </div>
+                <div class="exam-detail-item">
+                    <span class="exam-detail-label">Assigned Proctor</span>
+                    <span class="exam-detail-value">${safe(exam.assignedProctor)}</span>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function formatRequestDate(value) {
@@ -353,21 +415,69 @@ function formatRequestDate(value) {
     });
 }
 
+function getReadNotificationIds() {
+    if (!currentFacultyUid) return new Set();
+    try {
+        const raw = localStorage.getItem(`faculty_read_notifications_${currentFacultyUid}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+        return new Set();
+    }
+}
+
+function markNotificationAsRead(notificationId) {
+    if (!currentFacultyUid || !notificationId) return;
+    const readSet = getReadNotificationIds();
+    readSet.add(notificationId);
+    try {
+        localStorage.setItem(
+            `faculty_read_notifications_${currentFacultyUid}`,
+            JSON.stringify(Array.from(readSet))
+        );
+    } catch (e) {
+        console.error("Could not save read notification:", e);
+    }
+    renderRequestNotifications(latestNotificationsList);
+}
+
+function markAllNotificationsAsRead() {
+    if (!currentFacultyUid || !latestNotificationsList.length) return;
+    const readSet = getReadNotificationIds();
+    latestNotificationsList.forEach(item => {
+        if (item.id) readSet.add(item.id);
+    });
+    try {
+        localStorage.setItem(
+            `faculty_read_notifications_${currentFacultyUid}`,
+            JSON.stringify(Array.from(readSet))
+        );
+    } catch (e) {
+        console.error("Could not save all read notifications:", e);
+    }
+    renderRequestNotifications(latestNotificationsList);
+}
+
 function renderRequestNotifications(requests) {
-    const reviewed = requests
+    latestNotificationsList = requests || [];
+
+    const reviewed = latestNotificationsList
         .filter(request => {
             const status = normalize(request.status);
             return status === "approved" || status === "denied";
         })
         .sort((a, b) => {
-            const aDate = a.reviewedAt?.toDate ? a.reviewedAt.toDate() : new Date(a.reviewedAt || 0);
-            const bDate = b.reviewedAt?.toDate ? b.reviewedAt.toDate() : new Date(b.reviewedAt || 0);
+            const aDate = a.reviewedAt?.toDate ? a.reviewedAt.toDate() : new Date(a.reviewedAt || a.updatedAt || 0);
+            const bDate = b.reviewedAt?.toDate ? b.reviewedAt.toDate() : new Date(b.reviewedAt || b.updatedAt || 0);
             return bDate - aDate;
         });
 
-    // Update the notification badge count
-    if (reviewed.length) {
-        notificationBadge.textContent = reviewed.length;
+    const readSet = getReadNotificationIds();
+    const unreadCount = reviewed.filter(r => !readSet.has(r.id)).length;
+
+    // Update the notification badge count (if all read, hide number / badge)
+    if (unreadCount > 0) {
+        notificationBadge.textContent = unreadCount;
         notificationBadge.hidden = false;
     } else {
         notificationBadge.hidden = true;
@@ -382,22 +492,30 @@ function renderRequestNotifications(requests) {
         const status = normalize(request.status);
         const isApproved = status === "approved";
         const isReplacementFaculty = request.replacementFacultyId === currentFacultyUid && request.facultyUid !== currentFacultyUid;
+        const isRead = readSet.has(request.id);
         const icon = isReplacementFaculty ? "📋" : (isApproved ? "✓" : "✕");
         const title = isReplacementFaculty 
             ? "New Proctoring Assignment" 
             : (isApproved ? "Reschedule Request Approved" : "Reschedule Request Denied");
 
+        const subjectDesc = request.subjectCode
+            ? `${request.subjectCode}${request.subjectName ? ` - ${request.subjectName}` : ""}`
+            : (request.section || "exam schedule");
+
         let message = "";
         if (isReplacementFaculty) {
-            message = `You have been assigned as replacement proctor for ${safe(request.section || "section")}.`;
+            message = `You have been assigned as replacement proctor for ${safe(subjectDesc)} (${safe(request.section || "")}).`;
         } else if (isApproved) {
-            message = `Your reschedule request for ${safe(request.section || "your section")} has been approved. Reassigned to ${safe(request.replacementFacultyName || "replacement faculty")}.`;
+            message = `Your reschedule request for ${safe(subjectDesc)} (${safe(request.section || "")}) has been approved. Reassigned to ${safe(request.replacementFacultyName || "replacement faculty")}.`;
         } else {
-            message = `Your reschedule request for ${safe(request.section || "your section")} was denied by the admin.`;
+            message = `Your reschedule request for ${safe(subjectDesc)} (${safe(request.section || "")}) was denied by the admin.`;
         }
 
         return `
-            <div class="notification-item ${isApproved ? "notification-approved" : "notification-denied"}">
+            <div class="notification-item ${isApproved ? "notification-approved" : "notification-denied"} ${isRead ? "notification-read" : "notification-unread"}"
+                 data-request-id="${safe(request.id)}"
+                 data-schedule-id="${safe(request.examScheduleId || "")}"
+                 title="Click to mark as read">
                 <div class="notification-icon">${icon}</div>
                 <div class="notification-content">
                     <strong>${title}</strong>
@@ -407,6 +525,29 @@ function renderRequestNotifications(requests) {
             </div>
         `;
     }).join("");
+
+    // Attach click listeners to notification items
+    requestNotifications.querySelectorAll(".notification-item").forEach(item => {
+        item.addEventListener("click", () => {
+            const reqId = item.dataset.requestId;
+            if (reqId) {
+                markNotificationAsRead(reqId);
+            }
+            closeNotificationsModal();
+
+            const scheduleId = item.dataset.scheduleId;
+            if (scheduleId) {
+                const targetCard = document.querySelector(`[data-schedule-id="${scheduleId}"]`);
+                if (targetCard) {
+                    targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+                    targetCard.style.outline = "3px solid var(--secondary)";
+                    setTimeout(() => {
+                        targetCard.style.outline = "";
+                    }, 2500);
+                }
+            }
+        });
+    });
 }
 
 function watchRescheduleNotifications() {
@@ -474,11 +615,11 @@ async function loadPendingRequests() {
 async function handleRescheduleSubmit(event) {
     event.preventDefault();
 
-    const section = sectionSelect.value;
+    const selectedIndex = examSelect.value;
     const reason = reasonInput.value.trim();
 
-    if (!section) {
-        showRequestStatus("Please select a section.", "error");
+    if (selectedIndex === "" || !assignedExamsList[selectedIndex]) {
+        showRequestStatus("Please select an exam to reschedule.", "error");
         return;
     }
 
@@ -487,68 +628,55 @@ async function handleRescheduleSubmit(event) {
         return;
     }
 
-    // Check for duplicate pending requests in rescheduleRequests matching requestingFacultyId + section
+    const selectedExam = assignedExamsList[selectedIndex];
+
+    // Check for duplicate pending requests for: facultyUid + examScheduleId + subjectCode + examType
     const pendingRequests = await loadPendingRequests();
-    const alreadyPending = pendingRequests.some(request =>
-        normalize(request.section) === normalize(section)
-    );
-
-    if (alreadyPending) {
-        showRequestStatus(`You already have a pending reschedule request for ${section}. Please wait for the chairperson to review it.`, "error");
-        return;
-    }
-
-    // Collect affected exams & schedule doc IDs for this section
-    const matchingSchedules = assignedExamSchedules.filter(s => s.section === section);
-    const affectedExams = [];
-    const affectedScheduleIds = matchingSchedules.map(s => s.id);
-
-    matchingSchedules.forEach(schedule => {
-        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
-        exams.forEach(exam => {
-            affectedExams.push({
-                day: exam.day || "-",
-                time: exam.time || "-",
-                code: exam.code || exam.subjectCode || "-",
-                name: exam.name || exam.subjectName || "-",
-                room: exam.room || "-",
-                scheduleId: schedule.id
-            });
-        });
+    const alreadyPending = pendingRequests.some(request => {
+        const matchesFaculty = (request.facultyUid === currentFacultyUid || request.requestingFacultyId === currentFacultyUid);
+        const matchesSchedule = request.examScheduleId === selectedExam.examScheduleId;
+        const matchesSubject = normalize(request.subjectCode || "") === normalize(selectedExam.subjectCode);
+        const matchesType = normalize(request.examType || "") === normalize(selectedExam.examType);
+        return matchesFaculty && matchesSchedule && matchesSubject && matchesType;
     });
 
-    const examType = matchingSchedules[0]?.examType || matchingSchedules[0]?.title || "Exam Schedule";
+    if (alreadyPending) {
+        showRequestStatus("A reschedule request for this exam is already pending.", "error");
+        return;
+    }
 
     submitRequestBtn.disabled = true;
     submitRequestBtn.textContent = "Submitting...";
 
     try {
         const requestData = {
-            section: section,
-            examType: examType,
-            examDate: "All Exam Days",
-            examDateLabel: "Entire Schedule",
-            requestingFacultyId: currentFacultyUid,
-            requestingFacultyName: currentFacultyName,
             facultyUid: currentFacultyUid,
             facultyName: currentFacultyName,
-            affectedExamScheduleIds: affectedScheduleIds,
-            affectedExams: affectedExams,
+            subjectCode: selectedExam.subjectCode,
+            subjectName: selectedExam.subjectName,
+            section: selectedExam.section,
+            examType: selectedExam.examType,
+            examDate: selectedExam.examDate,
+            examTime: selectedExam.examTime,
+            examRoom: selectedExam.examRoom,
+            examScheduleId: selectedExam.examScheduleId,
             reason: reason,
             status: "pending",
-            replacementFacultyId: null,
-            replacementFacultyName: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
             reviewedBy: null,
             reviewedAt: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
+            replacementFacultyId: null,
+            replacementFacultyName: null,
+            requestingFacultyId: currentFacultyUid,
+            requestingFacultyName: currentFacultyName
         };
 
         await addDoc(collection(db, "rescheduleRequests"), requestData);
 
-        showRequestStatus(`Your reschedule request for ${section} has been submitted to the chairperson for review.`);
+        showRequestStatus(`Your reschedule request for ${selectedExam.subjectCode} (${selectedExam.section}) has been submitted for review.`);
         rescheduleForm.reset();
-        populateSectionSelect();
+        populateExamSelect();
     } catch (error) {
         console.error("Could not submit reschedule request:", error);
         showRequestStatus(`Failed to submit your request: ${error.message}`, "error");
@@ -578,9 +706,8 @@ function isAssignedToCurrentFaculty(schedule, userUid, facultyFullName) {
         if (normProctor.includes(normFullName) || normFullName.includes(normProctor)) return true;
 
         const nameTokens = normFullName.split(/\s+/).filter(t => t.length > 2);
-        if (nameTokens.length >= 2) {
-            const allTokensMatch = nameTokens.every(token => normProctor.includes(token));
-            if (allTokensMatch) return true;
+        if (nameTokens.length >= 2 && nameTokens.every(token => normProctor.includes(token))) {
+            return true;
         }
     }
 
@@ -599,23 +726,36 @@ function watchAssignedExamSchedules(user, fullName) {
     onSnapshot(
         collection(db, "examSchedules"),
         snapshot => {
-            const examSchedules = snapshot.docs
-                .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule => {
-                    const status = normalize(schedule.status || "generated");
-                    const isValidStatus = status === "generated" || status === "published" || status === "active";
-                    if (!isValidStatus) return false;
+            const examSchedules = [];
 
-                    // STRICT isolation: ONLY exam schedules assigned to THIS faculty account
-                    return isAssignedToCurrentFaculty(schedule, user.uid, fullName);
-                });
+            snapshot.docs.forEach(docSnap => {
+                const schedule = { id: docSnap.id, ...docSnap.data() };
+                const status = normalize(schedule.status || "generated");
+                const isValidStatus = status === "generated" || status === "published" || status === "active";
+                if (!isValidStatus) return;
+
+                const allExams = Array.isArray(schedule.exams) ? schedule.exams : [];
+                // STRICT isolation: ONLY exam subjects assigned specifically to THIS faculty account
+                const myExams = allExams.filter(exam =>
+                    isIndividualExamAssignedToFaculty(exam, schedule, user.uid, fullName)
+                );
+
+                // Only include the schedule if there is at least one subject assigned to this faculty
+                if (myExams.length > 0) {
+                    examSchedules.push({
+                        ...schedule,
+                        exams: myExams,
+                        proctor: fullName
+                    });
+                }
+            });
 
             examSchedules.sort((a, b) => getScheduleTimestamp(b) - getScheduleTimestamp(a));
             assignedExamSchedules = examSchedules;
 
-            // Render ALL exam schedules assigned specifically to THIS faculty account
+            // Render ALL exam schedules with only subjects assigned to THIS faculty
             renderExamSchedules(assignedExamSchedules);
-            populateSectionSelect();
+            populateExamSelect();
             watchUnreadExamSchedulesNotification(assignedExamSchedules, currentFacultyUid);
         },
         error => {
@@ -700,6 +840,8 @@ openNotificationsModalBtn.addEventListener("click", openNotificationsModal);
 
 closeNotificationsModalBtn.addEventListener("click", closeNotificationsModal);
 
+markAllNotificationsReadBtn?.addEventListener("click", markAllNotificationsAsRead);
+
 notificationsModal.addEventListener("click", event => {
     if (event.target === notificationsModal) {
         closeNotificationsModal();
@@ -743,7 +885,7 @@ if (mobileMenuToggleBtn && navUl) {
     });
 }
 
-sectionSelect?.addEventListener("change", handleSectionChange);
+examSelect?.addEventListener("change", handleExamChange);
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 

@@ -73,21 +73,21 @@
             <h3>Request Exam Reschedule</h3>
             <button id="closeRescheduleModalBtn" class="modal-close-btn" type="button">&times;</button>
         </div>
-        <p class="form-note">Select your assigned section to view scheduled exams and request a reschedule for your proctoring assignment.</p>
+        <p class="form-note">Select your assigned exam to view its details and request a reschedule for your proctoring assignment.</p>
 
         <form id="rescheduleForm" class="reschedule-form">
             <div class="form-group">
-                <label for="sectionSelect">Select Section</label>
-                <select id="sectionSelect" required>
-                    <option value="">-- Select the section you are assigned to --</option>
+                <label for="examSelect">Select Exam to Reschedule</label>
+                <select id="examSelect" required>
+                    <option value="">-- Select an exam assigned to you --</option>
                 </select>
             </div>
 
-            <div id="examJourneyPreview" class="exam-journey-preview" hidden></div>
+            <div id="examDetailsPreview" class="exam-journey-preview" hidden></div>
 
             <div class="form-group">
                 <label for="reasonInput">Reason for Unavailability</label>
-                <textarea id="reasonInput" rows="4" placeholder="Please explain why you are unavailable for this entire exam day..." required></textarea>
+                <textarea id="reasonInput" rows="4" placeholder="Please explain why you are unavailable for this exam..." required></textarea>
             </div>
 
             <button type="submit" id="submitRequestBtn" class="submit-btn">Submit Request</button>
@@ -102,7 +102,10 @@
     <div class="modal">
         <div class="modal-header">
             <h3>Notifications</h3>
-            <button id="closeNotificationsModalBtn" class="modal-close-btn" type="button">&times;</button>
+            <div class="modal-header-actions">
+                <button id="markAllNotificationsReadBtn" class="mark-all-read-btn" type="button">Mark all as read</button>
+                <button id="closeNotificationsModalBtn" class="modal-close-btn" type="button">&times;</button>
+            </div>
         </div>
         <div id="requestNotifications" class="request-notifications"></div>
     </div>
