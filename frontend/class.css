@@ -133,7 +133,7 @@ nav ul li a.active{
 .filters{
     display:grid;
     grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-    gap:10px;
+    gap:5px;
     grid-auto-flow: column dense;
 }
 
@@ -210,42 +210,192 @@ nav ul li a.active{
     margin-top: 10px;
 }
 
+/* =========================
+   SEARCH BAR
+========================= */
+.search-bar {
+    margin: 12px 0 16px 0;
+}
+
+.search-bar input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #c9c1b0;
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: #1a1a1a;
+    box-sizing: border-box;
+    transition: all .2s ease;
+}
+
+.search-bar input:focus {
+    border-color: var(--primary) !important;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
+}
+
+.search-bar input::placeholder {
+    color: #888;
+}
+
 /* Section add UI */
-.section-plus {
-    display: none; /* hidden by default */
+.section-select-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.section-select-group select {
+    flex: 1;
+    min-width: 0;
+}
+
+.add-section-btn {
+    width: 26px;
+    height: 22px;
+    min-width: 20px;
+    background: var(--primary);
+    color: white;
+    border: 1px solid #c9c1b0;
+    border-radius: 7px;
+    font-size: 22px;
+    line-height: 1;
     cursor: pointer;
-    font-size: 20px;
-    margin-left: 8px;
-    color: var(--primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    padding: 0;
 }
-/* Show plus button when the section select has focus */
-#section:focus + .section-plus {
-    display: inline;
+
+.add-section-btn:hover {
+    background: var(--secondary);
+    transform: scale(1.05);
 }
-.section-plus:hover {
-    color: var(--secondary);
+
+#newSectionInput:focus,
+#academicYear:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
 }
-.inline-section-input {
-    margin-top: 8px;
+
+/* Schedule Card Action Buttons */
+.schedule-card-actions {
     display: flex;
     gap: 8px;
     align-items: center;
 }
-.inline-section-input input {
-    padding: 6px 10px;
-    border: 1px solid #c9c1b0;
-    border-radius: 6px;
-}
-.inline-section-input button {
-    padding: 6px 12px;
+
+.edit-schedule-btn {
+    padding: 8px 16px;
     border: none;
-    border-radius: 6px;
-    background: var(--primary);
-    color: #fff;
+    border-radius: 8px;
+    background: var(--primary) !important;
+    color: white !important;
+    font-size: 13px;
+    font-weight: bold;
     cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
-.inline-section-input button:hover {
-    background: var(--secondary);
+
+.edit-schedule-btn:hover {
+    background: var(--secondary) !important;
+    transform: translateY(-1px);
+}
+
+.delete-schedule-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #b71c1c !important;
+    color: white !important;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.delete-schedule-btn:hover {
+    background: #d32f2f !important;
+    transform: translateY(-1px);
+}
+
+/* Edit Schedule Modal Table */
+.edit-schedule-modal-content {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 15px 35px rgba(0,0,0,.25);
+    overflow: hidden;
+}
+
+.edit-schedule-table input,
+.edit-schedule-table select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #c9c1b0;
+    border-radius: 8px;
+    background: white;
+    color: #1a1a1a;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.edit-schedule-table input:focus,
+.edit-schedule-table select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.2);
+}
+
+.edit-schedule-table tr.has-conflict {
+    background-color: #fff2f2 !important;
+}
+
+.edit-schedule-table tr.has-conflict input {
+    border-color: #e53935 !important;
+    background-color: #fffafa !important;
+}
+
+.edit-schedule-table tr.has-conflict input:focus {
+    box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.25) !important;
+}
+
+.edit-conflict-banner {
+    background: #ffebee;
+    border: 1px solid #ef5350;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #b71c1c;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.edit-conflict-banner h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #b71c1c;
+}
+
+.edit-conflict-list {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.edit-conflict-list li {
+    margin-bottom: 4px;
 }
 
 /* Modal overlay for export confirmation */
@@ -870,6 +1020,198 @@ tr:hover{
 
     .generate-container button{
         width:100%;
+    }
+}
+
+/* =========================
+   GUIDE / HELP MODAL
+========================= */
+
+.header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+}
+
+.header-text{
+    flex:1;
+}
+
+.guide-info-btn{
+    flex-shrink:0;
+    width:25px;
+    height:25px;
+    border-radius:50%;
+    border:none;
+    background:var(--primary);
+    color:var(--white);
+    font-size:20px;
+    line-height:1;
+    cursor:pointer;
+    box-shadow:0 4px 10px var(--shadow);
+    transition:.3s;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:6px;
+}
+
+.guide-info-btn:hover{
+    background:var(--secondary);
+    transform:scale(1.08);
+}
+
+.guide-modal{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,.55);
+    z-index:3000;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+    opacity:1;
+    transition:opacity .25s ease;
+}
+
+.guide-modal.show{
+    display:flex !important;
+}
+
+.guide-modal.fade-out{
+    opacity:0;
+}
+
+.guide-modal-content{
+    background:#fff;
+    width:100%;
+    max-width:640px;
+    max-height:88vh;
+    display:flex;
+    flex-direction:column;
+    border-radius:18px;
+    overflow:hidden;
+    box-shadow:0 20px 45px rgba(0,0,0,.3);
+    transform:scale(1);
+    transition:transform .25s ease;
+}
+
+.guide-modal.fade-out .guide-modal-content{
+    transform:scale(0.92);
+}
+
+.guide-modal-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:18px 24px;
+    background:var(--dark);
+}
+
+.guide-modal-header h2{
+    color:#fff;
+    font-size:20px;
+    margin:0;
+}
+
+.guide-modal-header .close-modal{
+    color:#fff;
+    line-height:1;
+}
+
+.guide-modal-header .close-modal:hover{
+    color:#ff8a80;
+}
+
+.guide-modal-body{
+    padding:22px 24px;
+    overflow-y:auto;
+    color:#1a1a1a;
+    font-size:14px;
+    line-height:1.6;
+}
+
+.guide-intro{
+    margin-bottom:14px;
+    opacity:.85;
+}
+
+.guide-steps{
+    margin:0 0 16px 18px;
+    padding:0;
+}
+
+.guide-steps li{
+    margin-bottom:12px;
+}
+
+.guide-steps li strong{
+    display:block;
+    color:#1a1a1a;
+    margin-bottom:4px;
+}
+
+.guide-tip{
+    background:rgba(76,175,80,.12);
+    border-left:4px solid var(--primary);
+    padding:10px 14px;
+    border-radius:8px;
+}
+
+.guide-modal-footer{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    padding:16px 24px;
+    border-top:1px solid #e6e2d8;
+    background:#faf8f2;
+    flex-wrap:wrap;
+}
+
+.guide-checkbox{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+    cursor:pointer;
+    -webkit-user-select:none;
+    user-select:none;
+}
+
+.guide-checkbox input{
+    width:16px;
+    height:16px;
+    accent-color:var(--primary);
+    cursor:pointer;
+}
+
+.guide-got-it-btn{
+    padding:10px 26px;
+    border:none;
+    border-radius:10px;
+    background:var(--primary);
+    color:#fff;
+    font-weight:bold;
+    font-size:14px;
+    cursor:pointer;
+    transition:.3s;
+}
+
+.guide-got-it-btn:hover{
+    background:var(--dark);
+}
+
+@media(max-width:768px){
+    .header{
+        flex-direction:row;
+    }
+
+    .guide-modal-footer{
+        justify-content:center;
     }
 }
 

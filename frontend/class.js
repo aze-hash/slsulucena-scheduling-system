@@ -84,6 +84,7 @@ const modal = document.getElementById("scheduleModal");
 const saveScheduleBtn = document.getElementById("saveScheduleBtn");
 const savedSchedulesList = document.getElementById("savedSchedulesList");
 const emptySavedSchedules = document.getElementById("emptySavedSchedules");
+const savedScheduleSearchInput = document.getElementById("savedScheduleSearchInput");
 const generatingOverlay = document.getElementById("generatingOverlay");
 const generateBtn = document.getElementById("generateBtn");
 const savedOverlay = document.getElementById("savedOverlay");
@@ -250,29 +251,45 @@ async function deleteScheduleFromFirestore(docId) {
 
 function parseTime(value) {
     if (!value) return 0;
-    const parts = String(value).trim().split(":").map(Number);
+    const str = String(value).trim().toUpperCase();
+    const isPM = str.includes("PM");
+    const isAM = str.includes("AM");
+    const cleanStr = str.replace(/[^\d:]/g, "");
+    const parts = cleanStr.split(":").map(Number);
     let hour = parts[0] || 0;
     const minute = parts[1] || 0;
-    // School operating hours: 7:00 AM to 6:30 PM.
-    // Hours 1 to 6 are PM (13:00 to 18:00).
-    if (hour >= 1 && hour <= 6) {
+
+    if (isPM && hour < 12) {
         hour += 12;
+    } else if (isAM && hour === 12) {
+        hour = 0;
+    } else if (!isAM && !isPM) {
+        // School operating hours: 7:00 AM to 6:30 PM.
+        // Hours 1 to 6 are PM (13:00 to 18:00).
+        if (hour >= 1 && hour <= 6) {
+            hour += 12;
+        }
     }
     return hour * 60 + minute;
 }
 
 function parseTimeRange(slotStr) {
     if (!slotStr || !slotStr.includes("-")) return null;
-    const [firstStart, firstEnd] = slotStr.split("-").map(parseTime);
+    const parts = slotStr.split("-");
+    if (parts.length !== 2) return null;
+    const firstStart = parseTime(parts[0]);
+    const firstEnd = parseTime(parts[1]);
+    if (firstStart >= firstEnd) return null;
     return { start: firstStart, end: firstEnd };
 }
 
 function timesOverlap(firstTime, secondTime) {
     if (!firstTime || !secondTime) return false;
-    const [firstStart, firstEnd] = firstTime.split("-").map(parseTime);
-    const [secondStart, secondEnd] = secondTime.split("-").map(parseTime);
+    const range1 = parseTimeRange(firstTime);
+    const range2 = parseTimeRange(secondTime);
+    if (!range1 || !range2) return false;
 
-    return firstStart < secondEnd && secondStart < firstEnd;
+    return range1.start < range2.end && range2.start < range1.end;
 }
 
 /**
@@ -504,94 +521,155 @@ async function loadSections() {
     }
 } 
 
-// Section add UI handlers (modal version)
+// Section add UI handlers (box-style modal version)
 const addSectionBtn = document.getElementById("addSectionBtn");
 const addSectionModal = document.getElementById("addSectionModal");
 const newSectionInput = document.getElementById("newSectionInput");
 const saveNewSectionBtn = document.getElementById("saveNewSectionBtn");
 const cancelNewSectionBtn = document.getElementById("cancelNewSectionBtn");
+const closeAddSectionModalBtn = document.getElementById("closeAddSectionModalBtn");
 
-addSectionBtn.style.display = "none"; // hidden initially
-
-// Show plus button when the section dropdown is interacted with
-function showPlusButton() {
-    addSectionBtn.style.display = "inline";
-}
-function hidePlusButton() {
-    // Hide only if modal is not open
-    if (addSectionModal.style.display !== "flex") {
-        addSectionBtn.style.display = "none";
-    }
-}
-// Show on focus and click of the select
-sectionSelect.addEventListener("focus", showPlusButton);
-sectionSelect.addEventListener("click", showPlusButton);
-// Hide when clicking outside the select and button
-document.addEventListener("click", (e) => {
-    if (!sectionSelect.contains(e.target) && !addSectionBtn.contains(e.target) && !addSectionModal.contains(e.target)) {
-        hidePlusButton();
-    }
-});
-
-
-
-cancelNewSectionBtn.addEventListener("click", () => {
-    addSectionModal.style.display = "none";
-    newSectionInput.value = "";
-    // hide plus button after closing modal
-    hidePlusButton();
-});
-
-addSectionBtn.addEventListener("click", () => {
-    addSectionModal.style.display = "flex";
-    newSectionInput.focus();
-});
-saveNewSectionBtn.addEventListener("click", async () => {
-    const newCode = newSectionInput.value.trim();
-    if (!newCode) {
-        showToast("Section code cannot be empty.");
-        return;
-    }
-    // Validate format: allow alphanumeric, hyphens, underscores
-    if (!/^[A-Za-z0-9_-]+$/.test(newCode)) {
-        showToast("Section code must be alphanumeric (letters, numbers, _ or -).");
-        return;
-    }
-    // Check for duplicate section code
-    const exists = Array.from(sectionSelect.options).some(opt => opt.value === newCode);
-    if (exists) {
-        showToast("Section already exists.");
-        return;
-    }
+function openAddSectionModal() {
     const programCode = programSelect.value;
     const majorCode = majorSelect.value;
     const yearLevel = Number(yearLevelSelect.value);
+
     if (!programCode || !majorCode || !yearLevel) {
-        showToast("Select Program, Major, and Year Level before adding a section.");
+        showToast("Please select Program, Major, and Year Level first before adding a section.");
         return;
     }
-    try {
-        const docRef = doc(collection(db, "sections"), newCode);
-        await setDoc(docRef, {
-            sectionCode: newCode,
-            programCode,
-            majorCode,
-            yearLevel,
-            createdAt: serverTimestamp()
-        });
-        const option = document.createElement("option");
-        option.value = newCode;
-        option.textContent = newCode;
-        sectionSelect.appendChild(option);
-        sectionSelect.value = newCode;
-        showToast("Section added successfully.");
-        addSectionModal.style.display = "none";
+
+    if (newSectionInput) {
         newSectionInput.value = "";
-    } catch (e) {
-        console.error(e);
-        showToast(`Failed to add section: ${e.message}`);
     }
-});
+    if (addSectionModal) {
+        addSectionModal.style.display = "flex";
+        setTimeout(() => {
+            if (newSectionInput) newSectionInput.focus();
+        }, 50);
+    }
+}
+
+function closeAddSectionModal() {
+    if (addSectionModal) {
+        addSectionModal.style.display = "none";
+    }
+    if (newSectionInput) {
+        newSectionInput.value = "";
+    }
+}
+
+if (addSectionBtn) {
+    addSectionBtn.addEventListener("click", openAddSectionModal);
+}
+
+if (cancelNewSectionBtn) {
+    cancelNewSectionBtn.addEventListener("click", closeAddSectionModal);
+}
+
+if (closeAddSectionModalBtn) {
+    closeAddSectionModalBtn.addEventListener("click", closeAddSectionModal);
+}
+
+if (addSectionModal) {
+    addSectionModal.addEventListener("click", (e) => {
+        if (e.target === addSectionModal) {
+            closeAddSectionModal();
+        }
+    });
+}
+
+if (newSectionInput) {
+    // Intercept or remove underscores in real-time, allowing hyphens (-)
+    newSectionInput.addEventListener("input", () => {
+        if (newSectionInput.value.includes("_")) {
+            newSectionInput.value = newSectionInput.value.replace(/_/g, "");
+            showToast("Underscores (_) are not allowed. Please use hyphens (-) instead.");
+        }
+    });
+
+    newSectionInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            if (saveNewSectionBtn) saveNewSectionBtn.click();
+        } else if (e.key === "Escape") {
+            closeAddSectionModal();
+        }
+    });
+}
+
+if (saveNewSectionBtn) {
+    saveNewSectionBtn.addEventListener("click", async () => {
+        const newCode = newSectionInput.value.trim();
+        if (!newCode) {
+            showToast("Section code cannot be empty.");
+            return;
+        }
+
+        if (newCode.includes("_")) {
+            showToast("Underscores (_) are not allowed. Please use hyphens (-) instead.");
+            return;
+        }
+
+        // Validate format: allow letters, numbers, spaces, and hyphens (-)
+        if (!/^[A-Za-z0-9\s-]+$/.test(newCode)) {
+            showToast("Section code must contain only letters, numbers, spaces, and hyphens (-).");
+            return;
+        }
+
+        const programCode = programSelect.value;
+        const majorCode = majorSelect.value;
+        const yearLevel = Number(yearLevelSelect.value);
+        if (!programCode || !majorCode || !yearLevel) {
+            showToast("Select Program, Major, and Year Level before adding a section.");
+            return;
+        }
+
+        // Check for duplicate section code (case-insensitive)
+        const exists = Array.from(sectionSelect.options).some(
+            opt => opt.value && opt.value.trim().toLowerCase() === newCode.toLowerCase()
+        );
+        if (exists) {
+            showToast("Section already exists.");
+            return;
+        }
+
+        try {
+            saveNewSectionBtn.disabled = true;
+            saveNewSectionBtn.textContent = "Saving...";
+
+            const docRef = doc(collection(db, "sections"), newCode);
+            await setDoc(docRef, {
+                sectionCode: newCode,
+                programCode,
+                majorCode,
+                yearLevel,
+                createdAt: serverTimestamp()
+            });
+
+            // Remove empty/disabled placeholder options if present
+            const disabledOpt = sectionSelect.querySelector('option[disabled]');
+            if (disabledOpt) {
+                disabledOpt.remove();
+            }
+
+            const option = document.createElement("option");
+            option.value = newCode;
+            option.textContent = newCode;
+            sectionSelect.appendChild(option);
+            sectionSelect.value = newCode;
+
+            showToast("Section added successfully.");
+            closeAddSectionModal();
+        } catch (e) {
+            console.error(e);
+            showToast(`Failed to add section: ${e.message}`);
+        } finally {
+            saveNewSectionBtn.disabled = false;
+            saveNewSectionBtn.textContent = "Save";
+        }
+    });
+}
 
 
 
@@ -1487,17 +1565,7 @@ saveScheduleBtn.addEventListener("click", async () => {
         }, 300);
 
         /* Show the saved success overlay with checkmark animation */
-        savedOverlay.classList.remove("fade-out");
-        savedOverlay.style.display = "flex";
-
-        setTimeout(() => {
-            savedOverlay.classList.add("fade-out");
-        }, 1200);
-
-        setTimeout(() => {
-            savedOverlay.style.display = "none";
-            savedOverlay.classList.remove("fade-out");
-        }, 1600);
+        showSuccessOverlay("Schedule saved successfully!");
 
     } catch (error) {
         console.error("Could not save schedule to Firestore:", error);
@@ -1507,19 +1575,102 @@ saveScheduleBtn.addEventListener("click", async () => {
     }
 });
 
+function showSuccessOverlay(message = "Schedule saved successfully!") {
+    const overlay = document.getElementById("savedOverlay");
+    const textEl = document.getElementById("savedOverlayText") || overlay?.querySelector("span");
+    if (!overlay) return;
+
+    if (textEl) {
+        textEl.textContent = message;
+    }
+
+    /* Reset SVG checkmark animation to trigger fresh stroke animation */
+    const svg = overlay.querySelector(".saved-check");
+    if (svg) {
+        const circle = svg.querySelector(".saved-check-circle");
+        const mark = svg.querySelector(".saved-check-mark");
+        if (circle) {
+            circle.style.animation = "none";
+            circle.offsetHeight; /* trigger reflow */
+            circle.style.animation = "";
+        }
+        if (mark) {
+            mark.style.animation = "none";
+            mark.offsetHeight; /* trigger reflow */
+            mark.style.animation = "";
+        }
+    }
+
+    overlay.classList.remove("fade-out");
+    overlay.style.display = "flex";
+
+    setTimeout(() => {
+        overlay.classList.add("fade-out");
+    }, 1200);
+
+    setTimeout(() => {
+        overlay.style.display = "none";
+        overlay.classList.remove("fade-out");
+    }, 1600);
+}
+
+function scheduleMatchesSavedSearch(schedule, query) {
+    if (!query) return true;
+    const q = query.toLowerCase();
+
+    // Match section name / schedule name / program / major / AY / semester
+    if ((schedule.name || "").toLowerCase().includes(q)) return true;
+    if ((schedule.section || "").toLowerCase().includes(q)) return true;
+    if ((schedule.academicYear || "").toLowerCase().includes(q)) return true;
+    if ((schedule.semester || "").toLowerCase().includes(q)) return true;
+    if ((schedule.program || "").toLowerCase().includes(q)) return true;
+    if ((schedule.major || "").toLowerCase().includes(q)) return true;
+    if ((schedule.yearLevel || "").toLowerCase().includes(q)) return true;
+
+    // Match any subject code, subject name, day, time, or room in entries
+    if (Array.isArray(schedule.entries)) {
+        for (const entry of schedule.entries) {
+            if ((entry.code || "").toLowerCase().includes(q)) return true;
+            if ((entry.name || "").toLowerCase().includes(q)) return true;
+            if ((entry.day || "").toLowerCase().includes(q)) return true;
+            if ((entry.time || "").toLowerCase().includes(q)) return true;
+            if ((entry.room || "").toLowerCase().includes(q)) return true;
+        }
+    }
+
+    return false;
+}
+
 function renderSavedSchedules() {
     /* Only ACTIVE schedules are shown in Saved Schedules.
        Archived schedules are displayed in the Schedule Archive section below. */
-    const schedules = getSavedSchedules().filter(
+    const allActiveSchedules = getSavedSchedules().filter(
         schedule => (schedule.status || "active") !== "archived"
     );
 
-    emptySavedSchedules.hidden = schedules.length > 0;
+    const query = (savedScheduleSearchInput?.value || "").trim().toLowerCase();
+    const schedules = allActiveSchedules.filter(s => scheduleMatchesSavedSearch(s, query));
+
+    if (allActiveSchedules.length === 0) {
+        emptySavedSchedules.textContent = "No saved schedules yet.";
+        emptySavedSchedules.hidden = false;
+        savedSchedulesList.innerHTML = "";
+        return;
+    }
+
+    if (schedules.length === 0) {
+        emptySavedSchedules.textContent = "No saved schedules match your search.";
+        emptySavedSchedules.hidden = false;
+        savedSchedulesList.innerHTML = "";
+        return;
+    }
+
+    emptySavedSchedules.hidden = true;
 
     savedSchedulesList.innerHTML = schedules.map(schedule => `
         <article style="margin-top:16px">
             <div class="section-header">
-<div>
+                <div>
                     <h4 style="margin:0">${escapeHtml(schedule.name)}</h4>
                     <small>
                         ${escapeHtml(
@@ -1532,9 +1683,14 @@ function renderSavedSchedules() {
                     </small>
                 </div>
 
-                <button type="button" data-delete-schedule="${schedule.id}">
-                    Delete
-                </button>
+                <div class="schedule-card-actions">
+                    <button type="button" class="edit-schedule-btn" data-edit-schedule="${escapeHtml(schedule.id)}">
+                        Edit
+                    </button>
+                    <button type="button" class="delete-schedule-btn" data-delete-schedule="${escapeHtml(schedule.id)}">
+                        Delete
+                    </button>
+                </div>
             </div>
 
             <div class="table-container">
@@ -1558,11 +1714,381 @@ function renderSavedSchedules() {
     `).join("");
 }
 
+if (savedScheduleSearchInput) {
+    savedScheduleSearchInput.addEventListener("input", renderSavedSchedules);
+}
+// Edit Schedule Modal Elements & Logic
+const editScheduleModal = document.getElementById("editScheduleModal");
+const editScheduleTitle = document.getElementById("editScheduleTitle");
+const editScheduleSubtitle = document.getElementById("editScheduleSubtitle");
+const editScheduleTableBody = document.getElementById("editScheduleTableBody");
+const editScheduleConflicts = document.getElementById("editScheduleConflicts");
+const saveEditScheduleBtn = document.getElementById("saveEditScheduleBtn");
+const cancelEditScheduleBtn = document.getElementById("cancelEditScheduleBtn");
+const closeEditScheduleModalBtn = document.getElementById("closeEditScheduleModalBtn");
+let currentEditingScheduleId = null;
 
+/**
+ * Validates updated schedule entries against:
+ * 1. Valid time formats (start < end).
+ * 2. Internal section overlaps (two classes in this section at same day/time).
+ * 3. Internal room double-bookings (two classes in this section assigned same room at same day/time).
+ * 4. Cross-schedule room overlaps (another active section occupying the room on same day/time).
+ */
+function validateScheduleEdits(updatedEntries, schedule) {
+    const conflicts = [];
+    const conflictRowIndices = new Set();
+
+    // Flatten updated entries into distinct meeting slots
+    const slots = [];
+    updatedEntries.forEach((entry, rowIdx) => {
+        const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+        const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+        const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+
+        const maxLen = Math.max(days.length, times.length, rooms.length, 1);
+        for (let i = 0; i < maxLen; i++) {
+            const day = days[i] || days[0] || entry.day;
+            const time = times[i] || times[0] || entry.time;
+            const room = rooms[i] || rooms[0] || entry.room;
+
+            slots.push({
+                rowIdx,
+                code: entry.code,
+                name: entry.name,
+                day,
+                time,
+                room,
+                section: schedule.section || schedule.name || ""
+            });
+        }
+    });
+
+    // 1. Validate time format & range
+    slots.forEach(slot => {
+        const range = parseTimeRange(slot.time);
+        if (!range) {
+            conflicts.push(`Invalid Time Format for <strong>${escapeHtml(slot.code)}</strong>: "<em>${escapeHtml(slot.time)}</em>". Please use a valid time format like <strong>7:30-9:00</strong> or <strong>7:30 AM - 9:00 AM</strong> with start time before end time.`);
+            conflictRowIndices.add(slot.rowIdx);
+        }
+    });
+
+    // 2. Check for internal section overlaps (same day, overlapping time)
+    for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) {
+            const a = slots[i];
+            const b = slots[j];
+
+            if (a.day.toLowerCase() === b.day.toLowerCase() && timesOverlap(a.time, b.time)) {
+                conflicts.push(`Section Conflict on <strong>${escapeHtml(a.day)}</strong>: <strong>${escapeHtml(a.code)}</strong> (${escapeHtml(a.time)}) overlaps with <strong>${escapeHtml(b.code)}</strong> (${escapeHtml(b.time)}).`);
+                conflictRowIndices.add(a.rowIdx);
+                conflictRowIndices.add(b.rowIdx);
+            }
+        }
+    }
+
+    // 3. Check for internal room double-bookings within this section
+    for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) {
+            const a = slots[i];
+            const b = slots[j];
+
+            const aRoom = (a.room || "").trim().toLowerCase();
+            const bRoom = (b.room || "").trim().toLowerCase();
+            const isGym = aRoom.includes("gym");
+
+            if (!isGym && aRoom && bRoom && aRoom === bRoom && a.day.toLowerCase() === b.day.toLowerCase() && timesOverlap(a.time, b.time)) {
+                conflicts.push(`Room Double-Booking on <strong>${escapeHtml(a.day)}</strong>: Both <strong>${escapeHtml(a.code)}</strong> and <strong>${escapeHtml(b.code)}</strong> are assigned to <strong>${escapeHtml(a.room)}</strong> at overlapping times.`);
+                conflictRowIndices.add(a.rowIdx);
+                conflictRowIndices.add(b.rowIdx);
+            }
+        }
+    }
+
+    // 4. Check against other saved active schedules in the same Academic Year & Semester
+    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(
+        b => (b.section || "").trim().toLowerCase() !== (schedule.section || "").trim().toLowerCase()
+    );
+
+    slots.forEach(slot => {
+        const roomName = (slot.room || "").trim().toLowerCase();
+        if (!roomName) return;
+
+        const isGym = roomName.includes("gym");
+        const matching = otherBookings.filter(b =>
+            (b.room || "").trim().toLowerCase() === roomName &&
+            (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
+            timesOverlap(b.time, slot.time)
+        );
+
+        if (isGym) {
+            // Gym allows up to 2 simultaneous sections
+            if (matching.length >= 2) {
+                const bookedSections = [...new Set(matching.map(b => b.section || "Another section"))].join(", ");
+                conflicts.push(`Gymnasium Capacity Exceeded on <strong>${escapeHtml(slot.day)}</strong> (${escapeHtml(slot.time)}): Already booked by 2 sections (<strong>${escapeHtml(bookedSections)}</strong>).`);
+                conflictRowIndices.add(slot.rowIdx);
+            }
+        } else if (matching.length > 0) {
+            const bookedSections = [...new Set(matching.map(b => b.section || "Another section"))].join(", ");
+            conflicts.push(`Room Conflict on <strong>${escapeHtml(slot.day)}</strong>: <strong>${escapeHtml(slot.room)}</strong> is already booked by <strong>${escapeHtml(bookedSections)}</strong> during <strong>${escapeHtml(slot.time)}</strong> (for ${escapeHtml(slot.code)}).`);
+            conflictRowIndices.add(slot.rowIdx);
+        }
+    });
+
+    return {
+        isValid: conflicts.length === 0,
+        conflicts: [...new Set(conflicts)],
+        conflictRowIndices
+    };
+}
+
+function clearEditScheduleConflicts() {
+    if (editScheduleConflicts) {
+        editScheduleConflicts.style.display = "none";
+        editScheduleConflicts.innerHTML = "";
+    }
+    if (editScheduleTableBody) {
+        editScheduleTableBody.querySelectorAll("tr").forEach(row => {
+            row.classList.remove("has-conflict");
+        });
+    }
+}
+
+function openEditScheduleModal(scheduleId) {
+    const schedules = getSavedSchedules();
+    const schedule = schedules.find(item => item.id === scheduleId || scheduleDocId(item) === scheduleId);
+
+    if (!schedule) {
+        showToast("Schedule not found.");
+        return;
+    }
+
+    currentEditingScheduleId = scheduleId;
+    clearEditScheduleConflicts();
+
+    if (editScheduleTitle) {
+        editScheduleTitle.textContent = `Edit Class Schedule - ${schedule.section || schedule.name}`;
+    }
+
+    if (editScheduleSubtitle) {
+        editScheduleSubtitle.textContent = [
+            schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "",
+            schedule.semester,
+            schedule.yearLevel
+        ].filter(Boolean).join(" • ");
+    }
+
+    if (editScheduleTableBody) {
+        editScheduleTableBody.innerHTML = (schedule.entries || []).map((entry, idx) => `
+            <tr data-entry-idx="${idx}">
+                <td>
+                    <strong style="color:var(--dark); font-size:13px;">${escapeHtml(entry.code || "")}</strong>
+                    <input type="hidden" class="edit-code-input" value="${escapeHtml(entry.code || "")}">
+                </td>
+                <td>
+                    <span style="font-size:13px;">${escapeHtml(entry.name || "")}</span>
+                    <input type="hidden" class="edit-name-input" value="${escapeHtml(entry.name || "")}">
+                </td>
+                <td style="text-align:center;">
+                    <span style="font-size:13px; font-weight:600;">${escapeHtml(String(entry.units ?? ""))}</span>
+                    <input type="hidden" class="edit-units-input" value="${escapeHtml(String(entry.units ?? ""))} ">
+                </td>
+                <td>
+                    <input type="text" class="edit-day-input" value="${escapeHtml(entry.day || "")}" placeholder="e.g. Monday or Mon / Wed">
+                </td>
+                <td>
+                    <input type="text" class="edit-time-input" value="${escapeHtml(entry.time || "")}" placeholder="e.g. 7:00 AM - 10:00 AM">
+                </td>
+                <td>
+                    <input type="text" class="edit-room-input" value="${escapeHtml(entry.room || "")}" placeholder="e.g. Room 101 or Lab 1 / Room 102">
+                </td>
+            </tr>
+        `).join("");
+    }
+
+    if (editScheduleModal) {
+        editScheduleModal.style.display = "flex";
+    }
+}
+
+function closeEditScheduleModal() {
+    if (editScheduleModal) {
+        editScheduleModal.style.display = "none";
+    }
+    currentEditingScheduleId = null;
+    clearEditScheduleConflicts();
+    if (editScheduleTableBody) {
+        editScheduleTableBody.innerHTML = "";
+    }
+}
+
+if (editScheduleTableBody) {
+    // Clear conflict highlight on input when user edits
+    editScheduleTableBody.addEventListener("input", (e) => {
+        const row = e.target.closest("tr");
+        if (row) {
+            row.classList.remove("has-conflict");
+        }
+        if (editScheduleConflicts && editScheduleTableBody.querySelectorAll(".has-conflict").length === 0) {
+            editScheduleConflicts.style.display = "none";
+        }
+    });
+}
+
+if (cancelEditScheduleBtn) {
+    cancelEditScheduleBtn.addEventListener("click", closeEditScheduleModal);
+}
+
+if (closeEditScheduleModalBtn) {
+    closeEditScheduleModalBtn.addEventListener("click", closeEditScheduleModal);
+}
+
+if (editScheduleModal) {
+    editScheduleModal.addEventListener("click", (e) => {
+        if (e.target === editScheduleModal) {
+            closeEditScheduleModal();
+        }
+    });
+}
+
+if (saveEditScheduleBtn) {
+    saveEditScheduleBtn.addEventListener("click", async () => {
+        if (!currentEditingScheduleId) return;
+
+        const schedules = getSavedSchedules();
+        const schedule = schedules.find(item => item.id === currentEditingScheduleId || scheduleDocId(item) === currentEditingScheduleId);
+
+        if (!schedule) {
+            showToast("Schedule record not found.");
+            return;
+        }
+
+        const rows = editScheduleTableBody.querySelectorAll("tr");
+        const updatedEntries = [];
+
+        for (const row of rows) {
+            const code = (row.querySelector(".edit-code-input")?.value || "").trim();
+            const name = (row.querySelector(".edit-name-input")?.value || "").trim();
+            const units = (row.querySelector(".edit-units-input")?.value || "").trim();
+            const day = (row.querySelector(".edit-day-input")?.value || "").trim();
+            const time = (row.querySelector(".edit-time-input")?.value || "").trim();
+            const room = (row.querySelector(".edit-room-input")?.value || "").trim();
+
+            if (!day || !time || !room) {
+                showToast(`Please complete Day, Time, and Room for ${code || "all subjects"}.`);
+                return;
+            }
+
+            updatedEntries.push({
+                code,
+                name,
+                units: Number(units) || units,
+                day,
+                time,
+                room
+            });
+        }
+
+        // Run automated conflict validation
+        const validation = validateScheduleEdits(updatedEntries, schedule);
+
+        if (!validation.isValid) {
+            // Highlight conflicting rows
+            rows.forEach((row, idx) => {
+                if (validation.conflictRowIndices.has(idx)) {
+                    row.classList.add("has-conflict");
+                } else {
+                    row.classList.remove("has-conflict");
+                }
+            });
+
+            // Display conflict banner
+            if (editScheduleConflicts) {
+                editScheduleConflicts.innerHTML = `
+                    <div class="edit-conflict-banner">
+                        <h4>⚠️ Scheduling Conflicts Detected (${validation.conflicts.length})</h4>
+                        <ul class="edit-conflict-list">
+                            ${validation.conflicts.map(c => `<li>${c}</li>`).join("")}
+                        </ul>
+                        <p style="margin:8px 0 0 0; font-size:12px; opacity:0.9;">Please resolve the conflicts above before saving changes.</p>
+                    </div>
+                `;
+                editScheduleConflicts.style.display = "block";
+                editScheduleConflicts.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            return;
+        }
+
+        // Clear any previous conflict warnings
+        clearEditScheduleConflicts();
+
+        /* Rebuild rawEntries for conflict checking and scoping */
+        const newRawEntries = [];
+        updatedEntries.forEach(entry => {
+            const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+            const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+            const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+
+            const maxLen = Math.max(days.length, times.length, rooms.length, 1);
+            for (let i = 0; i < maxLen; i++) {
+                newRawEntries.push({
+                    code: entry.code,
+                    name: entry.name,
+                    units: entry.units,
+                    day: days[i] || days[0] || entry.day,
+                    time: times[i] || times[0] || entry.time,
+                    room: rooms[i] || rooms[0] || entry.room,
+                    roomCode: "",
+                    section: schedule.section || ""
+                });
+            }
+        });
+
+        schedule.entries = updatedEntries;
+        schedule.rawEntries = newRawEntries;
+        schedule.updatedAt = new Date().toISOString();
+
+        saveEditScheduleBtn.disabled = true;
+        saveEditScheduleBtn.textContent = "Saving...";
+
+        try {
+            /* Persist to Firestore */
+            await saveScheduleToFirestore(schedule);
+            console.log("Schedule updated in Firestore:", schedule.id);
+
+            /* Update localStorage */
+            const allSchedules = getSavedSchedules();
+            const idx = allSchedules.findIndex(s => s.id === schedule.id || scheduleDocId(s) === scheduleDocId(schedule));
+            if (idx >= 0) {
+                allSchedules[idx] = schedule;
+            } else {
+                allSchedules.push(schedule);
+            }
+            setSavedSchedules(allSchedules);
+
+            renderSavedSchedules();
+            if (typeof renderArchive === "function") renderArchive();
+
+            closeEditScheduleModal();
+            showSuccessOverlay("✓ Class schedule updated successfully!");
+        } catch (error) {
+            console.error("Could not update schedule in Firestore:", error);
+            showToast(`Failed to update schedule: ${error.message}`);
+        } finally {
+            saveEditScheduleBtn.disabled = false;
+            saveEditScheduleBtn.textContent = "Save Changes";
+        }
+    });
+}
 
 savedSchedulesList.addEventListener("click", async event => {
-    const scheduleId = event.target.dataset.deleteSchedule;
+    const editId = event.target.dataset.editSchedule;
+    if (editId) {
+        openEditScheduleModal(editId);
+        return;
+    }
 
+    const scheduleId = event.target.dataset.deleteSchedule;
     if (!scheduleId) return;
 
     if (!await showConfirm("Delete this saved schedule?")) return;
@@ -1762,3 +2288,66 @@ document.getElementById("logoutLink")?.addEventListener("click", async event => 
     localStorage.clear();
     window.location.replace("login.html");
 });
+
+/* =========================
+   GUIDE / HELP MODAL
+========================= */
+(function initGuideModal() {
+    const GUIDE_DISMISSED_KEY = "classGuide_dismissed";
+    const guideModal = document.getElementById("classGuideModal");
+    const guideInfoBtn = document.getElementById("guideInfoBtn");
+    const guideCloseBtn = document.getElementById("guideModalClose");
+    const guideDontShowCheckbox = document.getElementById("guideDontShowAgain");
+    const guideGotItBtn = document.getElementById("guideGotItBtn");
+
+    if (!guideModal || !guideInfoBtn) return;
+
+    function openGuide() {
+        guideModal.style.display = "flex";
+        guideModal.classList.remove("fade-out");
+        // Trigger reflow so the .show animation always fires
+        void guideModal.offsetWidth;
+        guideModal.classList.add("show");
+        if (guideDontShowCheckbox) guideDontShowCheckbox.checked = false;
+    }
+
+    function closeGuide() {
+        guideModal.classList.add("fade-out");
+        guideModal.classList.remove("show");
+        setTimeout(() => {
+            guideModal.style.display = "none";
+            guideModal.classList.remove("fade-out");
+        }, 260);
+    }
+
+    // Open on ℹ button click
+    guideInfoBtn.addEventListener("click", openGuide);
+
+    // Close via × button
+    if (guideCloseBtn) {
+        guideCloseBtn.addEventListener("click", closeGuide);
+    }
+
+    // Close via "Got it" button + honour "Don't show again" checkbox
+    if (guideGotItBtn) {
+        guideGotItBtn.addEventListener("click", () => {
+            if (guideDontShowCheckbox && guideDontShowCheckbox.checked) {
+                localStorage.setItem(GUIDE_DISMISSED_KEY, "true");
+            }
+            closeGuide();
+        });
+    }
+
+    // Close on backdrop click
+    guideModal.addEventListener("click", event => {
+        if (event.target === guideModal) {
+            closeGuide();
+        }
+    });
+
+    // Auto-show on first visit (if user has not dismissed)
+    if (!localStorage.getItem(GUIDE_DISMISSED_KEY)) {
+        // Small delay so the page paints first
+        setTimeout(openGuide, 600);
+    }
+})();
