@@ -349,6 +349,58 @@ function closeRequestModal() {
     currentRequest = null;
 }
 
+function showActionModal(title, messageHtml, type = "success") {
+    return new Promise(resolve => {
+        const modal = document.getElementById("actionNotificationModal");
+        const titleEl = document.getElementById("actionModalTitle");
+        const msgEl = document.getElementById("actionModalMessage");
+        const iconEl = document.getElementById("actionModalIcon");
+        const okBtn = document.getElementById("actionModalCloseBtn");
+
+        if (!modal || !titleEl || !msgEl || !okBtn) {
+            alert(messageHtml.replace(/<[^>]*>/g, ""));
+            resolve();
+            return;
+        }
+
+        titleEl.textContent = title || (type === "success" ? "Success" : "Notification");
+        msgEl.innerHTML = messageHtml;
+
+        if (iconEl) {
+            if (type === "success") {
+                iconEl.textContent = "✓";
+                iconEl.style.background = "#dcfce7";
+                iconEl.style.color = "#15803d";
+            } else if (type === "error") {
+                iconEl.textContent = "✕";
+                iconEl.style.background = "#fee2e2";
+                iconEl.style.color = "#b91c1c";
+            } else {
+                iconEl.textContent = "ℹ";
+                iconEl.style.background = "#e0f2fe";
+                iconEl.style.color = "#0369a1";
+            }
+        }
+
+        modal.style.display = "flex";
+
+        function cleanup() {
+            modal.style.display = "none";
+            okBtn.removeEventListener("click", onOk);
+            modal.removeEventListener("click", onBackdrop);
+            resolve();
+        }
+
+        function onOk() { cleanup(); }
+        function onBackdrop(event) {
+            if (event.target === modal) cleanup();
+        }
+
+        okBtn.addEventListener("click", onOk);
+        modal.addEventListener("click", onBackdrop);
+    });
+}
+
 function parseTimeInterval(timeStr) {
     if (!timeStr) return null;
     const parts = timeStr.split("-").map(s => s.trim());
@@ -373,6 +425,10 @@ function parseTimeInterval(timeStr) {
 
     if (start === null || end === null || end <= start) return null;
     return { start, end };
+}
+
+function normalize(value) {
+    return String(value ?? "").trim().toLowerCase();
 }
 
 function intervalsOverlap(intA, intB) {
@@ -456,11 +512,19 @@ async function handleRequestDecision(requestId, action) {
                 reviewedAt: new Date(),
                 updatedAt: new Date()
             });
-            alert("Reschedule request has been denied.");
             closeRequestModal();
+            await showActionModal(
+                "Request Denied",
+                `Reschedule request for <strong>${safe(currentRequest?.subjectCode || "this exam")}</strong> has been denied.`,
+                "info"
+            );
         } catch (error) {
             console.error("Could not deny request:", error);
-            alert("Failed to deny the request. Please try again.");
+            await showActionModal(
+                "Action Failed",
+                "Failed to deny the request. Please try again.",
+                "error"
+            );
         }
         return;
     }
@@ -605,8 +669,12 @@ async function handleRequestDecision(requestId, action) {
                 });
 
                 const subjectLabel = currentRequest.subjectCode || "subject";
-                alert(`Reschedule request approved! System automatically assigned ${selected.fullName} (0 time conflicts) as the replacement proctor for ${subjectLabel}.`);
                 closeRequestModal();
+                await showActionModal(
+                    "Reschedule Request Approved",
+                    `Reschedule request approved!<br><br>System automatically assigned <strong>${safe(selected.fullName)}</strong> (0 time conflicts) as the replacement proctor for <strong>${safe(subjectLabel)}</strong>.`,
+                    "success"
+                );
             } else {
                 approveBtn.disabled = false;
                 approveBtn.textContent = "Approve";
@@ -616,7 +684,11 @@ async function handleRequestDecision(requestId, action) {
             }
         } catch (error) {
             console.error("Could not execute automated replacement search:", error);
-            alert(`Failed to execute replacement algorithm: ${error.message}`);
+            await showActionModal(
+                "Action Failed",
+                `Failed to execute replacement algorithm: ${safe(error.message)}`,
+                "error"
+            );
             approveBtn.disabled = false;
             approveBtn.textContent = "Approve";
         }
@@ -672,11 +744,19 @@ async function handleManualReassign() {
             updatedAt: new Date()
         });
 
-        alert(`Proctoring for ${subjectLabel} successfully reassigned to ${replacementName}.`);
         closeRequestModal();
+        await showActionModal(
+            "Proctoring Reassigned",
+            `Proctoring for <strong>${safe(subjectLabel)}</strong> successfully reassigned to <strong>${safe(replacementName)}</strong>.`,
+            "success"
+        );
     } catch (error) {
         console.error("Could not execute manual reassign:", error);
-        alert(`Failed to reassign proctoring: ${error.message}`);
+        await showActionModal(
+            "Reassign Failed",
+            `Failed to reassign proctoring: ${safe(error.message)}`,
+            "error"
+        );
     } finally {
         confirmBtn.disabled = false;
         confirmBtn.textContent = "Reassign";

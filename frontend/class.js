@@ -1,6 +1,7 @@
 import { db, auth } from "../firebase.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { saveReportToFirestore } from "./reportStorage.js";
+import { renderClassCalendar } from "./js/schedule-calendar.js";
 
 import {
     collection,
@@ -2779,6 +2780,9 @@ function renderSavedSchedules() {
                         ? `<button type="button" class="publish-schedule-card-btn" data-publish-schedule="${escapeHtml(schedule.id)}" style="background:#2e7d32;color:white;border:none;border-radius:8px;padding:7px 16px;font-weight:bold;font-size:13px;cursor:pointer;">Publish</button>`
                         : ""
                     }
+                    <button type="button" class="view-calendar-btn" data-view-calendar="${escapeHtml(schedule.id)}">
+                        View in Calendar
+                    </button>
                     <button type="button" class="edit-schedule-btn" data-edit-schedule="${escapeHtml(schedule.id)}">
                         Edit
                     </button>
@@ -3176,7 +3180,60 @@ if (saveEditScheduleBtn) {
     });
 }
 
+/* ------------------------------------------------------------------ */
+/*  Class Calendar Modal                                               */
+/* ------------------------------------------------------------------ */
+
+const classCalendarModal = document.getElementById("classCalendarModal");
+const clsCalModalClose  = document.getElementById("clsCalModalClose");
+const clsCalModalTitle  = document.getElementById("clsCalModalTitle");
+const clsCalModalSubtitle = document.getElementById("clsCalModalSubtitle");
+const clsCalModalBody   = document.getElementById("clsCalModalBody");
+
+function openClassCalendarModal(scheduleId) {
+    const schedules = getSavedSchedules();
+    const schedule  = schedules.find(item => item.id === scheduleId);
+    if (!schedule) return;
+
+    if (clsCalModalTitle)    clsCalModalTitle.textContent = schedule.name || schedule.section || "Class Schedule";
+    if (clsCalModalSubtitle) {
+        clsCalModalSubtitle.textContent = [
+            schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "",
+            schedule.semester,
+            schedule.yearLevel
+        ].filter(Boolean).join(" • ");
+    }
+    if (clsCalModalBody) {
+        clsCalModalBody.innerHTML = renderClassCalendar(schedule);
+    }
+    if (classCalendarModal) classCalendarModal.style.display = "flex";
+}
+
+function closeClassCalendarModal() {
+    if (classCalendarModal) classCalendarModal.style.display = "none";
+    if (clsCalModalBody)    clsCalModalBody.innerHTML = "";
+}
+
+if (clsCalModalClose) {
+    clsCalModalClose.addEventListener("click", closeClassCalendarModal);
+}
+if (classCalendarModal) {
+    classCalendarModal.addEventListener("click", e => {
+        if (e.target === classCalendarModal) closeClassCalendarModal();
+    });
+}
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && classCalendarModal?.style.display === "flex") closeClassCalendarModal();
+});
+
 savedSchedulesList.addEventListener("click", async event => {
+    // View in Calendar
+    const calendarId = event.target.closest("[data-view-calendar]")?.dataset.viewCalendar;
+    if (calendarId) {
+        openClassCalendarModal(calendarId);
+        return;
+    }
+
     const editId = event.target.dataset.editSchedule;
     if (editId) {
         openEditScheduleModal(editId);
@@ -3338,6 +3395,94 @@ document.getElementById("deleteAllBtn").addEventListener("click", async () => {
 
     showToast("All active saved schedules have been deleted successfully.");
 });
+
+async function publishAllSavedClasses() {
+    const publishBtn = document.getElementById("publishAllClassBtn");
+    const freshFirestoreSchedules = await loadSchedulesFromFirestore();
+    const localSchedules = getSavedSchedules() || [];
+    const schedules = freshFirestoreSchedules.length ? freshFirestoreSchedules : localSchedules;
+
+    /* Only non-archived schedules are eligible for publishing */
+    const activeSchedules = schedules.filter(s => (s.status || "draft") !== "archived");
+
+    if (!activeSchedules.length) {
+        showToast("There are no saved class schedules to publish.");
+        return;
+    }
+
+    const unpublishedCount = activeSchedules.filter(s => s.status !== "published").length;
+    const confirmPrompt = unpublishedCount > 0
+        ? `Are you sure you want to publish all ${activeSchedules.length} saved class schedule(s)? (${unpublishedCount} currently draft/unpublished).`
+        : `Are you sure you want to re-publish all ${activeSchedules.length} saved class schedule(s)?`;
+
+    const confirmed = await showConfirm(confirmPrompt);
+    if (!confirmed) return;
+
+    const origText = publishBtn ? publishBtn.innerHTML : "";
+    if (publishBtn) {
+        publishBtn.disabled = true;
+        publishBtn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;"></span> Publishing...';
+    }
+
+    try {
+        let successCount = 0;
+        let totalSent = 0;
+        const conflictSchedules = [];
+
+        for (const schedule of activeSchedules) {
+            /* Check for conflicts */
+            const analysis = analyzeClassScheduleConflicts(schedule, activeSchedules);
+            if (analysis.totalConflicts > 0) {
+                conflictSchedules.push(schedule.name || schedule.section || "Untitled Section");
+                continue;
+            }
+
+            schedule.status = "published";
+            schedule.publishedAt = new Date().toISOString();
+            schedule.publishedBy = auth.currentUser?.uid || null;
+
+            try {
+                await saveScheduleToFirestore(schedule);
+                successCount++;
+                const result = await publishClassScheduleApi(schedule);
+                if (result && result.sentCount) totalSent += result.sentCount;
+            } catch (err) {
+                console.error("Could not publish class schedule:", schedule.name || schedule.id, err);
+            }
+        }
+
+        /* Reload from Firestore to get authoritative data */
+        const firestoreSchedules = await loadSchedulesFromFirestore();
+        setSavedSchedules(firestoreSchedules);
+        renderSavedSchedules();
+
+        const emailInfo = totalSent > 0 ? ` (${totalSent} notification(s) sent)` : "";
+        if (savedOverlay) {
+            savedOverlay.classList.remove("fade-out");
+            savedOverlay.style.display = "flex";
+            const overlaySpan = savedOverlay.querySelector("span");
+            if (overlaySpan) overlaySpan.textContent = `Published ${successCount} class schedule(s)!${emailInfo}`;
+            setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1400);
+            setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 2000);
+        } else {
+            showToast(`Successfully published ${successCount} class schedule(s)!${emailInfo}`);
+        }
+
+        if (conflictSchedules.length > 0) {
+            showToast(`${successCount} schedule(s) published. ${conflictSchedules.length} schedule(s) were skipped due to conflicts: ${conflictSchedules.join(", ")}`);
+        }
+    } catch (error) {
+        console.error("Error publishing all class schedules:", error);
+        showToast(`Failed to publish all class schedules: ${error.message}`);
+    } finally {
+        if (publishBtn) {
+            publishBtn.disabled = false;
+            publishBtn.innerHTML = origText || "Publish All";
+        }
+    }
+}
+
+document.getElementById("publishAllClassBtn")?.addEventListener("click", publishAllSavedClasses);
 
 document.getElementById("exportPdfBtn").addEventListener("click", async () => {
     const modal = document.getElementById("exportConfirmModal");

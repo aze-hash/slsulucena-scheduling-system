@@ -200,6 +200,20 @@
     </div>
 </div>
 
+<!-- Action Notification Modal -->
+<div class="modal-overlay" id="actionNotificationModal" style="display:none; z-index: 2500;">
+    <div class="modal" style="max-width: 440px; width: 90%; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,.25);">
+        <div style="padding: 26px 24px 10px; text-align: center;">
+            <div id="actionModalIcon" style="width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%; background: #dcfce7; color: #15803d; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: bold;">✓</div>
+            <h3 id="actionModalTitle" style="margin: 0 0 10px; font-size: 18px; color: #1e293b;">Reschedule Request Approved</h3>
+            <p id="actionModalMessage" style="margin: 0; font-size: 14px; color: #475569; line-height: 1.6;"></p>
+        </div>
+        <div style="padding: 16px 24px 22px; display: flex; justify-content: center;">
+            <button id="actionModalCloseBtn" type="button" class="approve-btn" style="min-width: 120px; padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;">OK</button>
+        </div>
+    </div>
+</div>
+
 <script type="module" src="chairperson.js"></script>
 
 </body>

@@ -82,8 +82,12 @@ onAuthStateChanged(auth, async user => {
         document.getElementById("adminName").textContent =
             profile.data().fullName || "SLSU Admin";
 
-        // Load users and faculty subject assignments
-        await loadUsers();
+        // Load users, faculty subject assignments, and prospectus subjects concurrently in parallel
+        await Promise.all([
+            loadFacultySubjectAssignments(),
+            loadProspectusSubjects(),
+            loadUsers()
+        ]);
 
     } catch (error) {
         console.error("Authentication/profile error:", error);
@@ -97,134 +101,161 @@ onAuthStateChanged(auth, async user => {
    LOAD FACULTY SUBJECT ASSIGNMENTS
 ========================= */
 
+let facultyAssignmentsPromise = null;
+
 async function loadFacultySubjectAssignments() {
-    facultyAssignmentsMap.clear();
-    try {
-        const snapshot = await getDocs(collection(db, "facultySubjectAssignments"));
-        snapshot.docs.forEach(docSnap => {
-            const data = docSnap.data();
-            const handled = Array.isArray(data.handledSubjects) ? data.handledSubjects : [];
-            facultyAssignmentsMap.set(docSnap.id, handled);
-            if (data.facultyId && data.facultyId !== docSnap.id) {
-                facultyAssignmentsMap.set(data.facultyId, handled);
-            }
-        });
-        console.log("Faculty subject assignments loaded:", facultyAssignmentsMap.size);
-    } catch (error) {
-        console.warn("Could not load faculty subject assignments from Firestore:", error);
-    }
+    if (facultyAssignmentsPromise) return facultyAssignmentsPromise;
+
+    facultyAssignmentsPromise = (async () => {
+        facultyAssignmentsMap.clear();
+        try {
+            const snapshot = await getDocs(collection(db, "facultySubjectAssignments"));
+            snapshot.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                const handled = Array.isArray(data.handledSubjects) ? data.handledSubjects : [];
+                facultyAssignmentsMap.set(docSnap.id, handled);
+                if (data.facultyId && data.facultyId !== docSnap.id) {
+                    facultyAssignmentsMap.set(data.facultyId, handled);
+                }
+            });
+            console.log("Faculty subject assignments loaded:", facultyAssignmentsMap.size);
+        } catch (error) {
+            console.warn("Could not load faculty subject assignments from Firestore:", error);
+        } finally {
+            facultyAssignmentsPromise = null;
+        }
+    })();
+
+    return facultyAssignmentsPromise;
 }
 
 /* =========================
    LOAD PROSPECTUS SUBJECTS
 ========================= */
 
+let prospectusPromise = null;
+
 async function loadProspectusSubjects() {
     if (prospectusSubjects.length > 0) return prospectusSubjects;
-    try {
-        const snapshot = await getDocs(collection(db, "prospectus"));
-        const list = [];
+    if (prospectusPromise) return prospectusPromise;
 
-        snapshot.docs.forEach(docSnap => {
-            const data = docSnap.data();
-            if (!data.subjectCode) return;
+    prospectusPromise = (async () => {
+        try {
+            const snapshot = await getDocs(collection(db, "prospectus"));
+            const list = [];
 
-            list.push({
-                id: docSnap.id,
-                subjectCode: String(data.subjectCode || "").trim(),
-                subjectName: String(data.subjectName || "").trim(),
-                programCode: String(data.programCode || "").trim(),
-                majorCode: String(data.majorCode || "").trim(),
-                yearLevel: data.yearLevel !== undefined ? Number(data.yearLevel) : "",
-                semester: data.semester !== undefined ? Number(data.semester) : "",
-                units: data.units !== undefined ? Number(data.units) : "",
-                subjectType: data.subjectType || ""
+            snapshot.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                if (!data.subjectCode) return;
+
+                list.push({
+                    id: docSnap.id,
+                    subjectCode: String(data.subjectCode || "").trim(),
+                    subjectName: String(data.subjectName || "").trim(),
+                    programCode: String(data.programCode || "").trim(),
+                    majorCode: String(data.majorCode || "").trim(),
+                    yearLevel: data.yearLevel !== undefined ? Number(data.yearLevel) : "",
+                    semester: data.semester !== undefined ? Number(data.semester) : "",
+                    units: data.units !== undefined ? Number(data.units) : "",
+                    subjectType: data.subjectType || ""
+                });
             });
-        });
 
-        prospectusSubjects = list;
-        console.log("Prospectus subjects loaded:", prospectusSubjects.length);
-        return prospectusSubjects;
-    } catch (error) {
-        console.error("Could not load prospectus subjects:", error);
-        return [];
-    }
+            prospectusSubjects = list;
+            console.log("Prospectus subjects loaded:", prospectusSubjects.length);
+            return prospectusSubjects;
+        } catch (error) {
+            console.error("Could not load prospectus subjects:", error);
+            return [];
+        } finally {
+            prospectusPromise = null;
+        }
+    })();
+
+    return prospectusPromise;
 }
 
 /* =========================
    LOAD USERS FROM RENDER API / FIRESTORE
 ========================= */
 
+let usersPromise = null;
+
 async function loadUsers() {
-    let rawUsers = [];
+    if (usersPromise) return usersPromise;
 
-    // Pre-load assignments and prospectus
-    await Promise.all([
-        loadFacultySubjectAssignments(),
-        loadProspectusSubjects()
-    ]);
+    usersPromise = (async () => {
+        let rawUsers = [];
 
-    try {
-        const user = auth.currentUser;
+        try {
+            const user = auth.currentUser;
 
-        if (!user) {
-            console.error("No authenticated user.");
-            return;
+            if (!user) {
+                console.error("No authenticated user.");
+                return;
+            }
+
+            // Get Firebase ID token
+            const token = await user.getIdToken();
+
+            const response = await fetch(`${API_URL}/users`, {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (response.ok) {
+                rawUsers = await response.json();
+            } else {
+                throw new Error(`API GET /users returned status ${response.status}`);
+            }
+        } catch (apiError) {
+            console.warn("Could not load users via API, trying direct Firestore load:", apiError);
+            try {
+                const snapshot = await getDocs(collection(db, "users"));
+                rawUsers = snapshot.docs.map(docSnap => ({
+                    ...docSnap.data(),
+                    id: docSnap.id,
+                    uid: docSnap.id
+                }));
+            } catch (fsError) {
+                console.error("Could not load users from Firestore fallback:", fsError);
+                document.getElementById("usersNotice").textContent =
+                    "Unable to load users. Please try again.";
+                document.getElementById("usersTableBody").innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty-state">
+                            Unable to load users.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
         }
 
-        // Get Firebase ID token
-        const token = await user.getIdToken();
-
-        const response = await fetch(`${API_URL}/users`, {
-            method: "GET",
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json"
-            }
+        allUsers = (rawUsers || []).map(u => {
+            const docId = u.id || u.uid || u.docId || u._id;
+            return {
+                ...u,
+                id: docId,
+                uid: docId
+            };
         });
 
-        if (response.ok) {
-            rawUsers = await response.json();
-        } else {
-            throw new Error(`API GET /users returned status ${response.status}`);
-        }
-    } catch (apiError) {
-        console.warn("Could not load users via API, trying direct Firestore load:", apiError);
-        try {
-            const snapshot = await getDocs(collection(db, "users"));
-            rawUsers = snapshot.docs.map(docSnap => ({
-                ...docSnap.data(),
-                id: docSnap.id,
-                uid: docSnap.id
-            }));
-        } catch (fsError) {
-            console.error("Could not load users from Firestore fallback:", fsError);
-            document.getElementById("usersNotice").textContent =
-                "Unable to load users. Please try again.";
-            document.getElementById("usersTableBody").innerHTML = `
-                <tr>
-                    <td colspan="5" class="empty-state">
-                        Unable to load users.
-                    </td>
-                </tr>
-            `;
-            return;
-        }
-    }
+        console.log("Users loaded successfully:", allUsers.length);
 
-    allUsers = (rawUsers || []).map(u => {
-        const docId = u.id || u.uid || u.docId || u._id;
-        return {
-            ...u,
-            id: docId,
-            uid: docId
-        };
+        // Ensure faculty assignments are loaded before rendering user table
+        await loadFacultySubjectAssignments();
+
+        updateCounts();
+        renderUsers();
+    })().finally(() => {
+        usersPromise = null;
     });
 
-    console.log("Users loaded successfully:", allUsers.length);
-
-    updateCounts();
-    renderUsers();
+    return usersPromise;
 }
 
 /* =========================

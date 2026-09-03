@@ -88,23 +88,35 @@ document.addEventListener("click", event => {
     }
 });
 
-function showConfirm(message) {
+function showConfirm(message, options = {}) {
     return new Promise(resolve => {
         const modal = document.getElementById("customConfirmModal");
         const msgEl = document.getElementById("customConfirmMessage");
         const cancelBtn = document.getElementById("customConfirmCancel");
         const okBtn = document.getElementById("customConfirmOk");
+        const headerTitle = modal ? modal.querySelector(".custom-confirm-header h3") : null;
 
         if (!modal || !msgEl || !cancelBtn || !okBtn) {
             resolve(confirm(message));
             return;
         }
 
+        const prevTitle = headerTitle ? headerTitle.textContent : "Confirm Action";
+        const prevOkText = okBtn.textContent;
+        const prevCancelText = cancelBtn.textContent;
+
+        if (headerTitle && options.title) headerTitle.textContent = options.title;
+        if (options.confirmText) okBtn.textContent = options.confirmText;
+        if (options.cancelText) cancelBtn.textContent = options.cancelText;
+
         msgEl.textContent = message;
         modal.style.display = "flex";
 
         function cleanup() {
             modal.style.display = "none";
+            if (headerTitle) headerTitle.textContent = prevTitle;
+            okBtn.textContent = prevOkText;
+            cancelBtn.textContent = prevCancelText;
             cancelBtn.removeEventListener("click", onCancel);
             okBtn.removeEventListener("click", onOk);
             modal.removeEventListener("click", onBackdrop);
@@ -220,9 +232,9 @@ const DAY_START = 8 * 60;
 const DAY_END = 17 * 60 + 30;
 const LUNCH_START = 12 * 60;
 const LUNCH_END = 13 * 60;
-const BREAK_MINUTES = 60;
+const BREAK_MINUTES = 30;
 const MAX_SUBJECTS_PER_DAY = 4;
-const PM_END = 14 * 60 + 30; // 2:30 PM — all PM exams must end by this time
+const PM_END = 17 * 60 + 30; // 5:30 PM — full afternoon window for overflow subjects
 const EXAM_ROOM_BUILDINGS = ["Building A", "Building B", "Admin Building"];
 
 /**
@@ -1400,25 +1412,25 @@ async function generateExamSchedules() {
         return;
     }
 
-/* Scope existing exam bookings to the SAME Academic Year + Semester as the
-   class schedules being generated.  Saved exam schedules from a different
-   term must not block rooms or proctors for the current generation. */
-const examAcademicYear = selectedSchedules[0]?.academicYear || "";
-const examSemester = selectedSchedules[0]?.semester || "";
+    /* Scope existing exam bookings to the SAME Academic Year + Semester as the
+       class schedules being generated.  Saved exam schedules from a different
+       term must not block rooms or proctors for the current generation. */
+    const examAcademicYear = selectedSchedules[0]?.academicYear || "";
+    const examSemester = selectedSchedules[0]?.semester || "";
 
-/* bookings — same exam type only.
-   Used for: room availability, per-day workload seeding, and room-gap
-   fallback detection.  Scoped to the current exam type so Prelim room
-   slots don't block Midterm/Finals slots. */
-const bookings = allExistingExamEntries(examType, examAcademicYear, examSemester);
+    /* bookings — same exam type only.
+       Used for: room availability, per-day workload seeding, and room-gap
+       fallback detection.  Scoped to the current exam type so Prelim room
+       slots don't block Midterm/Finals slots. */
+    const bookings = allExistingExamEntries(examType, examAcademicYear, examSemester);
 
-/* allTypeBookings — all exam types, same AY + semester.
-   Used ONLY for time-conflict checking so a faculty already proctoring
-   a different exam type (e.g. Prelim) at the same time slot cannot be
-   double-booked for the current generation (e.g. Midterm).
-   Faculty are otherwise free to proctor across exam types — their daily
-   workload counter resets independently per exam type. */
-const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
+    /* allTypeBookings — all exam types, same AY + semester.
+       Used ONLY for time-conflict checking so a faculty already proctoring
+       a different exam type (e.g. Prelim) at the same time slot cannot be
+       double-booked for the current generation (e.g. Midterm).
+       Faculty are otherwise free to proctor across exam types — their daily
+       workload counter resets independently per exam type. */
+    const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
 
     /* ----------------------------------------------------------------
        Track proctor assignments PER DAY instead of globally.
@@ -1433,12 +1445,13 @@ const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
     const proctors = shuffled(faculty);
     generatedExamSchedules = [];
 
-    // Build the examDates map from selectedDates
+    // Build the examDates map from selectedDates and sync DAYS
     const examDates = {};
     for (const dateStr of selectedDates) {
         const dayName = getDayName(dateStr);
         examDates[dayName] = dateStr;
     }
+    DAYS = [...new Set(selectedDates.map(dateStr => getDayName(dateStr)))];
 
     // Load all available lecture rooms once for all sections
     const rooms = await loadLectureRooms();
@@ -1447,10 +1460,55 @@ const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
         return;
     }
 
-    for (let index = 0; index < selectedSchedules.length; index += 1) {
-        const classSchedule = selectedSchedules[index];
-        const sectionTitleStr = scheduleTitle(classSchedule);
+    /* ================================================================
+       SUBJECT-FIRST SYNCHRONIZATION ALGORITHM
+       ================================================================
+       Rule: All sections taking the SAME subject (same AY + Semester +
+       Exam Type) must sit the exam on the EXACT SAME day and time.
+       Each section gets a DIFFERENT room at that shared slot.
+       ================================================================ */
 
+    /* --- Step 1: Seed subjectExamSlots from already-saved schedules ---
+       If CPT01 was already saved as Monday 8:00-9:30 in a prior generation
+       for this same AY + Semester + examType, any newly generated sections
+       taking CPT01 MUST reuse Monday 8:00-9:30. */
+    const subjectExamSlots = new Map(); // normCode => { day, range, time, duration }
+
+    {
+        const localSchedules = readStorage(EXAM_SCHEDULES_KEY);
+        const combined = [...firestoreExamSchedules, ...localSchedules];
+        const seenIds = new Set();
+        for (const s of combined) {
+            const id = s.id || `${s.academicYear}_${s.semester}_${s.examType}_${s.section}`;
+            if (seenIds.has(id)) continue;
+            seenIds.add(id);
+            if (s.examType !== examType) continue;
+            if (examAcademicYear && (s.academicYear || "").trim() !== examAcademicYear.trim()) continue;
+            if (examSemester && (s.semester || "").trim().toLowerCase() !== examSemester.trim().toLowerCase()) continue;
+            for (const exam of (s.exams || [])) {
+                const normCode = normalise(exam.code);
+                if (!normCode || subjectExamSlots.has(normCode)) continue;
+                const range = splitRange(exam.time);
+                if (exam.day && range) {
+                    subjectExamSlots.set(normCode, {
+                        day: exam.day,
+                        range,
+                        time: exam.time,
+                        duration: exam.duration || (range.end - range.start)
+                    });
+                }
+            }
+        }
+    }
+
+    /* --- Step 2: Build per-section subject lists and a global subject map ---
+       subjectInfoMap: normCode => { code, name, subjectType, duration }
+       subjectSections: normCode => [ { classSchedule, sectionTitle } ]  */
+    const subjectInfoMap = new Map();
+    const subjectSections = new Map(); // normCode => array of { classSchedule, sectionTitle }
+
+    for (const classSchedule of selectedSchedules) {
+        const sectionTitleStr = scheduleTitle(classSchedule);
         const subjects = buildExamSubjects(classSchedule, prospectus);
 
         if (!subjects.length) {
@@ -1460,85 +1518,512 @@ const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
             return;
         }
 
-        // Build the priority-ordered room list for this section once
-        const preferredBuilding = getExamBuildingPriority(classSchedule.program);
-        const roomsToTry = [];
+        for (const subj of subjects) {
+            const normCode = normalise(subj.code || subj.name);
+            if (!normCode) continue;
+            if (!subjectInfoMap.has(normCode)) {
+                subjectInfoMap.set(normCode, subj);
+            }
+            if (!subjectSections.has(normCode)) {
+                subjectSections.set(normCode, []);
+            }
+            subjectSections.get(normCode).push({ classSchedule, sectionTitle: sectionTitleStr });
+        }
+    }
 
-        if (preferredBuilding) {
-            const buildingKey = normalise(preferredBuilding);
-            if (rooms.byBuilding[buildingKey]) {
-                roomsToTry.push(...rooms.byBuilding[buildingKey]);
+    /* --- Step 3: Determine processing order for unique subjects ---
+       Priority: subjects with the most simultaneous sections first (most
+       constrained), then major (90 min) before minor (60 min). */
+    const subjectOrder = [...subjectInfoMap.keys()].sort((a, b) => {
+        const secCountDiff = (subjectSections.get(b)?.length || 0) - (subjectSections.get(a)?.length || 0);
+        if (secCountDiff !== 0) return secCountDiff;
+        const durA = subjectInfoMap.get(a)?.duration || 60;
+        const durB = subjectInfoMap.get(b)?.duration || 60;
+        return durB - durA; // majors (90) before minors (60)
+    });
+
+    /* --- Per-section day-assignment tracker (used for gap/overlap checks) ---
+       sectionDayMap: normSectionId => Map<day, [ { range, room, proctor } ]> */
+    const sectionDayMap = new Map();
+    const sectionSubjectCount = new Map(); // normSectionId => Map<day, count> (for MAX_SUBJECTS_PER_DAY)
+    const sectionProctors = new Map(); // normSectionId => Set<normalisedFacultyName> (ensures 2-3 proctors per section)
+    for (const cs of selectedSchedules) {
+        const id = cs.id || normalise(scheduleTitle(cs));
+        sectionDayMap.set(id, new Map());
+        sectionSubjectCount.set(id, new Map());
+        sectionProctors.set(id, new Set());
+    }
+
+    /* Pending proctor bookings and workload increments accumulated during
+       this generation run (shared across all subjects / all sections). */
+    const pendingBookings = [];
+    const pendingDayIncrements = new Map(); // normFacultyName => Map<day, count>
+
+    function addPendingIncrement(facultyName, day) {
+        const norm = normalise(facultyName);
+        if (!pendingDayIncrements.has(norm)) pendingDayIncrements.set(norm, new Map());
+        const dm = pendingDayIncrements.get(norm);
+        dm.set(day, (dm.get(day) || 0) + 1);
+    }
+
+    /* Commit a placed subject assignment immediately into shared tracking state */
+    function commitSubjectAssignment(normCode, asgn) {
+        const sectionsInvolved = subjectSections.get(normCode) || [];
+
+        sectionsInvolved.forEach(({ classSchedule }, idx) => {
+            const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+            const room       = asgn.rooms[idx];
+            const proctorInfo = asgn.proctors[idx];
+
+            if (!sectionDayMap.get(secId).has(asgn.day)) {
+                sectionDayMap.get(secId).set(asgn.day, []);
             }
-            const adminKey = normalise("Admin Building");
-            if (adminKey !== buildingKey && rooms.byBuilding[adminKey]) {
-                roomsToTry.push(...rooms.byBuilding[adminKey]);
+            sectionDayMap.get(secId).get(asgn.day).push({
+                range: asgn.range, room, proctor: proctorInfo.proctor, code: normCode
+            });
+
+            const subjCountMap = sectionSubjectCount.get(secId);
+            subjCountMap.set(asgn.day, (subjCountMap.get(asgn.day) || 0) + 1);
+
+            if (proctorInfo?.proctor) {
+                sectionProctors.get(secId)?.add(normalise(proctorInfo.proctor));
             }
-            for (const [building, buildingRooms] of Object.entries(rooms.byBuilding)) {
-                if (building !== buildingKey && building !== normalise("Admin Building")) {
-                    roomsToTry.push(...buildingRooms);
+
+            bookings.push({ day: asgn.day, range: asgn.range, room, proctor: proctorInfo.proctor });
+            allTypeBookings.push({ day: asgn.day, range: asgn.range, room, proctor: proctorInfo.proctor });
+            pendingBookings.push({ day: asgn.day, range: asgn.range, room, proctor: proctorInfo.proctor });
+            // NOTE: Only increment dailyProctorWorkload here (the authoritative counter).
+            // addPendingIncrement is NOT called here to avoid double-counting with dailyProctorWorkload
+            // in evaluateFacultyProctorEligibility (savedDailyCount + pendingCount would double the tally).
+            incrementDailyProctorCount(dailyProctorWorkload, proctorInfo.proctor, asgn.day);
+        });
+
+        subjectExamSlots.set(normCode, {
+            day: asgn.day,
+            range: asgn.range,
+            time: asgn.time,
+            duration: asgn.duration
+        });
+    }
+
+    /* Determine candidate start times on a given day for a set of sections.
+       A start time is a candidate if it is boundStart OR (someSection.end + BREAK_MINUTES)
+       OR a time when an occupied room becomes free on that day,
+       OR any 30-minute increment from boundStart to boundEnd - duration (full sweep). */
+    function getCandidateStarts(sectionsInvolved, day, boundStart, boundEnd, duration) {
+        const starts = new Set([boundStart]);
+        for (const { classSchedule } of sectionsInvolved) {
+            const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+            const dayAssigs = sectionDayMap.get(secId)?.get(day) || [];
+            for (const asg of dayAssigs) {
+                const next = asg.range.end + BREAK_MINUTES;
+                const adjusted = (next > LUNCH_START && next < LUNCH_END) ? LUNCH_END : next;
+                starts.add(adjusted);
+            }
+        }
+        const chkBookings = [...bookings, ...pendingBookings];
+        for (const b of chkBookings) {
+            if (b.day === day && b.range) {
+                const end = b.range.end;
+                const adjusted = (end > LUNCH_START && end < LUNCH_END) ? LUNCH_END : end;
+                starts.add(adjusted);
+                const next = adjusted + BREAK_MINUTES;
+                const adjustedNext = (next > LUNCH_START && next < LUNCH_END) ? LUNCH_END : next;
+                starts.add(adjustedNext);
+            }
+        }
+        // Full 30-minute sweep across the entire bound window so no valid gap is missed
+        if (boundEnd !== undefined && duration !== undefined) {
+            for (let t = boundStart; t + duration <= boundEnd; t += 30) {
+                const adjusted = (t > LUNCH_START && t < LUNCH_END) ? LUNCH_END : t;
+                starts.add(adjusted);
+            }
+        }
+        return [...starts].sort((a, b) => a - b);
+    }
+
+    /* Check whether a given (day, range) is valid for ALL sections involved.
+       Rules:
+        1. Range fits within [boundStart, boundEnd].
+        2. No existing assignment for any section overlaps range on day.
+        3. At least a 60-minute gap with every existing assignment (lunch counts as break).
+        4. Section has not hit maxSubjectsLimit on day.
+        5. Section has not hit 2 subjects in this half-day. */
+    function isSlotValidForAllSections(sectionsInvolved, day, range, boundStart, boundEnd, isLargeSection) {
+        const maxSubjectsLimit = isLargeSection ? 8 : MAX_SUBJECTS_PER_DAY;
+        if (range.start < boundStart || range.end > boundEnd) return false;
+        for (const { classSchedule } of sectionsInvolved) {
+            const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+            const dayAssigs = sectionDayMap.get(secId)?.get(day) || [];
+            const dayCount = sectionSubjectCount.get(secId)?.get(day) || 0;
+
+            if (dayCount >= maxSubjectsLimit) return false;
+
+            // Half-day count limit (max 2 per AM or PM half-day)
+            const isAM = boundStart < LUNCH_START;
+            const halfDayAssigs = dayAssigs.filter(a =>
+                isAM ? a.range.end <= LUNCH_START : a.range.start >= LUNCH_END
+            );
+            if (halfDayAssigs.length >= 2) return false;
+
+            // Overlap and gap check
+            for (const asg of dayAssigs) {
+                if (intervalsOverlap(range, asg.range)) return false;
+                // 60-minute gap (lunch break counts as the gap)
+                const lunchBridges = asg.range.end <= LUNCH_START && range.start >= LUNCH_END;
+                const lunchBridgesReverse = range.end <= LUNCH_START && asg.range.start >= LUNCH_END;
+                if (!lunchBridges && !lunchBridgesReverse) {
+                    if (asg.range.end <= range.start && range.start < asg.range.end + BREAK_MINUTES) return false;
+                    if (range.end <= asg.range.start && asg.range.start < range.end + BREAK_MINUTES) return false;
                 }
             }
-        } else {
-            roomsToTry.push(...rooms.all);
         }
+        return true;
+    }
 
-        const result = findDaySlotsForSection(
-            subjects,
-            roomsToTry,
-            bookings,
-            dailyProctorWorkload,
-            allTypeBookings,
-            proctors,
-            facultyAssignments,
-            sectionTitleStr
+    /* For a given (day, range), collect rooms available for each section in
+       sectionsInvolved, respecting building preference, while ensuring each
+       section receives a DISTINCT room.
+       Returns an array parallel to sectionsInvolved: [ roomName ],
+       or null if there are not enough distinct rooms. */
+    function assignRoomsForSlot(sectionsInvolved, day, range) {
+        const chkBookings = [...bookings, ...pendingBookings];
+        // Rooms already booked at this exact slot (from saved + pending)
+        const roomsTakenAtSlot = new Set(
+            chkBookings
+                .filter(b => b.day === day && b.range && intervalsOverlap(range, b.range) && b.room)
+                .map(b => normalise(b.room))
         );
 
-        if (!result) {
-            const subjectCodeList = subjects.map(s => s.code).filter(Boolean).join(", ");
-            showToast(`Not enough eligible faculty. Could not assign a proctor for ${sectionTitleStr} (${examType}). Subjects: ${subjectCodeList}. All eligible faculty either handle one of these subjects, have a time conflict, or have already reached the 2-subject limit for every exam day.`);
+        const assigned = [];
+        const usedInThisGroup = new Set(); // rooms claimed within THIS subject's sections
+
+        for (const { classSchedule } of sectionsInvolved) {
+            const preferredBuilding = getExamBuildingPriority(classSchedule.program);
+            // Build priority-ordered room list for this section
+            const roomsToTry = [];
+            if (preferredBuilding) {
+                const bk = normalise(preferredBuilding);
+                if (rooms.byBuilding[bk]) roomsToTry.push(...rooms.byBuilding[bk]);
+                const ak = normalise("Admin Building");
+                if (ak !== bk && rooms.byBuilding[ak]) roomsToTry.push(...rooms.byBuilding[ak]);
+                for (const [bldg, bldgRooms] of Object.entries(rooms.byBuilding)) {
+                    if (bldg !== bk && bldg !== normalise("Admin Building")) {
+                        roomsToTry.push(...bldgRooms);
+                    }
+                }
+            } else {
+                roomsToTry.push(...rooms.all);
+            }
+
+            let picked = null;
+            for (const room of roomsToTry) {
+                const rn = room.roomName || room.roomCode;
+                const normRn = normalise(rn);
+                if (!roomsTakenAtSlot.has(normRn) && !usedInThisGroup.has(normRn)) {
+                    picked = rn;
+                    break;
+                }
+            }
+            if (!picked) return null; // Not enough distinct rooms
+            usedInThisGroup.add(normalise(picked));
+            assigned.push(picked);
+        }
+        return assigned;
+    }
+
+    /* For a given (day, range, subjectCode), find an eligible proctor for each
+       section in sectionsInvolved.
+       Returns an array parallel to sectionsInvolved, or null if any section
+       cannot be assigned an eligible proctor. */
+    function assignProctorsForSlot(sectionsInvolved, day, range, subjectCode) {
+        const assigned = [];
+        // Snapshot so we can track within-slot proctor assignment without
+        // permanently mutating the shared pendingBookings / pendingDayIncrements yet.
+        const localPendingBookings = [...pendingBookings];
+        const localPendingIncrements = new Map(
+            [...pendingDayIncrements].map(([k, v]) => [k, new Map(v)])
+        );
+
+        function localAddIncrement(name, d) {
+            const norm = normalise(name);
+            if (!localPendingIncrements.has(norm)) localPendingIncrements.set(norm, new Map());
+            const dm = localPendingIncrements.get(norm);
+            dm.set(d, (dm.get(d) || 0) + 1);
+        }
+
+        for (const { classSchedule } of sectionsInvolved) {
+            const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+            const secProctorSet = sectionProctors.get(secId) || new Set();
+
+            const evaluations = proctors.map(candidate =>
+                evaluateFacultyProctorEligibility(
+                    candidate,
+                    subjectCode,
+                    day,
+                    range,
+                    dailyProctorWorkload,
+                    allTypeBookings,
+                    facultyAssignments,
+                    localPendingIncrements,
+                    localPendingBookings
+                )
+            );
+
+            const eligibleCandidates = evaluations.filter(e => e.isEligible);
+            if (eligibleCandidates.length === 0) return null;
+
+            // Target 2-3 proctors per section:
+            // 1. Re-use faculty already assigned to this section on THIS day (if < 2 assignments today)
+            // 2. Re-use faculty already assigned to this section on any day
+            // 3. Lowest cumulative workload across all days
+            eligibleCandidates.sort((a, b) => {
+                const aName = normalise(a.facultyName);
+                const bName = normalise(b.facultyName);
+
+                const aInThisSectionToday = (sectionDayMap.get(secId)?.get(day) || []).some(asg => normalise(asg.proctor) === aName) ? 1 : 0;
+                const bInThisSectionToday = (sectionDayMap.get(secId)?.get(day) || []).some(asg => normalise(asg.proctor) === bName) ? 1 : 0;
+                if (aInThisSectionToday !== bInThisSectionToday) {
+                    return bInThisSectionToday - aInThisSectionToday;
+                }
+
+                const aInThisSection = secProctorSet.has(aName) ? 1 : 0;
+                const bInThisSection = secProctorSet.has(bName) ? 1 : 0;
+                if (aInThisSection !== bInThisSection) {
+                    return bInThisSection - aInThisSection;
+                }
+
+                const wA = [...(dailyProctorWorkload.get(aName)?.values() || [])].reduce((s, v) => s + v, 0)
+                    + [...(localPendingIncrements.get(aName)?.values() || [])].reduce((s, v) => s + v, 0);
+                const wB = [...(dailyProctorWorkload.get(bName)?.values() || [])].reduce((s, v) => s + v, 0)
+                    + [...(localPendingIncrements.get(bName)?.values() || [])].reduce((s, v) => s + v, 0);
+                return wA - wB;
+            });
+
+            const chosen = eligibleCandidates[0];
+            const chosenName = chosen.facultyName;
+            const chosenUid = chosen.faculty.id || chosen.faculty.uid || "";
+
+            assigned.push({ proctor: chosenName, proctorUid: chosenUid });
+
+            // Register this proctor locally so the next section in this loop
+            // will not double-book the same proctor at the same time slot.
+            localPendingBookings.push({ day, range, room: "__proctor_slot_check__", proctor: chosenName });
+            localAddIncrement(chosenName, day);
+        }
+
+        return assigned;
+    }
+
+    /* --- Step 4: Find one (day, range) per subject, shared across all sections ---
+       Distribute exams across ALL selected exam dates by ordering days with the
+       lowest subject count for the involved sections first.
+       Extended PM used as a fallback for large sections or overflow. */
+    const subjectAssignments = new Map();
+
+    for (const normCode of subjectOrder) {
+
+        /* If this subject already has a fixed slot from a previously saved
+           schedule in the same AY + Semester + examType, honour it. */
+        if (subjectExamSlots.has(normCode)) {
+            const slot = subjectExamSlots.get(normCode);
+            const sectionsInvolved = subjectSections.get(normCode) || [];
+            if (!sectionsInvolved.length) continue;
+
+            const roomAssignments = assignRoomsForSlot(sectionsInvolved, slot.day, slot.range);
+            if (!roomAssignments) {
+                const subj = subjectInfoMap.get(normCode);
+                showToast(
+                    `Insufficient room capacity for subject ${subj?.code || normCode}. ` +
+                    `Not enough available rooms to schedule all ${sectionsInvolved.length} section(s) ` +
+                    `simultaneously at ${slot.time} on ${slot.day}.`
+                );
+                generatedExamSchedules = [];
+                renderGeneratedExams();
+                return;
+            }
+
+            const proctorAssignments = assignProctorsForSlot(
+                sectionsInvolved, slot.day, slot.range, subjectInfoMap.get(normCode)?.code || normCode
+            );
+            if (!proctorAssignments) {
+                const subj = subjectInfoMap.get(normCode);
+                showToast(
+                    `Not enough eligible faculty to proctor subject ${subj?.code || normCode} ` +
+                    `for all sections at ${slot.time} on ${slot.day}.`
+                );
+                generatedExamSchedules = [];
+                renderGeneratedExams();
+                return;
+            }
+
+            const asgn = {
+                day: slot.day,
+                range: slot.range,
+                time: slot.time,
+                duration: slot.duration,
+                rooms: roomAssignments,
+                proctors: proctorAssignments
+            };
+            subjectAssignments.set(normCode, asgn);
+            commitSubjectAssignment(normCode, asgn);
+            continue;
+        }
+
+        const subj = subjectInfoMap.get(normCode);
+        if (!subj) continue;
+        const sectionsInvolved = subjectSections.get(normCode) || [];
+        if (!sectionsInvolved.length) continue;
+
+        const isLargeSection = sectionsInvolved.some(({ classSchedule }) =>
+            buildExamSubjects(classSchedule, prospectus).length >= 10
+        );
+
+        // Sort available DAYS to balance load across all selected exam dates.
+        // Days where the sections involved have the fewest exams are tried first.
+        const sortedDays = [...DAYS].sort((dayA, dayB) => {
+            const loadA = Math.max(...sectionsInvolved.map(({ classSchedule }) => {
+                const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+                return sectionSubjectCount.get(secId)?.get(dayA) || 0;
+            }));
+            const loadB = Math.max(...sectionsInvolved.map(({ classSchedule }) => {
+                const secId = classSchedule.id || normalise(scheduleTitle(classSchedule));
+                return sectionSubjectCount.get(secId)?.get(dayB) || 0;
+            }));
+            if (loadA !== loadB) return loadA - loadB;
+            return DAYS.indexOf(dayA) - DAYS.indexOf(dayB);
+        });
+
+        const candidateBlocks = sortedDays.flatMap(day => [
+            { day, restrictPM: false },
+            { day, restrictPM: true }
+        ]);
+
+        let placed = false;
+
+        // Pass 1 — standard half-day blocks (AM then PM, max 2 subjects per half-day)
+        for (const { day, restrictPM } of candidateBlocks) {
+            if (placed) break;
+            const boundStart = restrictPM ? LUNCH_END : DAY_START;
+            const boundEnd   = restrictPM ? PM_END    : LUNCH_START;
+
+            const candidates = getCandidateStarts(sectionsInvolved, day, boundStart, boundEnd, subj.duration);
+            for (const start of candidates) {
+                const range = { start, end: start + subj.duration };
+                if (!isSlotValidForAllSections(sectionsInvolved, day, range, boundStart, boundEnd, isLargeSection)) continue;
+
+                const roomAssignments = assignRoomsForSlot(sectionsInvolved, day, range);
+                if (!roomAssignments) continue;
+
+                const proctorAssignments = assignProctorsForSlot(sectionsInvolved, day, range, subj.code || normCode);
+                if (!proctorAssignments) continue;
+
+                const asgn = {
+                    day,
+                    range,
+                    time: timeRange(start, subj.duration),
+                    duration: subj.duration,
+                    rooms: roomAssignments,
+                    proctors: proctorAssignments
+                };
+                subjectAssignments.set(normCode, asgn);
+                commitSubjectAssignment(normCode, asgn);
+                placed = true;
+                break;
+            }
+        }
+
+        // Pass 2 — extended PM fallback (up to DAY_END, for overflow / large sections)
+        if (!placed) {
+            for (const day of sortedDays) {
+                if (placed) break;
+                const boundStart = LUNCH_END;
+                const boundEnd   = DAY_END;
+
+                const candidates = getCandidateStarts(sectionsInvolved, day, boundStart, boundEnd, subj.duration);
+                for (const start of candidates) {
+                    const range = { start, end: start + subj.duration };
+                    if (!isSlotValidForAllSections(sectionsInvolved, day, range, boundStart, boundEnd, isLargeSection)) continue;
+
+                    const roomAssignments = assignRoomsForSlot(sectionsInvolved, day, range);
+                    if (!roomAssignments) continue;
+
+                    const proctorAssignments = assignProctorsForSlot(sectionsInvolved, day, range, subj.code || normCode);
+                    if (!proctorAssignments) continue;
+
+                    const asgn = {
+                        day,
+                        range,
+                        time: timeRange(start, subj.duration),
+                        duration: subj.duration,
+                        rooms: roomAssignments,
+                        proctors: proctorAssignments
+                    };
+                    subjectAssignments.set(normCode, asgn);
+                    commitSubjectAssignment(normCode, asgn);
+                    placed = true;
+                    break;
+                }
+            }
+        }
+
+        if (!placed) {
+            const roomNeeded = sectionsInvolved.length;
+            showToast(
+                `Could not schedule subject ${subj.code || normCode} for ${roomNeeded} section(s). ` +
+                `There may not be enough available rooms, exam days, or eligible proctors ` +
+                `to schedule all sections simultaneously. ` +
+                `Add more exam dates or ensure at least ${roomNeeded} lecture rooms are available.`
+            );
             generatedExamSchedules = [];
             renderGeneratedExams();
             return;
         }
+    }
 
-        const { dayAssignments, usedRooms, assignedExams, pendingDayIncrements, pendingBookings } = result;
-
-        // Commit daily workload increments
-        for (const [normFacultyName, dayMap] of pendingDayIncrements.entries()) {
-            for (const [day, count] of dayMap.entries()) {
-                for (let i = 0; i < count; i++) {
-                    incrementDailyProctorCount(dailyProctorWorkload, normFacultyName, day);
-                }
-            }
-        }
-
-        // Commit bookings
-        for (const bkg of pendingBookings) {
-            bookings.push(bkg);
-            allTypeBookings.push(bkg);
-        }
+    /* --- Step 6: Build generatedExamSchedules from the committed assignments --- */
+    for (const classSchedule of selectedSchedules) {
+        const sectionTitleStr = scheduleTitle(classSchedule);
+        const secId = classSchedule.id || normalise(sectionTitleStr);
+        const subjects = buildExamSubjects(classSchedule, prospectus);
 
         const exams = [];
-        for (const assignment of assignedExams) {
-            const examRoom = assignment.room || usedRooms[assignment.subject.code || assignment.subject.name] || "TBA";
-            const exam = {
-                ...assignment.subject,
-                day: assignment.day,
-                time: timeRange(assignment.range.start, assignment.subject.duration),
-                room: examRoom,
-                proctor: assignment.proctor,
-                proctorUid: assignment.proctorUid
-            };
-            exams.push(exam);
+        for (const subj of subjects) {
+            const normCode = normalise(subj.code || subj.name);
+            const asgn = subjectAssignments.get(normCode);
+            if (!asgn) continue;
+
+            const sectionsInvolved = subjectSections.get(normCode) || [];
+            const idx = sectionsInvolved.findIndex(s =>
+                (s.classSchedule.id || normalise(scheduleTitle(s.classSchedule))) === secId
+            );
+            if (idx < 0) continue;
+
+            exams.push({
+                ...subj,
+                day:        asgn.day,
+                time:       asgn.time,
+                room:       asgn.rooms[idx],
+                proctor:    asgn.proctors[idx]?.proctor    || "TBA",
+                proctorUid: asgn.proctors[idx]?.proctorUid || ""
+            });
         }
 
-        // Determine proctors for summary display
-        const uniqueProctors = [...new Set(exams.map(e => e.proctor).filter(Boolean))];
+        // Sort by day index then start time for readable display
+        exams.sort((a, b) => {
+            const dA = DAYS.indexOf(a.day);
+            const dB = DAYS.indexOf(b.day);
+            if (dA !== dB) return dA - dB;
+            const rA = splitRange(a.time);
+            const rB = splitRange(b.time);
+            return (rA?.start || 0) - (rB?.start || 0);
+        });
+
+        const uniqueProctors    = [...new Set(exams.map(e => e.proctor).filter(Boolean))];
         const uniqueProctorUids = [...new Set(exams.map(e => e.proctorUid).filter(Boolean))];
-        const primaryProctor = uniqueProctors.join(", ") || "TBA";
+        const primaryProctor    = uniqueProctors.join(", ") || "TBA";
         const primaryProctorUid = uniqueProctorUids.join(",") || "";
 
-        // Determine primary room for display
         const roomCounts = {};
         for (const exam of exams) {
             roomCounts[exam.room] = (roomCounts[exam.room] || 0) + 1;
@@ -1546,23 +2031,23 @@ const allTypeBookings = allExamTypeEntries(examAcademicYear, examSemester);
         const primaryRoom = Object.entries(roomCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "TBA";
 
         generatedExamSchedules.push({
-            id: crypto.randomUUID(),
-            classScheduleId: classSchedule.id,
-            title: `${sectionTitleStr}`,
-            section: classSchedule.section,
-            academicYear: classSchedule.academicYear || "",
-            semester: classSchedule.semester,
-            program: classSchedule.program,
-            major: classSchedule.major,
-            yearLevel: classSchedule.yearLevel,
-            proctor: primaryProctor,
-            proctorUid: primaryProctorUid,
-            facultyUid: primaryProctorUid,
-            assignedFacultyUid: primaryProctorUid,
-            room: primaryRoom,
+            id:                  crypto.randomUUID(),
+            classScheduleId:     classSchedule.id,
+            title:               `${sectionTitleStr}`,
+            section:             classSchedule.section,
+            academicYear:        classSchedule.academicYear || "",
+            semester:            classSchedule.semester,
+            program:             classSchedule.program,
+            major:               classSchedule.major,
+            yearLevel:           classSchedule.yearLevel,
+            proctor:             primaryProctor,
+            proctorUid:          primaryProctorUid,
+            facultyUid:          primaryProctorUid,
+            assignedFacultyUid:  primaryProctorUid,
+            room:                primaryRoom,
             examType,
             examDates,
-            createdAt: new Date().toISOString(),
+            createdAt:           new Date().toISOString(),
             exams
         });
     }
@@ -1723,6 +2208,83 @@ function deleteSavedExam(event) {
         renderSavedExams();
         renderClassSchedules();
     });
+}
+
+async function publishAllSavedExams() {
+    const publishBtn = document.getElementById("publishAllExamBtn");
+    const freshFirestoreSchedules = await loadExamSchedulesFromFirestore();
+    const localSchedules = readStorage(EXAM_SCHEDULES_KEY) || [];
+    const schedules = freshFirestoreSchedules.length ? freshFirestoreSchedules : localSchedules;
+
+    if (!schedules.length) {
+        showToast("There are no saved exam schedules to publish.");
+        return;
+    }
+
+    const unpublishedCount = schedules.filter(s => s.status !== "published").length;
+    const confirmPrompt = unpublishedCount > 0
+        ? `Are you sure you want to publish all ${schedules.length} saved exam schedule(s)? (${unpublishedCount} currently draft/unpublished). This will make them visible to faculty and students on their dashboards.`
+        : `Are you sure you want to re-publish all ${schedules.length} saved exam schedule(s)? This will re-verify their published status and notify faculty.`;
+
+    const confirmed = await showConfirm(confirmPrompt, {
+        title: "Publish All Exam Schedules",
+        confirmText: "Yes, Publish All",
+        cancelText: "Cancel"
+    });
+
+    if (!confirmed) return;
+
+    const origText = publishBtn ? publishBtn.innerHTML : "";
+    if (publishBtn) {
+        publishBtn.disabled = true;
+        publishBtn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;"></span> Publishing...';
+    }
+
+    try {
+        let successCount = 0;
+        let totalSent = 0;
+
+        for (const schedule of schedules) {
+            schedule.status = "published";
+            schedule.publishedAt = new Date().toISOString();
+            schedule.publishedBy = auth.currentUser?.uid || null;
+
+            try {
+                await saveExamScheduleToFirestore(schedule);
+                successCount++;
+                const result = await publishExamScheduleApi(schedule);
+                if (result && result.sentCount) totalSent += result.sentCount;
+            } catch (err) {
+                console.error("Could not publish exam schedule:", schedule.title || schedule.id, err);
+            }
+        }
+
+        /* Refresh local storage and UI from Firestore */
+        firestoreExamSchedules = await loadExamSchedulesFromFirestore();
+        writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
+        renderSavedExams();
+        renderClassSchedules();
+
+        const emailInfo = totalSent > 0 ? ` (${totalSent} email notifications sent)` : "";
+        if (savedOverlay) {
+            savedOverlay.classList.remove("fade-out");
+            savedOverlay.style.display = "flex";
+            const overlaySpan = savedOverlay.querySelector("span");
+            if (overlaySpan) overlaySpan.textContent = `Published ${successCount} exam schedule(s)!${emailInfo}`;
+            setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1400);
+            setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 2000);
+        } else {
+            showToast(`Successfully published ${successCount} exam schedule(s)!${emailInfo}`);
+        }
+    } catch (error) {
+        console.error("Error publishing all exam schedules:", error);
+        showToast(`Failed to publish all exam schedules: ${error.message}`);
+    } finally {
+        if (publishBtn) {
+            publishBtn.disabled = false;
+            publishBtn.innerHTML = origText || "Publish All";
+        }
+    }
 }
 
 async function deleteAllSavedExams() {
@@ -2035,7 +2597,7 @@ function examScheduleDocId(schedule) {
 }
 
 async function saveExamScheduleToFirestore(schedule) {
-    const docId = examScheduleDocId(schedule);
+    const docId = schedule.id || examScheduleDocId(schedule);
 
     const status = schedule.status === "published" ? "published" : (schedule.status || "draft");
 
@@ -2311,6 +2873,7 @@ window.addEventListener("click", event => {
     }
 });
 
+document.getElementById("publishAllExamBtn")?.addEventListener("click", publishAllSavedExams);
 document.getElementById("exportExamPdfBtn")?.addEventListener("click", exportExamPdf);
 document.getElementById("deleteAllExamBtn")?.addEventListener("click", deleteAllSavedExams);
 document.getElementById("savedExamSchedules")?.addEventListener("click", async event => {
