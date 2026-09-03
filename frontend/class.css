@@ -1756,3 +1756,12 @@ tr:hover{
 .cls-cal-modal-body .cal-block-name { font-size:10px; opacity:0.85; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .cls-cal-modal-body .cal-block-time { font-size:10px; font-weight:600; margin-top:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cls-cal-modal-body .cal-block-room { font-size:10px; opacity:0.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Collapsible Schedule Details in Modal */
+.cal-details-collapsible summary::-webkit-details-marker { display: none; }
+.cal-details-collapsible summary::marker { display: none; }
+.cal-details-collapsible summary { outline: none; }
+.cal-details-summary:hover { background: #eef6ee !important; }
+.cal-details-summary:hover .cal-details-toggle-icon { background: #c8e6c9 !important; }
+.cal-details-collapsible[open] .cal-details-toggle-icon { transform: rotate(180deg); background: #c8e6c9 !important; }
+

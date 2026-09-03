@@ -747,3 +747,11 @@ tr:hover{
 }
 .archive-view-schedule:hover { background: #2e7d32; }
 
+/* Collapsible Schedule Details in Reports */
+.cal-details-collapsible summary::-webkit-details-marker { display: none; }
+.cal-details-collapsible summary::marker { display: none; }
+.cal-details-collapsible summary { outline: none; }
+.cal-details-summary:hover { background: #eef6ee !important; }
+.cal-details-summary:hover .cal-details-toggle-icon { background: #c8e6c9 !important; }
+.cal-details-collapsible[open] .cal-details-toggle-icon { transform: rotate(180deg); background: #c8e6c9 !important; }
+

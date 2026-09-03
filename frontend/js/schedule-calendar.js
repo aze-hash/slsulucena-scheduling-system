@@ -415,27 +415,41 @@ export function renderClassCalendar(schedule) {
         </tr>`;
     }).join("");
 
+    const subjectCountText = `${entries.length} ${entries.length === 1 ? "subject" : "subjects"}`;
+
     const detailsTableHtml = `
-<div style="margin-top:20px;">
-    <h3 style="font-size:15px; margin-bottom:10px; color:#1b5e20; font-weight:bold;">Schedule Details</h3>
-    <div style="overflow-x:auto; border:1px solid #d0ccbf; border-radius:8px;">
-        <table style="width:100%; border-collapse:collapse; font-size:12px; background:#fff;">
-            <thead>
-                <tr style="background:#e8f5e9; color:#1b5e20;">
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Code</th>
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Name</th>
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:center;">Units</th>
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Day</th>
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Time</th>
-                    <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Room</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${tableRows}
-            </tbody>
-        </table>
+<details class="cal-details-collapsible" style="margin-top:16px; border:1px solid #d0ccbf; border-radius:10px; background:#fff; overflow:hidden;">
+    <summary class="cal-details-summary" style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#f4f9f4; cursor:pointer; user-select:none; list-style:none;">
+        <div class="cal-details-summary-left" style="display:flex; align-items:center; gap:8px;">
+            <span class="cal-details-title" style="font-size:14px; font-weight:bold; color:#1b5e20;">Schedule Details</span>
+            <span class="cal-details-count" style="font-size:11px; color:#555; background:#e8f5e9; padding:2px 8px; border-radius:10px; border:1px solid #c8e6c9;">${subjectCountText}</span>
+        </div>
+        <span class="cal-details-toggle-icon" title="Toggle schedule details" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#e8f5e9; border:1px solid #c8e6c9; color:#1b5e20; transition:transform 0.2s ease;">
+            <svg class="cal-chevron-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </span>
+    </summary>
+    <div class="cal-details-content" style="border-top:1px solid #d0ccbf;">
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px; background:#fff;">
+                <thead>
+                    <tr style="background:#e8f5e9; color:#1b5e20;">
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Code</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Subject Name</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:center;">Units</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Day</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Time</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Room</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+        </div>
     </div>
-</div>`;
+</details>`;
 
     return `
 <div class="cal-timetable-wrapper">
