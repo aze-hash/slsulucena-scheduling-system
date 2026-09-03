@@ -622,6 +622,18 @@ document.getElementById("deleteAllClassArchiveBtn")?.addEventListener("click", a
             deleteArchivedClassSchedulesFromFirestore()
         ]);
 
+        /* Also remove archived entries from localStorage so the table doesn't
+           repopulate from the local cache on the next loadClassArchiveData() call */
+        try {
+            const SAVED_KEY = "chairpersonSavedSchedules";
+            const local = JSON.parse(localStorage.getItem(SAVED_KEY)) || [];
+            const remaining = local.filter(s => (s.status || "") !== "archived");
+            localStorage.setItem(SAVED_KEY, JSON.stringify(remaining));
+        } catch (_) { /* ignore localStorage errors */ }
+
+        /* Reset in-memory archive list so the table clears immediately */
+        classArchiveRecords = [];
+
         classFilterYear = "";
         classFilterSemester = "";
         classFilterSearch = "";

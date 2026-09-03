@@ -103,7 +103,14 @@ function renderClassSchedules() {
     // If a schedule is pinned and present in filtered list, show ONLY the pinned schedule!
     const displayList = hasPinnedMatch ? filtered.filter(s => s.id === pinnedId) : filtered;
 
-    classScheduleContainer.innerHTML = displayList.map(schedule => {
+    const pinnedBanner = hasPinnedMatch
+        ? `<div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:8px; padding:8px 14px; font-size:13px; color:#1b5e20;">
+               <span>📌 Showing your pinned schedule.</span>
+               <button type="button" id="unpinShowAllClassBtn" style="background:none; border:none; color:#1565c0; font-weight:bold; cursor:pointer; text-decoration:underline;">Show all ${filtered.length} sections</button>
+           </div>`
+        : "";
+
+    classScheduleContainer.innerHTML = pinnedBanner + displayList.map(schedule => {
         const isPinned = schedule.id === pinnedId;
         const calendarHtml = renderClassCalendar(schedule);
 
@@ -122,6 +129,11 @@ function renderClassSchedules() {
             </article>
         `;
     }).join("");
+
+    document.getElementById("unpinShowAllClassBtn")?.addEventListener("click", () => {
+        setPinnedClassId("");
+        renderClassSchedules();
+    });
 }
 
 
@@ -138,7 +150,14 @@ function renderExamSchedules() {
     // If a schedule is pinned, show ONLY the pinned schedule!
     const displayList = hasPinnedMatch ? allExamSchedules.filter(s => s.id === pinnedId) : allExamSchedules;
 
-    examScheduleContainer.innerHTML = displayList.map(schedule => {
+    const pinnedBanner = hasPinnedMatch
+        ? `<div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:8px; padding:8px 14px; font-size:13px; color:#1b5e20;">
+               <span>📌 Showing your pinned exam schedule.</span>
+               <button type="button" id="unpinShowAllExamBtn" style="background:none; border:none; color:#1565c0; font-weight:bold; cursor:pointer; text-decoration:underline;">Show all ${allExamSchedules.length} schedules</button>
+           </div>`
+        : "";
+
+    examScheduleContainer.innerHTML = pinnedBanner + displayList.map(schedule => {
         const isPinned = schedule.id === pinnedId;
         const examType = schedule.examType ? ` — ${safe(schedule.examType)}` : "";
         const calendarHtml = renderExamCalendar(schedule);
@@ -158,6 +177,11 @@ function renderExamSchedules() {
             </article>
         `;
     }).join("");
+
+    document.getElementById("unpinShowAllExamBtn")?.addEventListener("click", () => {
+        setPinnedExamId("");
+        renderExamSchedules();
+    });
 }
 
 function handlePinToggle(event) {
@@ -220,19 +244,46 @@ async function initializeStudentDashboard() {
 
             allClassSchedules = classSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule =>
-                    schedule.status === "published" &&
-                    normalize(schedule.program) === program &&
-                    normalize(schedule.major) === major
-                );
+                .filter(schedule => {
+                    const status = normalize(schedule.status);
+                    const isPublished = status === "PUBLISHED" || status === "ACTIVE";
+                    if (!isPublished) return false;
+
+                    const schedProg = normalize(schedule.program || "");
+                    const schedMaj = normalize(schedule.major || "");
+                    const schedSec = normalize(schedule.section || schedule.name || "");
+
+                    // Match program: direct match, or section contains program, or student has no program
+                    const progMatches = !program || schedProg === program || schedSec.includes(program);
+                    if (!progMatches) return false;
+
+                    // Match major: if either is empty, or direct match, or section contains major
+                    const majMatches = !major || !schedMaj || schedMaj === major || schedSec.includes(major);
+                    return majMatches;
+                });
 
             allExamSchedules = examSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule =>
-                    schedule.status === "published" &&
-                    normalize(schedule.program) === program &&
-                    normalize(schedule.major) === major
-                );
+                .filter(schedule => {
+                    const status = normalize(schedule.status);
+                    const isPublished = status === "PUBLISHED" || status === "ACTIVE";
+                    if (!isPublished) return false;
+
+                    const schedProg = normalize(schedule.program || "");
+                    const schedMaj = normalize(schedule.major || "");
+                    const schedSec = normalize(schedule.section || schedule.title || "");
+
+                    const progMatches = !program || schedProg === program || schedSec.includes(program);
+                    if (!progMatches) return false;
+
+                    const majMatches = !major || !schedMaj || schedMaj === major || schedSec.includes(major);
+                    return majMatches;
+                });
+
+            console.log(`[Student Dashboard] User: ${fullName}, Program: "${program}", Major: "${major}"`);
+            console.log(`[Student Dashboard] Total class schedules in DB: ${classSnapshot.docs.length}`);
+            console.log(`[Student Dashboard] Matched class schedules: ${allClassSchedules.length}`, allClassSchedules);
+            console.log(`[Student Dashboard] Matched exam schedules: ${allExamSchedules.length}`, allExamSchedules);
 
             renderClassSchedules();
             renderExamSchedules();

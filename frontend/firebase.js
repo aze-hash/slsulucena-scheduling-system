@@ -1,7 +1,7 @@
 import { initializeApp }
 from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 
-import { getFirestore, enableIndexedDbPersistence }
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager }
 from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 import { getAuth }
@@ -19,11 +19,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-const db = getFirestore(app);
-enableIndexedDbPersistence(db).catch(err => {
-  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
-    console.warn("Firestore persistence warning:", err.code);
-  }
+/* Use the modern cache API instead of the deprecated enableIndexedDbPersistence() */
+const db = initializeFirestore(app, {
+  cache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
 
 const auth = getAuth(app);

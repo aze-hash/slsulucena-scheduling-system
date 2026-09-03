@@ -806,7 +806,7 @@ document.getElementById("logoutLink")?.addEventListener("click", async event => 
     }
     sessionStorage.clear();
     localStorage.clear();
-    window.location.replace("login.html");
+    window.location.replace("home.html");
 });
 
 document.getElementById("closeModalBtn")?.addEventListener("click", closeRequestModal);

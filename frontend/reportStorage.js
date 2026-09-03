@@ -108,11 +108,7 @@ export async function deleteReportsByCategoryFromFirestore(category) {
         const snapshot = await getDocs(collection(db, REPORTS_COLLECTION));
         const toDelete = snapshot.docs.filter(docSnap => {
             const data = docSnap.data();
-            if (category === "Exam Schedule") {
-                return data.category === "Exam Schedule";
-            } else {
-                return data.category !== "Exam Schedule";
-            }
+            return (data.category || "") === category;
         });
 
         const deletePromises = toDelete.map(docSnap =>
