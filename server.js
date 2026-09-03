@@ -1,7 +1,15 @@
 import express from "express";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 import { db, auth } from "./firebase-admin.js";
+import {
+  sendClassScheduleNotification,
+  sendExamScheduleNotification,
+  normalizeExamType
+} from "./emailService.js";
 
 const app = express();
 
@@ -16,6 +24,9 @@ app.use(express.json());
 // ======================================
 const prospectusRef = db.collection("prospectus");
 const usersRef = db.collection("users");
+const classSchedulesRef = db.collection("classSchedules");
+const examSchedulesRef = db.collection("examSchedules");
+const emailNotificationsRef = db.collection("emailNotifications");
 
 // ======================================
 // 📚 GET ALL PROSPECTUS SUBJECTS
@@ -299,6 +310,313 @@ app.delete("/users/:uid", async (req, res) => {
       success: false,
       message: "Failed to delete user.",
       error: error.message,
+    });
+  }
+});
+
+// ======================================
+// 📢 PUBLISH CLASS SCHEDULE & SEND NOTIFICATIONS
+// POST /api/publish/class-schedule
+// ======================================
+app.post("/api/publish/class-schedule", async (req, res) => {
+  try {
+    const { scheduleId, scheduleData, publishedBy } = req.body;
+
+    if (!scheduleId && (!scheduleData || !scheduleData.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Schedule ID or schedule data is required."
+      });
+    }
+
+    const docId = scheduleId || scheduleData.id;
+    let schedule = scheduleData;
+
+    if (!schedule || !schedule.program) {
+      const docSnap = await classSchedulesRef.doc(docId).get();
+      if (docSnap.exists) {
+        schedule = { id: docSnap.id, ...docSnap.data() };
+      }
+    }
+
+    if (!schedule) {
+      return res.status(404).json({
+        success: false,
+        message: "Class schedule not found."
+      });
+    }
+
+    const releaseId = `${docId}_${Date.now()}`;
+    const publishedAt = new Date();
+
+    // 1. Mark schedule as published in Firestore
+    await classSchedulesRef.doc(docId).set({
+      ...schedule,
+      id: docId,
+      status: "published",
+      publishedAt,
+      publishedBy: publishedBy || null,
+      releaseId,
+      updatedAt: new Date()
+    }, { merge: true });
+
+    // 2. Query target students associated with this schedule
+    const program = String(schedule.program || "").trim().toLowerCase();
+    const major = String(schedule.major || "").trim().toLowerCase();
+
+    const usersSnap = await usersRef.get();
+    const students = usersSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => {
+        const isStudent = String(u.role || "").trim().toLowerCase() === "student";
+        if (!isStudent) return false;
+        const uProg = String(u.program || "").trim().toLowerCase();
+        const uMaj = String(u.major || "").trim().toLowerCase();
+        
+        // Match program
+        if (program && uProg !== program) return false;
+        // Match major if both schedule and user have major
+        if (major && uMaj && uMaj !== major) return false;
+        
+        return Boolean(u.email && u.email.includes("@"));
+      });
+
+    // 3. Dispatch emails with duplicate prevention
+    let sentCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
+
+    for (const student of students) {
+      const notifDocId = `class_${docId}_${student.id}`;
+
+      // Check duplicate
+      const existingNotif = await emailNotificationsRef.doc(notifDocId).get();
+      if (existingNotif.exists && existingNotif.data().status === "sent") {
+        skippedCount++;
+        continue;
+      }
+
+      const emailResult = await sendClassScheduleNotification({
+        recipientEmail: student.email,
+        recipientName: student.fullName || "Student",
+        scheduleInfo: schedule
+      });
+
+      const notifRecord = {
+        recipientUserId: student.id,
+        recipientEmail: student.email,
+        recipientName: student.fullName || "Student",
+        notificationType: "class",
+        scheduleType: "class",
+        scheduleId: docId,
+        releaseId,
+        status: emailResult.success ? "sent" : "failed",
+        sentAt: new Date(),
+        error: emailResult.error || null
+      };
+
+      await emailNotificationsRef.doc(notifDocId).set(notifRecord, { merge: true });
+
+      if (emailResult.success) {
+        sentCount++;
+      } else {
+        failedCount++;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      published: true,
+      scheduleId: docId,
+      recipientsCount: students.length,
+      sentCount,
+      failedCount,
+      skippedCount,
+      message: `Class schedule published successfully. ${sentCount} notifications processed.`
+    });
+
+  } catch (error) {
+    console.error("Error publishing class schedule:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to publish class schedule.",
+      error: error.message
+    });
+  }
+});
+
+// ======================================
+// 📢 PUBLISH EXAM SCHEDULE & SEND NOTIFICATIONS
+// POST /api/publish/exam-schedule
+// ======================================
+app.post("/api/publish/exam-schedule", async (req, res) => {
+  try {
+    const { scheduleId, scheduleData, examType, publishedBy } = req.body;
+
+    if (!scheduleId && (!scheduleData || !scheduleData.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Exam schedule ID or data is required."
+      });
+    }
+
+    const docId = scheduleId || scheduleData.id;
+    let schedule = scheduleData;
+
+    if (!schedule || !schedule.section) {
+      const docSnap = await examSchedulesRef.doc(docId).get();
+      if (docSnap.exists) {
+        schedule = { id: docSnap.id, ...docSnap.data() };
+      }
+    }
+
+    if (!schedule) {
+      return res.status(404).json({
+        success: false,
+        message: "Exam schedule not found."
+      });
+    }
+
+    const formattedExamType = normalizeExamType(examType || schedule.examType || "Preliminary");
+    const releaseId = `${docId}_${Date.now()}`;
+    const publishedAt = new Date();
+
+    // 1. Mark exam schedule as published in Firestore
+    await examSchedulesRef.doc(docId).set({
+      ...schedule,
+      id: docId,
+      examType: formattedExamType,
+      status: "published",
+      publishedAt,
+      publishedBy: publishedBy || null,
+      releaseId,
+      updatedAt: new Date()
+    }, { merge: true });
+
+    // 2. Query target recipients (Students and Faculty Proctors)
+    const program = String(schedule.program || "").trim().toLowerCase();
+    const major = String(schedule.major || "").trim().toLowerCase();
+
+    const usersSnap = await usersRef.get();
+    const allUsers = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // A. Target students
+    const targetStudents = allUsers.filter(u => {
+      const isStudent = String(u.role || "").trim().toLowerCase() === "student";
+      if (!isStudent) return false;
+      const uProg = String(u.program || "").trim().toLowerCase();
+      const uMaj = String(u.major || "").trim().toLowerCase();
+      if (program && uProg !== program) return false;
+      if (major && uMaj && uMaj !== major) return false;
+      return Boolean(u.email && u.email.includes("@"));
+    });
+
+    // B. Target faculty proctors
+    const proctorNames = new Set();
+    const proctorUids = new Set();
+
+    if (schedule.proctor) proctorNames.add(String(schedule.proctor).trim().toLowerCase());
+    if (schedule.proctorUid) proctorUids.add(String(schedule.proctorUid).trim());
+
+    if (Array.isArray(schedule.exams)) {
+      schedule.exams.forEach(e => {
+        if (e.proctor) proctorNames.add(String(e.proctor).trim().toLowerCase());
+        if (e.proctorUid) proctorUids.add(String(e.proctorUid).trim());
+      });
+    }
+
+    const targetFaculty = allUsers.filter(u => {
+      const isFaculty = String(u.role || "").trim().toLowerCase() === "faculty";
+      if (!isFaculty) return false;
+      if (!u.email || !u.email.includes("@")) return false;
+
+      const normName = String(u.fullName || "").trim().toLowerCase();
+      const matchUid = proctorUids.has(u.id) || (u.uid && proctorUids.has(u.uid));
+      const matchName = proctorNames.has(normName) || [...proctorNames].some(pn => pn && (pn.includes(normName) || normName.includes(pn)));
+
+      return matchUid || matchName;
+    });
+
+    // Combine recipients
+    const recipients = [
+      ...targetStudents.map(s => ({ ...s, recipientType: "student" })),
+      ...targetFaculty.map(f => ({ ...f, recipientType: "faculty" }))
+    ];
+
+    // Remove duplicates among recipients by email
+    const uniqueRecipients = [];
+    const seenEmails = new Set();
+    for (const r of recipients) {
+      const normEmail = String(r.email).toLowerCase();
+      if (!seenEmails.has(normEmail)) {
+        seenEmails.add(normEmail);
+        uniqueRecipients.push(r);
+      }
+    }
+
+    // 3. Dispatch emails with duplicate prevention
+    let sentCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
+
+    for (const recipient of uniqueRecipients) {
+      const notifDocId = `exam_${docId}_${formattedExamType}_${recipient.id}`;
+
+      // Check duplicate
+      const existingNotif = await emailNotificationsRef.doc(notifDocId).get();
+      if (existingNotif.exists && existingNotif.data().status === "sent") {
+        skippedCount++;
+        continue;
+      }
+
+      const emailResult = await sendExamScheduleNotification({
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName || "Student / Faculty",
+        scheduleInfo: schedule,
+        examType: formattedExamType
+      });
+
+      const notifRecord = {
+        recipientUserId: recipient.id,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName || "Student / Faculty",
+        notificationType: "exam",
+        scheduleType: "exam",
+        scheduleId: docId,
+        examType: formattedExamType,
+        releaseId,
+        status: emailResult.success ? "sent" : "failed",
+        sentAt: new Date(),
+        error: emailResult.error || null
+      };
+
+      await emailNotificationsRef.doc(notifDocId).set(notifRecord, { merge: true });
+
+      if (emailResult.success) {
+        sentCount++;
+      } else {
+        failedCount++;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      published: true,
+      scheduleId: docId,
+      examType: formattedExamType,
+      recipientsCount: uniqueRecipients.length,
+      sentCount,
+      failedCount,
+      skippedCount,
+      message: `${formattedExamType} Examination Schedule published successfully. ${sentCount} notifications processed.`
+    });
+
+  } catch (error) {
+    console.error("Error publishing exam schedule:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to publish exam schedule.",
+      error: error.message
     });
   }
 });

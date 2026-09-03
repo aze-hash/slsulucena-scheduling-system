@@ -82,6 +82,7 @@ const subjectBody = document.getElementById("subjectTableBody");
 const scheduleBody = document.getElementById("scheduleTableBody");
 const modal = document.getElementById("scheduleModal");
 const saveScheduleBtn = document.getElementById("saveScheduleBtn");
+const publishScheduleBtn = document.getElementById("publishScheduleBtn");
 const savedSchedulesList = document.getElementById("savedSchedulesList");
 const emptySavedSchedules = document.getElementById("emptySavedSchedules");
 const savedScheduleSearchInput = document.getElementById("savedScheduleSearchInput");
@@ -172,6 +173,10 @@ function scheduleDocId(schedule) {
 async function saveScheduleToFirestore(schedule) {
     const docId = scheduleDocId(schedule);
 
+    const status = schedule.status === "archived"
+        ? "archived"
+        : (schedule.status === "published" ? "published" : (schedule.status || "draft"));
+
     const data = {
         name: schedule.name,
         section: schedule.section,
@@ -182,13 +187,25 @@ async function saveScheduleToFirestore(schedule) {
         academicYear: schedule.academicYear || "",
         entries: schedule.entries,
         rawEntries: schedule.rawEntries,
-        status: schedule.status === "archived" ? "archived" : "active",
+        status: status,
         createdAt: schedule.createdAt
             ? new Date(schedule.createdAt)
             : new Date(),
         updatedAt: new Date(),
         savedBy: auth.currentUser?.uid || null
     };
+
+    if (schedule.publishedAt) {
+        data.publishedAt = schedule.publishedAt instanceof Date
+            ? schedule.publishedAt
+            : new Date(schedule.publishedAt);
+    }
+    if (schedule.publishedBy) {
+        data.publishedBy = schedule.publishedBy;
+    }
+    if (schedule.releaseId) {
+        data.releaseId = schedule.releaseId;
+    }
 
     if (schedule.exportedAt) {
         data.exportedAt = schedule.exportedAt instanceof Date
@@ -197,6 +214,41 @@ async function saveScheduleToFirestore(schedule) {
     }
 
     await setDoc(doc(db, SCHEDULES_COLLECTION, docId), data);
+}
+
+async function publishClassScheduleApi(schedule) {
+    const payload = {
+        scheduleId: schedule.id || scheduleDocId(schedule),
+        scheduleData: schedule,
+        publishedBy: auth.currentUser?.uid || null
+    };
+
+    let response = null;
+    try {
+        response = await fetch("/api/publish/class-schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    } catch (netErr) {
+        try {
+            response = await fetch("http://localhost:3000/api/publish/class-schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+        } catch (fallbackErr) {
+            console.warn("Backend publish API unreachable:", fallbackErr.message);
+        }
+    }
+
+    if (response && response.ok) {
+        try {
+            return await response.json();
+        } catch (_) {}
+        return { success: true };
+    }
+    return { success: false, message: response ? `HTTP ${response.status}` : "Backend unreachable" };
 }
 
 async function loadSchedulesFromFirestore() {
@@ -216,9 +268,10 @@ async function loadSchedulesFromFirestore() {
                 academicYear: data.academicYear || "",
                 entries: data.entries || [],
                 rawEntries: data.rawEntries || [],
-                /* Legacy records without a status field are treated as active so
-                   they remain visible in Saved Schedules until exported. */
-                status: data.status === "archived" ? "archived" : "active",
+                status: data.status === "archived" ? "archived" : (data.status === "published" ? "published" : (data.status || "draft")),
+                publishedAt: data.publishedAt?.toDate?.()?.toISOString?.() || data.publishedAt || null,
+                publishedBy: data.publishedBy || null,
+                releaseId: data.releaseId || null,
                 createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString(),
                 updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || data.updatedAt || new Date().toISOString(),
                 exportedAt: data.exportedAt?.toDate?.()?.toISOString?.() || data.exportedAt || null
@@ -446,6 +499,966 @@ function getSavedBookings(academicYear, semester) {
             }));
         });
     });
+}
+
+/* ==================================================
+   CLASS SCHEDULE CONFLICT ANALYZER MODULE
+   - Section Conflicts
+   - Room Conflicts
+   - Time Overlaps
+   - Strictly scoped to EXACT SAME Academic Year & Semester
+   - Checks Saved/Published AND Saved Draft schedules
+   - NO Faculty Conflicts checked
+================================================== */
+
+/**
+ * Calculates the exact overlapping time range string between two time slots.
+ * e.g., "7:30-10:00" and "9:00-11:00" -> "9:00-10:00"
+ */
+function getOverlapTimeRange(time1, time2) {
+    const range1 = parseTimeRange(time1);
+    const range2 = parseTimeRange(time2);
+    if (!range1 || !range2) return null;
+
+    const startOverlap = Math.max(range1.start, range2.start);
+    const endOverlap = Math.min(range1.end, range2.end);
+
+    if (startOverlap < endOverlap) {
+        const formatMin = mins => {
+            let h = Math.floor(mins / 60);
+            const m = mins % 60;
+            if (h > 12) h -= 12;
+            return `${h}:${m < 10 ? '0' : ''}${m}`;
+        };
+        return `${formatMin(startOverlap)}-${formatMin(endOverlap)}`;
+    }
+    return null;
+}
+
+/**
+ * Returns true if the expanded schedule entry is a PATHFit / Activity subject.
+ * Detects by subject code pattern (PATHFit01–PATHFit99) since meetingType is
+ * not carried through to the expanded entry objects.
+ */
+function isActivityEntry(entry) {
+    if (!entry || !entry.code) return false;
+    return /^pathfit/i.test(String(entry.code).trim());
+}
+
+/**
+ * Maximum number of PATHFit/Activity sections that may simultaneously occupy
+ * the Covered Court (or any Gymnasium-type room). ≤ 3 → allowed; ≥ 4 → conflict.
+ */
+const COVERED_COURT_MAX_SECTIONS = 3;
+
+/**
+ * After the pairwise room-conflict scan, sweep all entries to find groups of
+ * PATHFit/Activity subjects sharing the same room on the same day where more
+ * than COVERED_COURT_MAX_SECTIONS have overlapping time windows.
+ *
+ * @param {Array}  allEntries    - All discrete expanded entries to inspect.
+ * @param {Array}  roomConflicts - Conflict array to push capacity violations into.
+ * @param {Set}    seenKeys      - Deduplication set shared with the main scan.
+ * @param {string} statusLabel   - "Generated (Internal)" | "Saved" | "Draft"
+ * @returns {Array} List of allowed shared Covered Court usages (2 or 3 sections)
+ */
+function checkCoveredCourtCapacity(allEntries, roomConflicts, seenKeys, statusLabel) {
+    const coveredCourtUsage = [];
+    const seenUsageKeys = new Set();
+
+    // Group PATHFit entries by (roomName, day)
+    const groups = new Map();
+    for (const entry of allEntries) {
+        if (!isActivityEntry(entry)) continue;
+        const roomKey = entry.room.trim();
+        const dayKey  = entry.day.trim();
+        const mapKey  = `${roomKey}|||${dayKey}`;
+        if (!groups.has(mapKey)) groups.set(mapKey, []);
+        groups.get(mapKey).push(entry);
+    }
+
+    for (const [mapKey, entries] of groups) {
+        for (let i = 0; i < entries.length; i++) {
+            // Count how many entries overlap with entries[i]'s time
+            const overlapping = entries.filter(e =>
+                e !== entries[i] && timesOverlap(e.time, entries[i].time)
+            );
+            const simultaneousCount = overlapping.length + 1; // include entries[i] itself
+
+            if (simultaneousCount > COVERED_COURT_MAX_SECTIONS) {
+                const conflictKey = `CC_CAP_${entries[i].day}_${entries[i].room}_${entries[i].time}_${simultaneousCount}`;
+                if (!seenKeys.has(conflictKey)) {
+                    seenKeys.add(conflictKey);
+                    const sectionList = [entries[i], ...overlapping]
+                        .map(e => `${e.code} — ${e.section}`)
+                        .join("; ");
+                    roomConflicts.push({
+                        type: "ROOM CAPACITY CONFLICT",
+                        room: entries[i].room,
+                        day: entries[i].day,
+                        overlappingTime: entries[i].time,
+                        simultaneousCount,
+                        maxAllowed: COVERED_COURT_MAX_SECTIONS,
+                        newSchedule: `${entries[i].code} — ${entries[i].section}`,
+                        existingSchedule: sectionList,
+                        status: statusLabel,
+                        description: `${simultaneousCount} sections scheduled simultaneously. Maximum allowed: ${COVERED_COURT_MAX_SECTIONS} sections.`
+                    });
+                }
+            } else if (simultaneousCount >= 2) {
+                const usageKey = `${entries[i].room}_${entries[i].day}_${simultaneousCount}`;
+                if (!seenUsageKeys.has(usageKey)) {
+                    seenUsageKeys.add(usageKey);
+                    coveredCourtUsage.push({
+                        room: entries[i].room,
+                        day: entries[i].day,
+                        count: simultaneousCount,
+                        max: COVERED_COURT_MAX_SECTIONS
+                    });
+                }
+            }
+        }
+    }
+
+    return coveredCourtUsage;
+}
+
+/**
+ * Expands multi-day schedule entries (e.g. "Wednesday / Thursday", "7:30-10:00 / 1:00-3:30")
+ * into discrete single-day, single-time, single-room items.
+ */
+function expandScheduleEntries(schedule) {
+    const discrete = [];
+    if (!schedule) return discrete;
+
+    const sourceEntries = Array.isArray(schedule.rawEntries) && schedule.rawEntries.length > 0
+        ? schedule.rawEntries
+        : (schedule.entries || []);
+
+    const scheduleSection = schedule.section || schedule.name || "";
+    const scheduleStatus = (schedule.status || "draft").toLowerCase();
+
+    sourceEntries.forEach((entry, entryIdx) => {
+        if (!entry) return;
+        // Ignore TBA subjects that have no physical room/time
+        if (TBA_SUBJECT_CODES.has(entry.code) || entry.room === "TBA") {
+            return;
+        }
+
+        const days = String(entry.day || "").split("/").map(s => s.trim()).filter(Boolean);
+        const times = String(entry.time || "").split("/").map(s => s.trim()).filter(Boolean);
+        const rooms = String(entry.room || "").split("/").map(s => s.trim()).filter(Boolean);
+
+        const count = Math.max(days.length, 1);
+        for (let i = 0; i < count; i++) {
+            const day = days[i] || days[0] || "";
+            const time = times[i] || times[0] || "";
+            const room = rooms[i] || rooms[0] || "";
+
+            if (day && time) {
+                discrete.push({
+                    uniqueKey: `${schedule.id || 'curr'}_${entry.code || entryIdx}_${day}_${time}_${i}`,
+                    scheduleId: schedule.id || null,
+                    scheduleName: schedule.name || scheduleSection,
+                    section: entry.section || scheduleSection,
+                    status: scheduleStatus === "published" ? "Saved" : (scheduleStatus === "active" ? "Saved" : "Draft"),
+                    code: entry.code || "N/A",
+                    name: entry.name || "",
+                    day,
+                    time,
+                    room: room || "Unassigned",
+                    academicYear: schedule.academicYear || "",
+                    semester: schedule.semester || ""
+                });
+            }
+        }
+    });
+
+    return discrete;
+}
+
+/**
+ * Filters schedules strictly by matching the exact same Academic Year and Semester.
+ * Completely ignores schedules from different academic years or semesters.
+ */
+function filterSchedulesByAcademicPeriod(schedules, targetAcademicYear, targetSemester) {
+    const targetAY = String(targetAcademicYear || "").trim();
+    const targetSem = String(targetSemester || "").trim().toLowerCase();
+
+    return (schedules || []).filter(s => {
+        if (!s) return false;
+        // Ignore archived schedules
+        if (String(s.status || "").toLowerCase() === "archived") return false;
+
+        const sAY = String(s.academicYear || "").trim();
+        const sSem = String(s.semester || "").trim().toLowerCase();
+
+        return sAY === targetAY && sSem === targetSem;
+    });
+}
+
+/**
+ * Analyzes the newly generated schedule against itself and against all existing
+ * saved/published and draft schedules in the exact same Academic Year & Semester.
+ */
+function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
+    const targetAY = String(generatedSchedule.academicYear || "").trim();
+    const targetSem = String(generatedSchedule.semester || "").trim();
+
+    // 1. Filter existing schedules strictly by exact same Academic Year & Semester
+    const periodSchedules = filterSchedulesByAcademicPeriod(existingSchedules, targetAY, targetSem);
+
+    // 2. Expand generated schedule into discrete single-day units
+    const currentUnits = expandScheduleEntries(generatedSchedule);
+
+    // 3. Expand existing period schedules into discrete single-day units
+    // Exclude the current schedule document if it was previously saved to prevent false self-conflict
+    const existingUnits = [];
+    const currentDocId = generatedSchedule.id || scheduleDocId(generatedSchedule);
+
+    periodSchedules.forEach(sched => {
+        const sDocId = sched.id || scheduleDocId(sched);
+        if (sDocId === currentDocId) return; // Skip self
+
+        const units = expandScheduleEntries(sched);
+        existingUnits.push(...units);
+    });
+
+    const sectionConflicts = [];
+    const roomConflicts = [];
+    let timeOverlapCount = 0;
+    const seenConflictKeys = new Set();
+
+    // ------------------------------------------------------------------
+    // CHECK 1: Generated schedule against ITSELF
+    // ------------------------------------------------------------------
+    for (let i = 0; i < currentUnits.length; i++) {
+        for (let j = i + 1; j < currentUnits.length; j++) {
+            const a = currentUnits[i];
+            const b = currentUnits[j];
+
+            // Must be on the exact same day
+            if (a.day.toLowerCase() !== b.day.toLowerCase()) continue;
+
+            // Must have actual time overlap
+            if (!timesOverlap(a.time, b.time)) continue;
+
+            const overlapTime = getOverlapTimeRange(a.time, b.time) || `${a.time} / ${b.time}`;
+            timeOverlapCount++;
+
+            // Check Section Conflict: Same section having two different subjects at the same time
+            if (a.section && b.section && a.section.trim().toLowerCase() === b.section.trim().toLowerCase() && a.code !== b.code) {
+                const key = `SELF_SEC_${a.day}_${a.section}_${a.code}_${b.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    sectionConflicts.push({
+                        type: "SECTION CONFLICT",
+                        section: a.section,
+                        day: a.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${a.code} (${a.time})`,
+                        existingSchedule: `${b.code} (${b.time})`,
+                        status: "Generated (Internal)",
+                        description: `Section ${a.section} has two overlapping subjects (${a.code} and ${b.code}) on ${a.day}.`
+                    });
+                }
+            }
+
+            // Check Room Conflict: Same room double-booked on same day
+            const aRoom = a.room.trim().toLowerCase();
+            const bRoom = b.room.trim().toLowerCase();
+
+            // PATHFit/Activity entries sharing the same room use the Covered Court
+            // capacity rule (max 3 simultaneous sections) → handled by the post-scan
+            // capacity sweep below. Skip pairwise conflict here for activity pairs.
+            const aIsActivity = isActivityEntry(a);
+            const bIsActivity = isActivityEntry(b);
+            const bothActivity = aIsActivity && bIsActivity;
+
+            // Legacy isGym skip (room name contains "gym") is kept as a fallback.
+            const isGymByName = aRoom.includes("gym") && bRoom.includes("gym");
+
+            if (!bothActivity && !isGymByName && aRoom && bRoom && aRoom === bRoom) {
+                const key = `SELF_ROOM_${a.day}_${a.room}_${a.code}_${b.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    roomConflicts.push({
+                        type: "ROOM CONFLICT",
+                        room: a.room,
+                        day: a.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${a.code} — ${a.section}`,
+                        existingSchedule: `${b.code} — ${b.section}`,
+                        status: "Generated (Internal)",
+                        description: `Room ${a.room} is assigned to both ${a.code} and ${b.code} at overlapping times.`
+                    });
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // CHECK 2: Generated schedule against EXISTING schedules (Saved & Draft)
+    // ------------------------------------------------------------------
+    for (const cur of currentUnits) {
+        for (const ext of existingUnits) {
+            // Must be on the exact same day
+            if (cur.day.toLowerCase() !== ext.day.toLowerCase()) continue;
+
+            // Must have actual time overlap
+            if (!timesOverlap(cur.time, ext.time)) continue;
+
+            const overlapTime = getOverlapTimeRange(cur.time, ext.time) || `${cur.time} / ${ext.time}`;
+            timeOverlapCount++;
+
+            // A. Section Conflict with an existing schedule
+            if (cur.section && ext.section && cur.section.trim().toLowerCase() === ext.section.trim().toLowerCase()) {
+                const key = `EXT_SEC_${cur.day}_${cur.section}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    sectionConflicts.push({
+                        type: "SECTION CONFLICT",
+                        section: cur.section,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: ext.status || "Draft",
+                        description: `Section ${cur.section} already has ${ext.code} scheduled on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+
+            // B. Room Conflict with an existing schedule
+            // PATHFit/Activity pairs → capacity sweep; normal rooms → immediate conflict.
+            const curRoom = cur.room.trim().toLowerCase();
+            const extRoom = ext.room.trim().toLowerCase();
+            const curIsActivity = isActivityEntry(cur);
+            const extIsActivity = isActivityEntry(ext);
+            const bothActivityExt = curIsActivity && extIsActivity;
+            const isGymByNameExt = curRoom.includes("gym") && extRoom.includes("gym");
+
+            if (!bothActivityExt && !isGymByNameExt && curRoom && extRoom && curRoom === extRoom) {
+                const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    roomConflicts.push({
+                        type: "ROOM CONFLICT",
+                        room: cur.room,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: ext.status || "Draft",
+                        description: `Room ${cur.room} is occupied by ${ext.section} (${ext.code}) on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // CHECK 3: Covered Court / PATHFit capacity sweep
+    // Checks all activity entries (current + existing) together for
+    // simultaneous overcapacity (> COVERED_COURT_MAX_SECTIONS sections).
+    // ------------------------------------------------------------------
+    const allActivityUnits = [...currentUnits, ...existingUnits];
+    const coveredCourtUsage = checkCoveredCourtCapacity(allActivityUnits, roomConflicts, seenConflictKeys, "Saved");
+
+    const totalConflicts = sectionConflicts.length + roomConflicts.length;
+
+    return {
+        totalConflicts,
+        sectionConflicts,
+        roomConflicts,
+        timeOverlaps: timeOverlapCount,
+        academicYear: targetAY,
+        semester: targetSem,
+        coveredCourtUsage
+    };
+}
+
+/**
+ * Renders the Conflict Analyzer card into the #scheduleConflicts container
+ * and controls the enabled/disabled state of the Publish button.
+ */
+function renderConflictAnalyzerUI(analysisResult) {
+    const container = document.getElementById("scheduleConflicts");
+    if (!container) return;
+
+    const {
+        totalConflicts,
+        sectionConflicts,
+        roomConflicts,
+        timeOverlaps,
+        academicYear,
+        semester,
+        coveredCourtUsage
+    } = analysisResult;
+
+    const ayText = academicYear ? `A.Y. ${escapeHtml(academicYear)} • ` : "";
+    const semText = escapeHtml(semester || "");
+    const periodDisplay = `${ayText}${semText}`.trim() || "Selected Academic Period";
+
+    const publishBtn = document.getElementById("publishScheduleBtn");
+
+    if (totalConflicts === 0) {
+        // CONFLICT-FREE STATE (Success / Green) - Compact layout matching design
+        const courtUsageHtml = Array.isArray(coveredCourtUsage) && coveredCourtUsage.length > 0
+            ? coveredCourtUsage.map(u => `
+                <div class="scanner-check-item completed" style="margin-top: 2px;">
+                    <div class="scanner-check-item-left">
+                        <span class="scanner-icon completed">✓</span>
+                        <span>${escapeHtml(u.room)} (${escapeHtml(u.day)}): ${u.count}/${u.max} sections</span>
+                    </div>
+                    <span style="font-size: 11px; font-weight: 700; color: #16a34a; background: #dcfce7; padding: 1px 6px; border-radius: 4px;">Allowed</span>
+                </div>
+            `).join("")
+            : "";
+
+        container.innerHTML = `
+            <div class="conflict-scanner-panel success-mode">
+                <div class="scanner-header">
+                    <div class="scanner-header-title">
+                        <span style="color:#16a34a;">✓</span>
+                        <span>Conflict Analyzer</span>
+                    </div>
+                    <span class="scanner-badge success">0 Conflicts</span>
+                </div>
+
+                <div class="scanner-checklist" style="margin-top: 10px;">
+                    <div class="scanner-check-item completed">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon completed">✓</span>
+                            <span>Section conflicts</span>
+                        </div>
+                        <span class="scanner-count-val zero">0</span>
+                    </div>
+                    <div class="scanner-check-item completed">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon completed">✓</span>
+                            <span>Room conflicts</span>
+                        </div>
+                        <span class="scanner-count-val zero">0</span>
+                    </div>
+                    <div class="scanner-check-item completed">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon completed">✓</span>
+                            <span>Time overlaps</span>
+                        </div>
+                        <span class="scanner-count-val zero">0</span>
+                    </div>
+                </div>
+
+                <div class="scanner-checklist" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed #bbf7d0;">
+                    <div class="scanner-check-item completed">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon completed">✓</span>
+                            <span>Saved schedules checked</span>
+                        </div>
+                    </div>
+                    <div class="scanner-check-item completed">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon completed">✓</span>
+                            <span>Draft schedules checked</span>
+                        </div>
+                    </div>
+                    ${courtUsageHtml}
+                </div>
+
+                <div class="scanner-summary-box success">
+                    ✓ No conflicts detected for<br>
+                    <strong>${periodDisplay}</strong>
+                </div>
+            </div>
+        `;
+
+        // Enable Publish button
+        if (publishBtn) {
+            publishBtn.disabled = false;
+            publishBtn.innerHTML = 'Publish Schedule';
+            publishBtn.title = "Publish this schedule and notify students";
+            publishBtn.style.opacity = "1";
+            publishBtn.style.cursor = "pointer";
+        }
+
+        // Remove any previous disabled hint
+        const existingHint = document.getElementById("publishDisabledHint");
+        if (existingHint) existingHint.remove();
+
+    } else {
+        // CONFLICT DETECTED STATE (Warning / Red) - Compact layout matching design
+        const allConflictCards = [
+            ...sectionConflicts.map(c => ({ ...c, kind: "section" })),
+            ...roomConflicts.map(c => ({ ...c, kind: "room" }))
+        ];
+
+        const cardsHtml = allConflictCards.map(c => {
+            const isSec = c.kind === "section";
+            const isCap = c.type === "ROOM CAPACITY CONFLICT";
+            const typeLabel = isSec
+                ? "⚠ SECTION CONFLICT"
+                : (isCap ? "⚠ ROOM CAPACITY CONFLICT" : "⚠ ROOM CONFLICT");
+            const typeClass = isSec ? "section-type" : "room-type";
+            const statusClass = c.status === "Draft"
+                ? "conflict-status-draft"
+                : (c.status === "Saved" ? "conflict-status-saved" : "conflict-status-internal");
+
+            return `
+                <div class="conflict-item-card ${typeClass}">
+                    <div class="conflict-item-type ${typeClass}">
+                        <span>${typeLabel}</span>
+                        <span class="conflict-status-pill ${statusClass}">Status: ${escapeHtml(c.status)}</span>
+                    </div>
+                    <div class="conflict-item-details">
+                        <div>
+                            <span class="label">Room:</span>
+                            <span class="value">${escapeHtml(c.room || (isSec ? (c.section || "—") : "Covered Court"))}</span>
+                        </div>
+                        ${isSec ? `
+                        <div>
+                            <span class="label">Section:</span>
+                            <span class="value">${escapeHtml(c.section || "—")}</span>
+                        </div>` : ''}
+                        <div>
+                            <span class="label">Day:</span>
+                            <span class="value">${escapeHtml(c.day || "—")}</span>
+                        </div>
+                        <div>
+                            <span class="label">Overlapping Time:</span>
+                            <span class="value" style="color:#d32f2f; font-weight:600;">${escapeHtml(c.overlappingTime || "—")}</span>
+                        </div>
+                        ${isCap ? `
+                        <div style="grid-column: span 2;">
+                            <span class="label">Capacity Exceeded:</span>
+                            <span class="value" style="color:#d32f2f; font-weight:700;">${c.simultaneousCount} sections scheduled simultaneously (Max allowed: ${c.maxAllowed || 3})</span>
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <span class="label">Affected Schedules:</span>
+                            <span class="value">${escapeHtml(c.existingSchedule || c.newSchedule || "—")}</span>
+                        </div>
+                        ` : `
+                        <div>
+                            <span class="label">New Schedule:</span>
+                            <span class="value">${escapeHtml(c.newSchedule || "—")}</span>
+                        </div>
+                        <div>
+                            <span class="label">Existing Schedule:</span>
+                            <span class="value">${escapeHtml(c.existingSchedule || "—")}</span>
+                        </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+        container.innerHTML = `
+            <div class="conflict-scanner-panel warning-mode">
+                <div class="scanner-header">
+                    <div class="scanner-header-title">
+                        <span style="color:#dc2626;">⚠</span>
+                        <span>Conflict Analyzer</span>
+                    </div>
+                    <span class="scanner-badge warning">${totalConflicts} ${totalConflicts === 1 ? 'Conflict' : 'Conflicts'}</span>
+                </div>
+
+                <div class="scanner-checklist" style="margin-top: 10px;">
+                    <div class="scanner-check-item ${sectionConflicts.length > 0 ? 'conflict' : 'completed'}">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon ${sectionConflicts.length > 0 ? 'conflict' : 'completed'}">${sectionConflicts.length > 0 ? '⚠' : '✓'}</span>
+                            <span>Section Conflicts</span>
+                        </div>
+                        <span class="scanner-count-val ${sectionConflicts.length > 0 ? 'nonzero' : 'zero'}">${sectionConflicts.length}</span>
+                    </div>
+                    <div class="scanner-check-item ${roomConflicts.length > 0 ? 'conflict' : 'completed'}">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon ${roomConflicts.length > 0 ? 'conflict' : 'completed'}">${roomConflicts.length > 0 ? '⚠' : '✓'}</span>
+                            <span>Room Conflicts</span>
+                        </div>
+                        <span class="scanner-count-val ${roomConflicts.length > 0 ? 'nonzero' : 'zero'}">${roomConflicts.length}</span>
+                    </div>
+                    <div class="scanner-check-item ${timeOverlaps > 0 ? 'conflict' : 'completed'}">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon ${timeOverlaps > 0 ? 'conflict' : 'completed'}">${timeOverlaps > 0 ? '⚠' : '✓'}</span>
+                            <span>Time Overlaps</span>
+                        </div>
+                        <span class="scanner-count-val ${timeOverlaps > 0 ? 'nonzero' : 'zero'}">${timeOverlaps}</span>
+                    </div>
+                </div>
+
+                <div class="scanner-summary-box warning">
+                    ⚠ Conflicts detected for <strong>${periodDisplay}</strong>.<br>
+                    Please review the conflicts before publishing.
+                </div>
+
+                <div class="scanner-conflicts-list">
+                    ${cardsHtml}
+                </div>
+            </div>
+            <div id="publishDisabledHint" class="publish-disabled-hint">
+                <span>⚠ Cannot publish while schedule conflicts exist.</span>
+            </div>
+        `;
+
+        // Disable Publish button
+        if (publishBtn) {
+            publishBtn.disabled = true;
+            publishBtn.innerHTML = 'Publish Schedule — Disabled';
+            publishBtn.title = "Cannot publish while schedule conflicts exist.";
+            publishBtn.style.opacity = "0.55";
+            publishBtn.style.cursor = "not-allowed";
+        }
+    }
+}
+
+/**
+ * Runs the live scanning animation with genuine progressive validation stages,
+ * smoothly transitioning to the final Conflict Analyzer results.
+ */
+async function runConflictScanningProcess(generatedSchedule, existingSchedules) {
+    const container = document.getElementById("scheduleConflicts");
+    const publishBtn = document.getElementById("publishScheduleBtn");
+
+    if (publishBtn) {
+        publishBtn.disabled = true;
+        publishBtn.innerHTML = '<span class="scanner-icon active">⟳</span> Publish Schedule — Checking...';
+        publishBtn.style.opacity = "0.7";
+        publishBtn.style.cursor = "wait";
+    }
+
+    const targetAY = String(generatedSchedule.academicYear || "").trim();
+    const targetSem = String(generatedSchedule.semester || "").trim();
+    const periodDisplay = `${targetAY ? `A.Y. ${escapeHtml(targetAY)} • ` : ""}${escapeHtml(targetSem)}`.trim() || "Selected Academic Period";
+
+    // 1. Render initial compact scanning panel matching the exact ASCII mock
+    if (container) {
+        container.innerHTML = `
+            <div class="conflict-scanner-panel scanning-mode">
+                <div class="scanner-header">
+                    <div class="scanner-header-title">
+                        <span>🔍</span>
+                        <span>Conflict Analyzer</span>
+                    </div>
+                    <span class="scanner-badge scanning">Scanning</span>
+                </div>
+
+                <div class="scanner-scanning-subtext">
+                    Scanning Generated Schedule...
+                </div>
+                <div class="scanner-period-text">
+                    ${periodDisplay}
+                </div>
+
+                <div class="scanner-checklist">
+                    <div id="scanStep1" class="scanner-check-item active">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon active">⟳</span>
+                            <span>Section conflicts</span>
+                        </div>
+                    </div>
+                    <div id="scanStep2" class="scanner-check-item pending">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon pending">○</span>
+                            <span>Room conflicts</span>
+                        </div>
+                    </div>
+                    <div id="scanStep3" class="scanner-check-item pending">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon pending">○</span>
+                            <span>Time overlaps</span>
+                        </div>
+                    </div>
+                    <div id="scanStep4" class="scanner-check-item pending">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon pending">○</span>
+                            <span>Saved schedules</span>
+                        </div>
+                    </div>
+                    <div id="scanStep5" class="scanner-check-item pending">
+                        <div class="scanner-check-item-left">
+                            <span class="scanner-icon pending">○</span>
+                            <span>Saved drafts</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="scanner-progress-container">
+                    <div id="scanProgressBar" class="scanner-progress-fill" style="width: 15%;"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    const updateStep = (stepNum, status) => {
+        const el = document.getElementById(`scanStep${stepNum}`);
+        if (!el) return;
+        el.className = `scanner-check-item ${status}`;
+        const iconEl = el.querySelector(".scanner-icon");
+        if (iconEl) {
+            iconEl.className = `scanner-icon ${status}`;
+            if (status === "completed") {
+                iconEl.innerHTML = "✓";
+            } else if (status === "active") {
+                iconEl.innerHTML = "⟳";
+            } else {
+                iconEl.innerHTML = "○";
+            }
+        }
+    };
+
+    const setProgress = percent => {
+        const bar = document.getElementById("scanProgressBar");
+        if (bar) bar.style.width = `${percent}%`;
+    };
+
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    // STAGE 1: Checking Section conflicts in the generated schedule
+    await delay(130);
+    const currentUnits = expandScheduleEntries(generatedSchedule);
+    const internalSectionConflicts = [];
+    const internalRoomConflicts = [];
+    let timeOverlapCount = 0;
+    const seenConflictKeys = new Set();
+
+    for (let i = 0; i < currentUnits.length; i++) {
+        for (let j = i + 1; j < currentUnits.length; j++) {
+            const a = currentUnits[i];
+            const b = currentUnits[j];
+            if (a.day.toLowerCase() !== b.day.toLowerCase()) continue;
+            if (!timesOverlap(a.time, b.time)) continue;
+
+            const overlapTime = getOverlapTimeRange(a.time, b.time) || `${a.time} / ${b.time}`;
+            timeOverlapCount++;
+
+            if (a.section && b.section && a.section.trim().toLowerCase() === b.section.trim().toLowerCase() && a.code !== b.code) {
+                const key = `SELF_SEC_${a.day}_${a.section}_${a.code}_${b.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    internalSectionConflicts.push({
+                        type: "SECTION CONFLICT",
+                        section: a.section,
+                        day: a.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${a.code} (${a.time})`,
+                        existingSchedule: `${b.code} (${b.time})`,
+                        status: "Generated (Internal)",
+                        description: `Section ${a.section} has two overlapping subjects (${a.code} and ${b.code}) on ${a.day}.`
+                    });
+                }
+            }
+        }
+    }
+    updateStep(1, "completed");
+    updateStep(2, "active");
+    setProgress(35);
+
+    // STAGE 2: Checking Room conflicts in the generated schedule
+    await delay(140);
+    for (let i = 0; i < currentUnits.length; i++) {
+        for (let j = i + 1; j < currentUnits.length; j++) {
+            const a = currentUnits[i];
+            const b = currentUnits[j];
+            if (a.day.toLowerCase() !== b.day.toLowerCase()) continue;
+            if (!timesOverlap(a.time, b.time)) continue;
+
+            const aRoom = a.room.trim().toLowerCase();
+            const bRoom = b.room.trim().toLowerCase();
+
+            // PATHFit/Activity pairs sharing the same room → capacity sweep (not pairwise conflict).
+            const aIsActivity = isActivityEntry(a);
+            const bIsActivity = isActivityEntry(b);
+            const bothActivity = aIsActivity && bIsActivity;
+            const isGymByName = aRoom.includes("gym") && bRoom.includes("gym");
+
+            if (!bothActivity && !isGymByName && aRoom && bRoom && aRoom === bRoom) {
+                const overlapTime = getOverlapTimeRange(a.time, b.time) || `${a.time} / ${b.time}`;
+                const key = `SELF_ROOM_${a.day}_${a.room}_${a.code}_${b.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    internalRoomConflicts.push({
+                        type: "ROOM CONFLICT",
+                        room: a.room,
+                        day: a.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${a.code} — ${a.section}`,
+                        existingSchedule: `${b.code} — ${b.section}`,
+                        status: "Generated (Internal)",
+                        description: `Room ${a.room} is assigned to both ${a.code} and ${b.code} at overlapping times.`
+                    });
+                }
+            }
+        }
+    }
+    updateStep(2, "completed");
+    updateStep(3, "active");
+    setProgress(55);
+
+    // STAGE 3: Checking Time overlaps
+    await delay(130);
+    updateStep(3, "completed");
+    updateStep(4, "active");
+    setProgress(75);
+
+    // STAGE 4: Checking Saved / Published schedules in the exact same A.Y. + Semester
+    await delay(150);
+    const periodSchedules = filterSchedulesByAcademicPeriod(existingSchedules, targetAY, targetSem);
+    const currentDocId = generatedSchedule.id || scheduleDocId(generatedSchedule);
+
+    const externalSavedUnits = [];
+    const externalDraftUnits = [];
+
+    periodSchedules.forEach(sched => {
+        const sDocId = sched.id || scheduleDocId(sched);
+        if (sDocId === currentDocId) return;
+
+        const units = expandScheduleEntries(sched);
+        const schedStatus = (sched.status || "draft").toLowerCase();
+        if (schedStatus === "published" || schedStatus === "active") {
+            externalSavedUnits.push(...units);
+        } else {
+            externalDraftUnits.push(...units);
+        }
+    });
+
+    const externalSectionConflicts = [];
+    const externalRoomConflicts = [];
+
+    for (const cur of currentUnits) {
+        for (const ext of externalSavedUnits) {
+            if (cur.day.toLowerCase() !== ext.day.toLowerCase()) continue;
+            if (!timesOverlap(cur.time, ext.time)) continue;
+
+            const overlapTime = getOverlapTimeRange(cur.time, ext.time) || `${cur.time} / ${ext.time}`;
+            timeOverlapCount++;
+
+            if (cur.section && ext.section && cur.section.trim().toLowerCase() === ext.section.trim().toLowerCase()) {
+                const key = `EXT_SEC_${cur.day}_${cur.section}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    externalSectionConflicts.push({
+                        type: "SECTION CONFLICT",
+                        section: cur.section,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: "Saved",
+                        description: `Section ${cur.section} already has ${ext.code} scheduled on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+
+            // PATHFit/Activity pairs → capacity sweep; normal rooms → immediate conflict.
+            const curRoom = cur.room.trim().toLowerCase();
+            const extRoom = ext.room.trim().toLowerCase();
+            const curIsActivity = isActivityEntry(cur);
+            const extIsActivity = isActivityEntry(ext);
+            const bothActivityExt = curIsActivity && extIsActivity;
+            const isGymByNameExt = curRoom.includes("gym") && extRoom.includes("gym");
+
+            if (!bothActivityExt && !isGymByNameExt && curRoom && extRoom && curRoom === extRoom) {
+                const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    externalRoomConflicts.push({
+                        type: "ROOM CONFLICT",
+                        room: cur.room,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: "Saved",
+                        description: `Room ${cur.room} is occupied by ${ext.section} (${ext.code}) on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+        }
+    }
+    updateStep(4, "completed");
+    updateStep(5, "active");
+    setProgress(90);
+
+    // STAGE 5: Checking Saved Drafts in the exact same A.Y. + Semester
+    await delay(140);
+    for (const cur of currentUnits) {
+        for (const ext of externalDraftUnits) {
+            if (cur.day.toLowerCase() !== ext.day.toLowerCase()) continue;
+            if (!timesOverlap(cur.time, ext.time)) continue;
+
+            const overlapTime = getOverlapTimeRange(cur.time, ext.time) || `${cur.time} / ${ext.time}`;
+            timeOverlapCount++;
+
+            if (cur.section && ext.section && cur.section.trim().toLowerCase() === ext.section.trim().toLowerCase()) {
+                const key = `EXT_SEC_${cur.day}_${cur.section}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    externalSectionConflicts.push({
+                        type: "SECTION CONFLICT",
+                        section: cur.section,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: "Draft",
+                        description: `Section ${cur.section} already has ${ext.code} scheduled on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+
+            // PATHFit/Activity pairs → capacity sweep; normal rooms → immediate conflict.
+            const curRoomD = cur.room.trim().toLowerCase();
+            const extRoomD = ext.room.trim().toLowerCase();
+            const curIsActivityD = isActivityEntry(cur);
+            const extIsActivityD = isActivityEntry(ext);
+            const bothActivityDraft = curIsActivityD && extIsActivityD;
+            const isGymByNameDraft = curRoomD.includes("gym") && extRoomD.includes("gym");
+
+            if (!bothActivityDraft && !isGymByNameDraft && curRoomD && extRoomD && curRoomD === extRoomD) {
+                const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
+                if (!seenConflictKeys.has(key)) {
+                    seenConflictKeys.add(key);
+                    externalRoomConflicts.push({
+                        type: "ROOM CONFLICT",
+                        room: cur.room,
+                        day: cur.day,
+                        overlappingTime: overlapTime,
+                        newSchedule: `${cur.code} — ${cur.section}`,
+                        existingSchedule: `${ext.code} — ${ext.section}`,
+                        status: "Draft",
+                        description: `Room ${cur.room} is occupied by ${ext.section} (${ext.code}) on ${cur.day} at ${ext.time}.`
+                    });
+                }
+            }
+        }
+    }
+    updateStep(5, "completed");
+    setProgress(100);
+    await delay(160); // brief settling pause before transition
+
+    // Covered Court / PATHFit capacity sweep across all units (current + external).
+    const allActivityUnitsForScan = [...currentUnits, ...externalSavedUnits, ...externalDraftUnits];
+    const coveredCourtUsage = checkCoveredCourtCapacity(allActivityUnitsForScan, externalRoomConflicts, seenConflictKeys, "Saved");
+
+    const allSectionConflicts = [...internalSectionConflicts, ...externalSectionConflicts];
+    const allRoomConflicts = [...internalRoomConflicts, ...externalRoomConflicts];
+    const totalConflicts = allSectionConflicts.length + allRoomConflicts.length;
+
+    const analysisResult = {
+        totalConflicts,
+        sectionConflicts: allSectionConflicts,
+        roomConflicts: allRoomConflicts,
+        timeOverlaps: timeOverlapCount,
+        academicYear: targetAY,
+        semester: targetSem,
+        coveredCourtUsage,
+        savedCheckedCount: externalSavedUnits.length,
+        draftCheckedCount: externalDraftUnits.length
+    };
+
+    // Render final results smoothly into the compact panel
+    renderConflictAnalyzerUI(analysisResult);
+    return analysisResult;
 }
 
 programSelect.addEventListener("change", () => {
@@ -1466,13 +2479,25 @@ async function generateSchedule() {
 
     saveScheduleBtn.disabled = false;
 
-    document.getElementById("scheduleConflicts").innerHTML = `
-        <div style="padding:8px 12px; background:#eef9f1; border-radius:6px; color:#155724; text-align:center;">
-            Schedule generated successfully.
-        </div>
-    `;
+    // 1. Hide the full-page generating overlay so the modal is directly in focus
+    generatingOverlay.style.display = "none";
+    generateBtn.disabled = false;
 
+    // 2. Open the Generated Schedule modal with the schedule table displayed
     modal.style.display = "block";
+
+    // 3. Load existing schedules from Firestore (or local fallback)
+    let existingSchedules = [];
+    try {
+        existingSchedules = await loadSchedulesFromFirestore();
+    } catch (e) {
+        console.warn("Could not fetch fresh Firestore schedules for conflict check, falling back to local:", e.message);
+        existingSchedules = getSavedSchedules();
+    }
+
+    // 4. Run live progressive scanning and conflict analysis inside the modal
+    await runConflictScanningProcess(generatedSchedule, existingSchedules);
+
     } finally {
         generatingOverlay.style.display = "none";
         generateBtn.disabled = false;
@@ -1491,7 +2516,7 @@ saveScheduleBtn.addEventListener("click", async () => {
     const resetButtonState = () => {
         saveScheduleBtn.disabled = false;
         saveScheduleBtn.classList.remove("loading");
-        saveScheduleBtn.innerHTML = 'Save Schedule';
+        saveScheduleBtn.innerHTML = 'Save as Draft';
     };
 
     const triggerButtonShake = () => {
@@ -1532,7 +2557,7 @@ saveScheduleBtn.addEventListener("click", async () => {
         /* Use the stable Firestore document ID as the schedule ID */
         const docId = scheduleDocId(generatedSchedule);
         generatedSchedule.id = docId;
-        generatedSchedule.status = "active";
+        generatedSchedule.status = "draft";
 
         const updatedSchedules = schedules.filter(s =>
             s.id !== docId && !(
@@ -1565,13 +2590,75 @@ saveScheduleBtn.addEventListener("click", async () => {
         }, 300);
 
         /* Show the saved success overlay with checkmark animation */
-        showSuccessOverlay("Schedule saved successfully!");
+        showSuccessOverlay("Schedule saved as draft!");
 
     } catch (error) {
         console.error("Could not save schedule to Firestore:", error);
         resetButtonState();
         triggerButtonShake();
         showToast("Failed to save schedule. Please try again.");
+    }
+});
+
+// ======================================
+// 📢 PUBLISH SCHEDULE BUTTON (Preview Modal)
+// ======================================
+publishScheduleBtn.addEventListener("click", async () => {
+    if (!generatedSchedule) return;
+    if (publishScheduleBtn.disabled || publishScheduleBtn.getAttribute("disabled") !== null) {
+        showToast("Cannot publish while schedule conflicts exist. Please resolve conflicts first or save as draft.");
+        return;
+    }
+
+    const setLoading = () => {
+        publishScheduleBtn.disabled = true;
+        saveScheduleBtn.disabled = true;
+        publishScheduleBtn.innerHTML = '<span class="btn-spinner"></span> Publishing...';
+    };
+    const resetState = () => {
+        publishScheduleBtn.disabled = false;
+        saveScheduleBtn.disabled = false;
+        publishScheduleBtn.innerHTML = 'Publish Schedule';
+    };
+
+    setLoading();
+
+    try {
+        /* First save/update in Firestore with status="published" */
+        const docId = scheduleDocId(generatedSchedule);
+        generatedSchedule.id = docId;
+        generatedSchedule.status = "published";
+        await saveScheduleToFirestore(generatedSchedule);
+
+        /* Dispatch notifications via backend */
+        const result = await publishClassScheduleApi(generatedSchedule);
+        if (!result.success) {
+            console.warn("Publish backend returned non-success:", result.message);
+        }
+
+        /* Refresh UI */
+        const firestoreSchedules = await loadSchedulesFromFirestore();
+        setSavedSchedules(firestoreSchedules);
+        renderSavedSchedules();
+
+        /* Close modal */
+        const modalContent = modal.querySelector(".modal-content");
+        if (modalContent) modalContent.classList.add("scale-down");
+        modal.classList.add("fade-out");
+        setTimeout(() => {
+            modal.style.display = "none";
+            modal.classList.remove("fade-out");
+            if (modalContent) modalContent.classList.remove("scale-down");
+            resetState();
+        }, 300);
+
+        const sentMsg = result.sentCount != null ? ` ${result.sentCount} email notification(s) sent.` : "";
+        showSuccessOverlay(`Schedule published!${sentMsg}`);
+
+    } catch (error) {
+        console.error("Could not publish schedule:", error);
+        resetState();
+        showToast("Failed to publish schedule. Please try again.");
     }
 });
 
@@ -1642,10 +2729,10 @@ function scheduleMatchesSavedSearch(schedule, query) {
 }
 
 function renderSavedSchedules() {
-    /* Only ACTIVE schedules are shown in Saved Schedules.
+    /* Only non-archived schedules are shown in Saved Schedules (active, draft, and published).
        Archived schedules are displayed in the Schedule Archive section below. */
     const allActiveSchedules = getSavedSchedules().filter(
-        schedule => (schedule.status || "active") !== "archived"
+        schedule => (schedule.status || "draft") !== "archived"
     );
 
     const query = (savedScheduleSearchInput?.value || "").trim().toLowerCase();
@@ -1681,9 +2768,17 @@ function renderSavedSchedules() {
                             ].filter(Boolean).join(" • ")
                         )}
                     </small>
+                    ${schedule.status === "published"
+                        ? `<span style="display:inline-block;margin-left:8px;background:#2e7d32;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;">✓ Published</span>`
+                        : `<span style="display:inline-block;margin-left:8px;background:#546e7a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;">Draft</span>`
+                    }
                 </div>
 
                 <div class="schedule-card-actions">
+                    ${schedule.status !== "published"
+                        ? `<button type="button" class="publish-schedule-card-btn" data-publish-schedule="${escapeHtml(schedule.id)}" style="background:#2e7d32;color:white;border:none;border-radius:8px;padding:7px 16px;font-weight:bold;font-size:13px;cursor:pointer;">Publish</button>`
+                        : ""
+                    }
                     <button type="button" class="edit-schedule-btn" data-edit-schedule="${escapeHtml(schedule.id)}">
                         Edit
                     </button>
@@ -2085,6 +3180,60 @@ savedSchedulesList.addEventListener("click", async event => {
     const editId = event.target.dataset.editSchedule;
     if (editId) {
         openEditScheduleModal(editId);
+        return;
+    }
+
+    // Publish button on saved schedule card
+    const publishId = event.target.dataset.publishSchedule;
+    if (publishId) {
+        const btn = event.target;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Publishing...";
+
+        const schedules = getSavedSchedules();
+        const schedule = schedules.find(item => item.id === publishId);
+        if (!schedule) {
+            btn.disabled = false;
+            btn.textContent = origText;
+            showToast("Schedule not found.");
+            return;
+        }
+
+        try {
+            /* Check for conflicts before publishing */
+            let allSchedules = [];
+            try {
+                allSchedules = await loadSchedulesFromFirestore();
+            } catch (_) {
+                allSchedules = schedules;
+            }
+
+            const analysis = analyzeClassScheduleConflicts(schedule, allSchedules);
+            if (analysis.totalConflicts > 0) {
+                btn.disabled = false;
+                btn.textContent = origText;
+                showToast(`Cannot publish schedule: ${analysis.totalConflicts} conflict(s) detected in A.Y. ${schedule.academicYear}, ${schedule.semester}. Please edit the schedule first.`);
+                return;
+            }
+
+            schedule.status = "published";
+            await saveScheduleToFirestore(schedule);
+            const result = await publishClassScheduleApi(schedule);
+
+            /* Reload from Firestore to get authoritative data */
+            const firestoreSchedules = await loadSchedulesFromFirestore();
+            setSavedSchedules(firestoreSchedules);
+            renderSavedSchedules();
+
+            const sentMsg = result && result.sentCount != null ? ` ${result.sentCount} email notification(s) sent.` : "";
+            showSuccessOverlay(`Schedule published!${sentMsg}`);
+        } catch (err) {
+            console.error("Could not publish schedule:", err);
+            btn.disabled = false;
+            btn.textContent = origText;
+            showToast("Failed to publish schedule. Please try again.");
+        }
         return;
     }
 

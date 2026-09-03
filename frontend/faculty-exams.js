@@ -773,9 +773,9 @@ function watchAssignedExamSchedules(user, fullName) {
 
             snapshot.docs.forEach(docSnap => {
                 const schedule = { id: docSnap.id, ...docSnap.data() };
-                const status = normalize(schedule.status || "generated");
-                const isValidStatus = status === "generated" || status === "published" || status === "active";
-                if (!isValidStatus) return;
+                /* Only published exam schedules are visible to faculty */
+                const isPublished = String(schedule.status || "").toLowerCase() === "published";
+                if (!isPublished) return;
 
                 const allExams = Array.isArray(schedule.exams) ? schedule.exams : [];
                 // STRICT isolation: ONLY exam subjects assigned specifically to THIS faculty account

@@ -22,6 +22,7 @@ const savedScheduleBody = document.getElementById("savedScheduleTable");
 const examModalBody = document.getElementById("examModalBody");
 const generateExamBtn = document.getElementById("generateExamBtn");
 const saveExamBtn = document.getElementById("saveExamBtn");
+const publishExamBtn = document.getElementById("publishExamBtn");
 const examModal = document.getElementById("examModal");
 const savedOverlay = document.getElementById("savedOverlay");
 const examTypeSelect = document.getElementById("examType");
@@ -1596,12 +1597,22 @@ function renderSavedExams() {
     });
 
     empty.hidden = schedules.length > 0;
-    list.innerHTML = schedules.map(schedule => `<article style="margin-top:16px">
-        <div class="section-header"><div><h4 style="margin:0">${escapeHtml(schedule.title)}</h4>
+    list.innerHTML = schedules.map(schedule => {
+        const isPublished = schedule.status === "published";
+        const statusBadge = isPublished
+            ? `<span style="display:inline-block;margin-left:8px;background:#2e7d32;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;">✓ Published</span>`
+            : `<span style="display:inline-block;margin-left:8px;background:#546e7a;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;">Draft</span>`;
+        const publishBtn = !isPublished
+            ? `<button type="button" data-publish-exam="${escapeHtml(schedule.id)}" style="background:#2e7d32;color:white;border:none;border-radius:8px;padding:7px 16px;font-weight:bold;font-size:13px;cursor:pointer;">Publish</button>`
+            : "";
+
+        return `<article style="margin-top:16px">
+        <div class="section-header"><div><h4 style="margin:0">${escapeHtml(schedule.title)}${statusBadge}</h4>
         <small>${escapeHtml([schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "", schedule.semester, schedule.yearLevel, schedule.examType, `Proctor: ${schedule.proctor}`].filter(Boolean).join(" • "))}</small></div>
-        <button type="button" data-delete-exam="${escapeHtml(schedule.id)}">Delete</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">${publishBtn}<button type="button" data-delete-exam="${escapeHtml(schedule.id)}">Delete</button></div></div>
         <div class="table-container"><table><thead><tr><th>Code</th><th>Subject</th><th>Day</th><th>Time</th><th>Room</th><th>Proctor</th></tr></thead>
-        <tbody>${examRows(schedule.exams || [], schedule)}</tbody></table></div></article>`).join("");
+        <tbody>${examRows(schedule.exams || [], schedule)}</tbody></table></div></article>`;
+    }).join("");
 }
 
 async function saveExamSchedules() {
@@ -2026,6 +2037,8 @@ function examScheduleDocId(schedule) {
 async function saveExamScheduleToFirestore(schedule) {
     const docId = examScheduleDocId(schedule);
 
+    const status = schedule.status === "published" ? "published" : (schedule.status || "draft");
+
     const data = {
         classScheduleId: schedule.classScheduleId,
         title: schedule.title,
@@ -2043,13 +2056,62 @@ async function saveExamScheduleToFirestore(schedule) {
         examType: schedule.examType || "",
         examDates: schedule.examDates || {},
         exams: schedule.exams,
+        status,
         createdAt: schedule.createdAt
             ? new Date(schedule.createdAt)
             : new Date(),
         updatedAt: new Date()
     };
 
+    if (schedule.publishedAt) {
+        data.publishedAt = schedule.publishedAt instanceof Date
+            ? schedule.publishedAt
+            : new Date(schedule.publishedAt);
+    }
+    if (schedule.publishedBy) {
+        data.publishedBy = schedule.publishedBy;
+    }
+    if (schedule.releaseId) {
+        data.releaseId = schedule.releaseId;
+    }
+
     await setDoc(doc(db, EXAM_SCHEDULES_COLLECTION, docId), data);
+}
+
+async function publishExamScheduleApi(schedule) {
+    const payload = {
+        scheduleId: schedule.id || examScheduleDocId(schedule),
+        scheduleData: schedule,
+        examType: schedule.examType || "",
+        publishedBy: auth.currentUser?.uid || null
+    };
+
+    let response = null;
+    try {
+        response = await fetch("/api/publish/exam-schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    } catch (netErr) {
+        try {
+            response = await fetch("http://localhost:3000/api/publish/exam-schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+        } catch (fallbackErr) {
+            console.warn("Backend exam publish API unreachable:", fallbackErr.message);
+        }
+    }
+
+    if (response && response.ok) {
+        try {
+            return await response.json();
+        } catch (_) {}
+        return { success: true };
+    }
+    return { success: false, message: response ? `HTTP ${response.status}` : "Backend unreachable" };
 }
 
 async function loadExamSchedulesFromFirestore() {
@@ -2074,6 +2136,10 @@ async function loadExamSchedulesFromFirestore() {
                 examType: data.examType || "",
                 examDates: data.examDates || {},
                 exams: data.exams || [],
+                status: data.status || "draft",
+                publishedAt: data.publishedAt?.toDate?.()?.toISOString?.() || data.publishedAt || null,
+                publishedBy: data.publishedBy || null,
+                releaseId: data.releaseId || null,
                 createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || new Date().toISOString(),
                 updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || data.updatedAt || null
             };
@@ -2143,6 +2209,96 @@ async function deleteExamScheduleFromFirestore(docId) {
 generateExamBtn?.addEventListener("click", generateExamSchedules);
 saveExamBtn?.addEventListener("click", saveExamSchedules);
 
+// ======================================
+// 📢 PUBLISH EXAM SCHEDULE (Preview Modal)
+// ======================================
+publishExamBtn?.addEventListener("click", async () => {
+    if (!generatedExamSchedules.length || publishExamBtn.disabled) return;
+
+    const setLoading = () => {
+        publishExamBtn.disabled = true;
+        if (saveExamBtn) saveExamBtn.disabled = true;
+        publishExamBtn.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;"></span> Publishing...';
+    };
+    const resetState = () => {
+        publishExamBtn.disabled = false;
+        if (saveExamBtn) saveExamBtn.disabled = false;
+        publishExamBtn.innerHTML = 'Publish Exam Schedule';
+    };
+
+    setLoading();
+
+    try {
+        /* Query fresh schedules from Firestore for conflict check */
+        const freshFirestoreExamSchedules = await loadExamSchedulesFromFirestore();
+        writeStorage(EXAM_SCHEDULES_KEY, freshFirestoreExamSchedules);
+
+        const saved = [...freshFirestoreExamSchedules];
+        const schedulesToPublish = [];
+
+        for (const generated of generatedExamSchedules) {
+            const existingIndex = saved.findIndex(schedule =>
+                (schedule.academicYear || "").trim() === (generated.academicYear || "").trim() &&
+                (schedule.semester || "").trim().toLowerCase() === (generated.semester || "").trim().toLowerCase() &&
+                normalise(schedule.section) === normalise(generated.section) &&
+                schedule.examType === generated.examType
+            );
+            if (existingIndex >= 0) {
+                const confirmed = await showConfirm(`An exam schedule for ${generated.section} (${generated.examType}) already exists. Replace and publish it?`);
+                if (!confirmed) continue;
+            }
+            const docId = examScheduleDocId(generated);
+            generated.id = docId;
+            generated.status = "published";
+            if (existingIndex >= 0) saved[existingIndex] = generated;
+            else saved.unshift(generated);
+            schedulesToPublish.push(generated);
+        }
+
+        if (!schedulesToPublish.length) {
+            resetState();
+            return;
+        }
+
+        /* Save all to Firestore as published */
+        for (const schedule of schedulesToPublish) {
+            await saveExamScheduleToFirestore(schedule);
+        }
+
+        /* Dispatch email notifications via backend */
+        let totalSent = 0;
+        for (const schedule of schedulesToPublish) {
+            const result = await publishExamScheduleApi(schedule);
+            if (result.sentCount) totalSent += result.sentCount;
+        }
+
+        /* Refresh UI */
+        firestoreExamSchedules = await loadExamSchedulesFromFirestore();
+        writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
+        generatedExamSchedules = [];
+        resetState();
+        renderGeneratedExams();
+        renderSavedExams();
+        renderClassSchedules();
+        examModal.style.display = "none";
+
+        /* Success overlay */
+        if (savedOverlay) {
+            savedOverlay.classList.remove("fade-out");
+            savedOverlay.style.display = "flex";
+            const overlaySpan = savedOverlay.querySelector("span");
+            if (overlaySpan) overlaySpan.textContent = `Exam schedule published! ${totalSent} email(s) sent.`;
+            setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1200);
+            setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 1800);
+        }
+
+    } catch (error) {
+        console.error("Could not publish exam schedule:", error);
+        resetState();
+        showToast("Failed to publish exam schedule. Please try again.");
+    }
+});
+
 document.querySelector("#examModal .close-modal")?.addEventListener("click", () => {
     examModal.style.display = "none";
     if (saveExamBtn) saveExamBtn.textContent = "Save Exam Schedule";
@@ -2157,7 +2313,56 @@ window.addEventListener("click", event => {
 
 document.getElementById("exportExamPdfBtn")?.addEventListener("click", exportExamPdf);
 document.getElementById("deleteAllExamBtn")?.addEventListener("click", deleteAllSavedExams);
-document.getElementById("savedExamSchedules")?.addEventListener("click", deleteSavedExam);
+document.getElementById("savedExamSchedules")?.addEventListener("click", async event => {
+    // Publish card button
+    const publishExamId = event.target.dataset.publishExam;
+    if (publishExamId) {
+        const btn = event.target;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Publishing...";
+
+        const schedules = readStorage(EXAM_SCHEDULES_KEY);
+        const schedule = schedules.find(s => s.id === publishExamId);
+        if (!schedule) {
+            btn.disabled = false;
+            btn.textContent = origText;
+            showToast("Exam schedule not found.");
+            return;
+        }
+
+        try {
+            schedule.status = "published";
+            await saveExamScheduleToFirestore(schedule);
+            const result = await publishExamScheduleApi(schedule);
+
+            /* Reload from Firestore */
+            firestoreExamSchedules = await loadExamSchedulesFromFirestore();
+            writeStorage(EXAM_SCHEDULES_KEY, firestoreExamSchedules);
+            renderSavedExams();
+            renderClassSchedules();
+
+            const sentMsg = result && result.sentCount != null ? ` ${result.sentCount} email(s) sent.` : "";
+            if (savedOverlay) {
+                savedOverlay.classList.remove("fade-out");
+                savedOverlay.style.display = "flex";
+                const overlaySpan = savedOverlay.querySelector("span");
+                if (overlaySpan) overlaySpan.textContent = `Exam schedule published!${sentMsg}`;
+                setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1200);
+                setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 1800);
+            }
+        } catch (err) {
+            console.error("Could not publish exam schedule:", err);
+            btn.disabled = false;
+            btn.textContent = origText;
+            showToast("Failed to publish exam schedule. Please try again.");
+        }
+        return;
+    }
+
+    // Delete card button (original behavior)
+    deleteSavedExam(event);
+});
 document.getElementById("deleteAllClassSchedulesBtn")?.addEventListener("click", deleteAllClassSchedules);
 
 async function deleteAllClassSchedules() {

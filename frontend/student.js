@@ -220,11 +220,19 @@ async function initializeStudentDashboard() {
 
             allClassSchedules = classSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule => normalize(schedule.program) === program && normalize(schedule.major) === major);
+                .filter(schedule =>
+                    schedule.status === "published" &&
+                    normalize(schedule.program) === program &&
+                    normalize(schedule.major) === major
+                );
 
             allExamSchedules = examSnapshot.docs
                 .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
-                .filter(schedule => normalize(schedule.program) === program && normalize(schedule.major) === major);
+                .filter(schedule =>
+                    schedule.status === "published" &&
+                    normalize(schedule.program) === program &&
+                    normalize(schedule.major) === major
+                );
 
             renderClassSchedules();
             renderExamSchedules();
