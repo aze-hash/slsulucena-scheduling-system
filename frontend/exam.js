@@ -2382,3 +2382,67 @@ document.getElementById("logoutLink")?.addEventListener("click", async event => 
     window.location.replace("login.html");
 });
 
+/* =========================
+   GUIDE / HELP MODAL
+========================= */
+(function initGuideModal() {
+    const GUIDE_DISMISSED_KEY = "examGuide_dismissed";
+    const guideModal = document.getElementById("examGuideModal");
+    const guideInfoBtn = document.getElementById("guideInfoBtn");
+    const guideCloseBtn = document.getElementById("guideModalClose");
+    const guideDontShowCheckbox = document.getElementById("guideDontShowAgain");
+    const guideGotItBtn = document.getElementById("guideGotItBtn");
+
+    if (!guideModal || !guideInfoBtn) return;
+
+    function openGuide() {
+        guideModal.style.display = "flex";
+        guideModal.classList.remove("fade-out");
+        // Trigger reflow so the .show animation always fires
+        void guideModal.offsetWidth;
+        guideModal.classList.add("show");
+        if (guideDontShowCheckbox) guideDontShowCheckbox.checked = false;
+    }
+
+    function closeGuide() {
+        guideModal.classList.add("fade-out");
+        guideModal.classList.remove("show");
+        setTimeout(() => {
+            guideModal.style.display = "none";
+            guideModal.classList.remove("fade-out");
+        }, 260);
+    }
+
+    // Open on ℹ button click
+    guideInfoBtn.addEventListener("click", openGuide);
+
+    // Close via × button
+    if (guideCloseBtn) {
+        guideCloseBtn.addEventListener("click", closeGuide);
+    }
+
+    // Close via "Got it" button + honour "Don't show again" checkbox
+    if (guideGotItBtn) {
+        guideGotItBtn.addEventListener("click", () => {
+            if (guideDontShowCheckbox && guideDontShowCheckbox.checked) {
+                localStorage.setItem(GUIDE_DISMISSED_KEY, "true");
+            }
+            closeGuide();
+        });
+    }
+
+    // Close on backdrop click
+    guideModal.addEventListener("click", event => {
+        if (event.target === guideModal) {
+            closeGuide();
+        }
+    });
+
+    // Auto-show on first visit (if user has not dismissed)
+    if (!localStorage.getItem(GUIDE_DISMISSED_KEY)) {
+        // Small delay so the page paints first
+        setTimeout(openGuide, 600);
+    }
+})();
+
+

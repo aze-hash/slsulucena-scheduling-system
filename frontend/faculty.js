@@ -16,11 +16,9 @@ import {
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import { renderClassCalendar, renderExamCalendar } from "./js/schedule-calendar.js";
+import { renderExamCalendar } from "./js/schedule-calendar.js";
 
-const classScheduleContainer = document.getElementById("classScheduleContainer");
 const examScheduleContainer = document.getElementById("examScheduleContainer");
-const classSearchInput = document.getElementById("classSearchInput");
 const navFacultyName = document.getElementById("navFacultyName");
 const navFacultyRole = document.getElementById("navFacultyRole");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -48,8 +46,6 @@ let currentFacultyName = "";
 let currentFacultyUid = "";
 let assignedExamSchedules = [];
 let assignedExamsList = [];
-let allClassSchedules = [];
-let classSearchTerm = "";
 let latestNotificationsList = [];
 
 function getScheduleTimestamp(schedule) {
@@ -106,66 +102,7 @@ function normalize(value) {
     return String(value ?? "").trim().toLowerCase();
 }
 
-function formatAcademicInfo(schedule) {
-    const parts = [
-        schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "",
-        schedule.semester ? `${schedule.semester}` : "",
-        schedule.yearLevel ? `${schedule.yearLevel}` : ""
-    ].filter(Boolean);
 
-    return parts.join(" • ") || "Schedule";
-}
-
-function scheduleMatchesSearch(schedule, term) {
-    if (!term) return true;
-
-    const haystack = [
-        schedule.name,
-        schedule.section,
-        schedule.program,
-        schedule.major,
-        schedule.academicYear,
-        schedule.semester,
-        schedule.yearLevel,
-        ...(Array.isArray(schedule.entries) ? schedule.entries.flatMap(entry => [
-            entry.subjectCode,
-            entry.code,
-            entry.subjectName,
-            entry.name,
-            entry.units,
-            entry.day,
-            entry.time,
-            entry.room
-        ]) : [])
-    ].map(normalize).filter(Boolean).join(" ");
-
-    return haystack.includes(term);
-}
-
-function renderClassSchedules(schedules) {
-    const filtered = schedules.filter(schedule => scheduleMatchesSearch(schedule, classSearchTerm));
-
-    if (!filtered.length) {
-        classScheduleContainer.innerHTML = classSearchTerm
-            ? '<div class="empty-state">No class schedules match your search.</div>'
-            : '<div class="empty-state">No class schedule has been released yet.</div>';
-        return;
-    }
-
-    classScheduleContainer.innerHTML = filtered.map(schedule => {
-        const calendarHtml = renderClassCalendar(schedule);
-
-        return `
-            <article class="schedule-card">
-                <div class="schedule-header">
-                    <h4>${safe(schedule.name || schedule.section || "Class Schedule")}</h4>
-                    <small>${safe(formatAcademicInfo(schedule))}</small>
-                </div>
-                ${calendarHtml}
-            </article>
-        `;
-    }).join("");
-}
 
 function formatExamDate(dateStr) {
     if (!dateStr) return "";
@@ -793,15 +730,10 @@ async function initializeFacultyDashboard() {
             navFacultyName.textContent = fullName;
             navFacultyRole.textContent = "Instructor";
 
-            const classSnapshot = await getDocs(collection(db, "classSchedules"));
-            allClassSchedules = classSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-
-            renderClassSchedules(allClassSchedules);
             watchAssignedExamSchedules(user, fullName);
             watchRescheduleNotifications();
         } catch (error) {
             console.error("Could not load faculty dashboard:", error);
-            classScheduleContainer.innerHTML = '<div class="empty-state">Unable to load class schedules right now.</div>';
             examScheduleContainer.innerHTML = '<div class="empty-state">Unable to load exam schedules right now.</div>';
         }
     });
@@ -859,10 +791,6 @@ document.addEventListener("keydown", event => {
     }
 });
 
-classSearchInput.addEventListener("input", () => {
-    classSearchTerm = normalize(classSearchInput.value);
-    renderClassSchedules(allClassSchedules);
-});
 
 logoutBtn.addEventListener("click", async () => {
     try {

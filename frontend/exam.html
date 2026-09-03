@@ -29,8 +29,11 @@
 <div class="container">
 
 <div class="header">
-<h1>Exam Schedule Generator</h1>
-<p>Generate examinations from saved class schedules.</p>
+    <div class="header-text">
+        <h1>Exam Schedule Generator</h1>
+        <p>Generate examinations from saved class schedules.</p>
+    </div>
+    <button id="guideInfoBtn" type="button" class="guide-info-btn" title="View Guide" aria-label="View Guide">&#9432;</button>
 </div>
 
 <div class="card">
@@ -148,6 +151,57 @@ Generate Exam Schedule
             <path class="saved-check-mark" fill="none" d="M14 27l8 8 16-16"/>
         </svg>
         <span>Schedule saved successfully.</span>
+    </div>
+</div>
+
+<!-- Exam Scheduling Guide Modal -->
+<div id="examGuideModal" class="guide-modal" style="display:none;">
+    <div class="guide-modal-content">
+        <div class="guide-modal-header">
+            <h2>Exam Scheduling Guide</h2>
+            <span id="guideModalClose" class="close-modal" title="Close">&times;</span>
+        </div>
+
+        <div class="guide-modal-body">
+            <p class="guide-intro">Follow these steps to generate and manage examination schedules.</p>
+
+            <ol class="guide-steps">
+                <li>
+                    <strong>Filter Academic Year & Semester</strong>
+                    <span>Select the Academic Year and Semester to filter and display the saved class schedules and sections available for exam generation.</span>
+                </li>
+                <li>
+                    <strong>Set Exam Dates & Exam Type</strong>
+                    <span>Add one or more examination dates using the date picker (e.g. Day 1, Day 2, Day 3) and select the Exam Type (<em>Preliminary</em>, <em>Midterm</em>, or <em>Final</em>).</span>
+                </li>
+                <li>
+                    <strong>Select Sections</strong>
+                    <span>Check the boxes for the specific class sections you want to schedule, or check the header box to select all sections at once.</span>
+                </li>
+                <li>
+                    <strong>Generate Exam Schedule</strong>
+                    <span>Click <strong>Generate Exam Schedule</strong>. The system automatically assigns exam dates, time slots, and rooms while avoiding section time conflicts and room double-bookings.</span>
+                </li>
+                <li>
+                    <strong>Review & Save</strong>
+                    <span>Review the generated timetable in the preview modal, then click <strong>Save Exam Schedule</strong>. Saved exams sync to Firestore and appear in the Saved Exam Schedules section.</span>
+                </li>
+                <li>
+                    <strong>Export & Manage</strong>
+                    <span>Use <strong>Export All to PDF</strong> to generate printable examination timetables, or manage existing schedules using individual and bulk delete options.</span>
+                </li>
+            </ol>
+
+            <p class="guide-tip"><strong>Tip:</strong> You can reopen this guide anytime by clicking the <strong>&#9432;</strong> button at the top-right of this page.</p>
+        </div>
+
+        <div class="guide-modal-footer">
+            <label class="guide-checkbox">
+                <input type="checkbox" id="guideDontShowAgain">
+                <span>Don't show this again</span>
+            </label>
+            <button id="guideGotItBtn" type="button" class="guide-got-it-btn">Got it</button>
+        </div>
     </div>
 </div>
 
