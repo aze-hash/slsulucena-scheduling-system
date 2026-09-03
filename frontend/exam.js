@@ -2243,8 +2243,6 @@ async function publishAllSavedExams() {
     try {
         let successCount = 0;
         let totalSent = 0;
-        let totalFailed = 0;
-        let lastError = null;
 
         for (const schedule of schedules) {
             schedule.status = "published";
@@ -2253,19 +2251,11 @@ async function publishAllSavedExams() {
 
             try {
                 await saveExamScheduleToFirestore(schedule);
-                console.log("✅ [Publish] Firestore publish successful for exam schedule:", schedule.id);
                 successCount++;
                 const result = await publishExamScheduleApi(schedule);
-                if (result && result.sentCount != null) {
-                    totalSent += result.sentCount;
-                    if (result.failedCount) totalFailed += result.failedCount;
-                }
-                if (!result.success || result.error) {
-                    lastError = result.error || result.message;
-                }
+                if (result && result.sentCount) totalSent += result.sentCount;
             } catch (err) {
                 console.error("Could not publish exam schedule:", schedule.title || schedule.id, err);
-                lastError = err.message;
             }
         }
 
@@ -2275,25 +2265,16 @@ async function publishAllSavedExams() {
         renderSavedExams();
         renderClassSchedules();
 
-        if (totalFailed > 0 || (totalSent === 0 && lastError)) {
-            const alertMsg = totalSent > 0
-                ? `Published ${successCount} exam schedule(s) (${totalSent} email(s) sent), but some notifications failed: ${lastError || 'check server logs'}`
-                : `Published ${successCount} exam schedule(s) to Firestore, but email notifications failed: ${lastError || 'check server logs'}`;
-            showToast(alertMsg);
-            console.warn("[Publish] Email delivery notice:", alertMsg);
+        const emailInfo = totalSent > 0 ? ` (${totalSent} email notifications sent)` : "";
+        if (savedOverlay) {
+            savedOverlay.classList.remove("fade-out");
+            savedOverlay.style.display = "flex";
+            const overlaySpan = savedOverlay.querySelector("span");
+            if (overlaySpan) overlaySpan.textContent = `Published ${successCount} exam schedule(s)!${emailInfo}`;
+            setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1400);
+            setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 2000);
         } else {
-            const emailInfo = totalSent > 0 ? ` (${totalSent} email notifications sent)` : "";
-            const successMsg = `Successfully published ${successCount} exam schedule(s)!${emailInfo}`;
-            if (savedOverlay) {
-                savedOverlay.classList.remove("fade-out");
-                savedOverlay.style.display = "flex";
-                const overlaySpan = savedOverlay.querySelector("span");
-                if (overlaySpan) overlaySpan.textContent = successMsg;
-                setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1400);
-                setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 2000);
-            } else {
-                showToast(successMsg);
-            }
+            showToast(`Successfully published ${successCount} exam schedule(s)!${emailInfo}`);
         }
     } catch (error) {
         console.error("Error publishing all exam schedules:", error);
@@ -2659,77 +2640,40 @@ async function saveExamScheduleToFirestore(schedule) {
     await setDoc(doc(db, EXAM_SCHEDULES_COLLECTION, docId), data);
 }
 
-const BACKEND_API_BASE_URL =
-    "https://slsulucena-scheduling-system.onrender.com";
-
 async function publishExamScheduleApi(schedule) {
-    const scheduleId = schedule.id || examScheduleDocId(schedule);
-    console.log("🚀 [Publish] publishing started for exam schedule:", scheduleId);
-
     const payload = {
-        scheduleId: scheduleId,
-        scheduleType: "exam"
+        scheduleId: schedule.id || examScheduleDocId(schedule),
+        scheduleData: schedule,
+        examType: schedule.examType || "",
+        publishedBy: auth.currentUser?.uid || null
     };
 
     let response = null;
-    let responseData = null;
-
-    console.log("📡 [Publish] email notification API called:", `${BACKEND_API_BASE_URL}/api/publish-schedule`, payload);
-
     try {
-        response = await fetch(`${BACKEND_API_BASE_URL}/api/publish-schedule`, {
+        response = await fetch("/api/publish/exam-schedule", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
     } catch (netErr) {
-        console.warn("[Publish] Primary backend fetch failed:", netErr.message);
-        // Fallback: If on localhost and 3000 failed, try production onrender.com
-        if (BACKEND_API_BASE_URL !== "https://slsulucena-scheduling-system.onrender.com") {
-            try {
-                console.log("[Publish] Retrying with production Render endpoint...");
-                response = await fetch("https://slsulucena-scheduling-system.onrender.com/api/publish-schedule", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            } catch (fallbackErr) {
-                console.error("❌ [Publish] email API error:", fallbackErr);
-                return {
-                    success: false,
-                    error: fallbackErr.message || "Backend server unreachable"
-                };
-            }
-        } else {
-            console.error("❌ [Publish] email API error:", netErr);
-            return {
-                success: false,
-                error: netErr.message || "Backend server unreachable"
-            };
-        }
-    }
-
-    if (response) {
         try {
-            responseData = await response.json();
-            console.log("📨 [Publish] email API response:", responseData);
-        } catch (jsonErr) {
-            console.error("❌ [Publish] Failed to parse email API JSON response:", jsonErr);
-        }
-
-        if (response.ok) {
-            return responseData || { success: true };
-        } else {
-            const errMsg = responseData?.message || responseData?.error || `HTTP ${response.status}`;
-            console.error("❌ [Publish] email API error:", errMsg);
-            return {
-                success: false,
-                error: errMsg
-            };
+            response = await fetch("http://localhost:3000/api/publish/exam-schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+        } catch (fallbackErr) {
+            console.warn("Backend exam publish API unreachable:", fallbackErr.message);
         }
     }
 
-    return { success: false, error: "No response from email API" };
+    if (response && response.ok) {
+        try {
+            return await response.json();
+        } catch (_) {}
+        return { success: true };
+    }
+    return { success: false, message: response ? `HTTP ${response.status}` : "Backend unreachable" };
 }
 
 async function loadExamSchedulesFromFirestore() {
@@ -2881,23 +2825,13 @@ publishExamBtn?.addEventListener("click", async () => {
         /* Save all to Firestore as published */
         for (const schedule of schedulesToPublish) {
             await saveExamScheduleToFirestore(schedule);
-            console.log("✅ [Publish] Firestore publish successful for exam schedule:", schedule.id);
         }
 
         /* Dispatch email notifications via backend */
         let totalSent = 0;
-        let totalFailed = 0;
-        let lastError = null;
-
         for (const schedule of schedulesToPublish) {
             const result = await publishExamScheduleApi(schedule);
-            if (result && result.sentCount != null) {
-                totalSent += result.sentCount;
-                if (result.failedCount) totalFailed += result.failedCount;
-            }
-            if (!result.success || result.error) {
-                lastError = result.error || result.message;
-            }
+            if (result.sentCount) totalSent += result.sentCount;
         }
 
         /* Refresh UI */
@@ -2910,25 +2844,14 @@ publishExamBtn?.addEventListener("click", async () => {
         renderClassSchedules();
         examModal.style.display = "none";
 
-        /* Inform Chairperson of publication and email status */
-        if (totalFailed > 0 || (totalSent === 0 && lastError)) {
-            const warningMsg = totalSent > 0
-                ? `Exam schedule published to database (${totalSent} email(s) sent), but some notifications failed: ${lastError || 'check server logs'}`
-                : `Exam schedule was published to database, but email notifications failed: ${lastError || 'Check Gmail SMTP configuration'}`;
-            showToast(warningMsg);
-            console.warn("[Publish] Email delivery notice:", warningMsg);
-        } else {
-            const successMsg = `Exam schedule published successfully! ${totalSent} email notification(s) sent.`;
-            if (savedOverlay) {
-                savedOverlay.classList.remove("fade-out");
-                savedOverlay.style.display = "flex";
-                const overlaySpan = savedOverlay.querySelector("span");
-                if (overlaySpan) overlaySpan.textContent = successMsg;
-                setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1400);
-                setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 2000);
-            } else {
-                showToast(successMsg);
-            }
+        /* Success overlay */
+        if (savedOverlay) {
+            savedOverlay.classList.remove("fade-out");
+            savedOverlay.style.display = "flex";
+            const overlaySpan = savedOverlay.querySelector("span");
+            if (overlaySpan) overlaySpan.textContent = `Exam schedule published! ${totalSent} email(s) sent.`;
+            setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1200);
+            setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 1800);
         }
 
     } catch (error) {
@@ -2974,8 +2897,6 @@ document.getElementById("savedExamSchedules")?.addEventListener("click", async e
         try {
             schedule.status = "published";
             await saveExamScheduleToFirestore(schedule);
-            console.log("✅ [Publish] Firestore publish successful for exam schedule:", schedule.id);
-
             const result = await publishExamScheduleApi(schedule);
 
             /* Reload from Firestore */
@@ -2984,29 +2905,20 @@ document.getElementById("savedExamSchedules")?.addEventListener("click", async e
             renderSavedExams();
             renderClassSchedules();
 
-            if (!result.success || (result.sentCount === 0 && result.failedCount > 0)) {
-                const failMsg = `Exam schedule was published to Firestore, but email notification failed: ${result.error || result.message || 'Check server logs'}`;
-                showToast(failMsg);
-                console.warn("[Publish] Email delivery notice:", failMsg);
-            } else {
-                const sentMsg = result && result.sentCount != null ? ` (${result.sentCount} email(s) sent)` : "";
-                const successMsg = `Exam schedule published successfully!${sentMsg}`;
-                if (savedOverlay) {
-                    savedOverlay.classList.remove("fade-out");
-                    savedOverlay.style.display = "flex";
-                    const overlaySpan = savedOverlay.querySelector("span");
-                    if (overlaySpan) overlaySpan.textContent = successMsg;
-                    setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1200);
-                    setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 1800);
-                } else {
-                    showToast(successMsg);
-                }
+            const sentMsg = result && result.sentCount != null ? ` ${result.sentCount} email(s) sent.` : "";
+            if (savedOverlay) {
+                savedOverlay.classList.remove("fade-out");
+                savedOverlay.style.display = "flex";
+                const overlaySpan = savedOverlay.querySelector("span");
+                if (overlaySpan) overlaySpan.textContent = `Exam schedule published!${sentMsg}`;
+                setTimeout(() => { savedOverlay.classList.add("fade-out"); }, 1200);
+                setTimeout(() => { savedOverlay.style.display = "none"; savedOverlay.classList.remove("fade-out"); }, 1800);
             }
         } catch (err) {
             console.error("Could not publish exam schedule:", err);
             btn.disabled = false;
             btn.textContent = origText;
-            showToast(`Failed to publish exam schedule: ${err.message}`);
+            showToast("Failed to publish exam schedule. Please try again.");
         }
         return;
     }

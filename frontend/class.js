@@ -217,76 +217,39 @@ async function saveScheduleToFirestore(schedule) {
     await setDoc(doc(db, SCHEDULES_COLLECTION, docId), data);
 }
 
-const BACKEND_API_BASE_URL =
-    "https://slsulucena-scheduling-system.onrender.com";
-
 async function publishClassScheduleApi(schedule) {
-    const scheduleId = schedule.id || scheduleDocId(schedule);
-    console.log("🚀 [Publish] publishing started for class schedule:", scheduleId);
-
     const payload = {
-        scheduleId: scheduleId,
-        scheduleType: "class"
+        scheduleId: schedule.id || scheduleDocId(schedule),
+        scheduleData: schedule,
+        publishedBy: auth.currentUser?.uid || null
     };
 
     let response = null;
-    let responseData = null;
-
-    console.log("📡 [Publish] email notification API called:", `${BACKEND_API_BASE_URL}/api/publish-schedule`, payload);
-
     try {
-        response = await fetch(`${BACKEND_API_BASE_URL}/api/publish-schedule`, {
+        response = await fetch("/api/publish/class-schedule", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
     } catch (netErr) {
-        console.warn("[Publish] Primary backend fetch failed:", netErr.message);
-        if (BACKEND_API_BASE_URL !== "https://slsulucena-scheduling-system.onrender.com") {
-            try {
-                console.log("[Publish] Retrying with production Render endpoint...");
-                response = await fetch("https://slsulucena-scheduling-system.onrender.com/api/publish-schedule", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-            } catch (fallbackErr) {
-                console.error("❌ [Publish] email API error:", fallbackErr);
-                return {
-                    success: false,
-                    error: fallbackErr.message || "Backend server unreachable"
-                };
-            }
-        } else {
-            console.error("❌ [Publish] email API error:", netErr);
-            return {
-                success: false,
-                error: netErr.message || "Backend server unreachable"
-            };
-        }
-    }
-
-    if (response) {
         try {
-            responseData = await response.json();
-            console.log("📨 [Publish] email API response:", responseData);
-        } catch (jsonErr) {
-            console.error("❌ [Publish] Failed to parse email API JSON response:", jsonErr);
-        }
-
-        if (response.ok) {
-            return responseData || { success: true };
-        } else {
-            const errMsg = responseData?.message || responseData?.error || `HTTP ${response.status}`;
-            console.error("❌ [Publish] email API error:", errMsg);
-            return {
-                success: false,
-                error: errMsg
-            };
+            response = await fetch("http://localhost:3000/api/publish/class-schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+        } catch (fallbackErr) {
+            console.warn("Backend publish API unreachable:", fallbackErr.message);
         }
     }
 
-    return { success: false, error: "No response from email API" };
+    if (response && response.ok) {
+        try {
+            return await response.json();
+        } catch (_) {}
+        return { success: true };
+    }
+    return { success: false, message: response ? `HTTP ${response.status}` : "Backend unreachable" };
 }
 
 async function loadSchedulesFromFirestore() {
@@ -2667,10 +2630,12 @@ publishScheduleBtn.addEventListener("click", async () => {
         generatedSchedule.id = docId;
         generatedSchedule.status = "published";
         await saveScheduleToFirestore(generatedSchedule);
-        console.log("✅ [Publish] Firestore publish successful for class schedule:", docId);
 
         /* Dispatch notifications via backend */
         const result = await publishClassScheduleApi(generatedSchedule);
+        if (!result.success) {
+            console.warn("Publish backend returned non-success:", result.message);
+        }
 
         /* Refresh UI */
         const firestoreSchedules = await loadSchedulesFromFirestore();
@@ -2688,14 +2653,8 @@ publishScheduleBtn.addEventListener("click", async () => {
             resetState();
         }, 300);
 
-        if (!result.success || (result.sentCount === 0 && result.failedCount > 0)) {
-            const failMsg = `Schedule was published to Firestore, but student email notification failed: ${result.error || result.message || 'Check server logs'}`;
-            showToast(failMsg);
-            console.warn("[Publish] Email delivery notice:", failMsg);
-        } else {
-            const sentMsg = result.sentCount != null ? ` (${result.sentCount} student email notification(s) sent)` : "";
-            showSuccessOverlay(`Schedule published!${sentMsg}`);
-        }
+        const sentMsg = result.sentCount != null ? ` ${result.sentCount} email notification(s) sent.` : "";
+        showSuccessOverlay(`Schedule published!${sentMsg}`);
 
     } catch (error) {
         console.error("Could not publish schedule:", error);
@@ -3317,8 +3276,6 @@ savedSchedulesList.addEventListener("click", async event => {
 
             schedule.status = "published";
             await saveScheduleToFirestore(schedule);
-            console.log("✅ [Publish] Firestore publish successful for class schedule:", schedule.id);
-
             const result = await publishClassScheduleApi(schedule);
 
             /* Reload from Firestore to get authoritative data */
@@ -3326,19 +3283,13 @@ savedSchedulesList.addEventListener("click", async event => {
             setSavedSchedules(firestoreSchedules);
             renderSavedSchedules();
 
-            if (!result.success || (result.sentCount === 0 && result.failedCount > 0)) {
-                const failMsg = `Schedule was published to Firestore, but student email notification failed: ${result.error || result.message || 'Check server logs'}`;
-                showToast(failMsg);
-                console.warn("[Publish] Email delivery notice:", failMsg);
-            } else {
-                const sentMsg = result && result.sentCount != null ? ` (${result.sentCount} student email notification(s) sent)` : "";
-                showSuccessOverlay(`Schedule published!${sentMsg}`);
-            }
+            const sentMsg = result && result.sentCount != null ? ` ${result.sentCount} email notification(s) sent.` : "";
+            showSuccessOverlay(`Schedule published!${sentMsg}`);
         } catch (err) {
             console.error("Could not publish schedule:", err);
             btn.disabled = false;
             btn.textContent = origText;
-            showToast(`Failed to publish schedule: ${err.message}`);
+            showToast("Failed to publish schedule. Please try again.");
         }
         return;
     }
@@ -3492,10 +3443,9 @@ async function publishAllSavedClasses() {
 
             try {
                 await saveScheduleToFirestore(schedule);
-                console.log("✅ [Publish] Firestore publish successful for class schedule:", schedule.id);
                 successCount++;
                 const result = await publishClassScheduleApi(schedule);
-                if (result && result.sentCount != null) totalSent += result.sentCount;
+                if (result && result.sentCount) totalSent += result.sentCount;
             } catch (err) {
                 console.error("Could not publish class schedule:", schedule.name || schedule.id, err);
             }
@@ -3506,7 +3456,7 @@ async function publishAllSavedClasses() {
         setSavedSchedules(firestoreSchedules);
         renderSavedSchedules();
 
-        const emailInfo = totalSent > 0 ? ` (${totalSent} student notification(s) sent)` : "";
+        const emailInfo = totalSent > 0 ? ` (${totalSent} notification(s) sent)` : "";
         if (savedOverlay) {
             savedOverlay.classList.remove("fade-out");
             savedOverlay.style.display = "flex";

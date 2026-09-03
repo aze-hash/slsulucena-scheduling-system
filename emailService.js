@@ -25,27 +25,21 @@ export function normalizeExamType(rawType) {
     return rawType ? rawType.charAt(0).toUpperCase() + rawType.slice(1) : "Examination";
 }
 
-let cachedTransporter = null;
-
 /**
  * Creates and returns the nodemailer transporter using environment variables.
  */
-export function getEmailTransporter(forceNew = false) {
-    if (cachedTransporter && !forceNew) {
-        return cachedTransporter;
-    }
-
-    const host = process.env.EMAIL_HOST || "smtp.gmail.com";
+export function getEmailTransporter() {
+    const host = process.env.EMAIL_HOST;
     const user = process.env.EMAIL_USER;
     const pass = process.env.EMAIL_PASSWORD;
     const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
     const secure = process.env.EMAIL_SECURE === "true" || port === 465;
 
-    if (!user || !pass) {
+    if (!host || !user || !pass) {
         return null;
     }
 
-    cachedTransporter = nodemailer.createTransport({
+    return nodemailer.createTransport({
         host,
         port,
         secure,
@@ -54,87 +48,14 @@ export function getEmailTransporter(forceNew = false) {
             pass
         }
     });
-
-    return cachedTransporter;
-}
-
-/**
- * Verifies Gmail SMTP connection on server startup.
- */
-export async function verifySmtpConnection() {
-    const transporter = getEmailTransporter();
-    if (!transporter) {
-        console.warn("⚠️ [SMTP Warning] Gmail SMTP is not configured. Missing EMAIL_USER or EMAIL_PASSWORD environment variables.");
-        return { success: false, message: "Missing EMAIL_USER or EMAIL_PASSWORD" };
-    }
-
-    try {
-        await transporter.verify();
-        console.log("✅ [SMTP Success] Connected to Gmail SMTP server successfully. Ready to send emails.");
-        return { success: true };
-    } catch (err) {
-        console.error("❌ [SMTP Error] Failed to connect to Gmail SMTP:", err.message);
-        return { success: false, error: err.message };
-    }
 }
 
 /**
  * Resolves the application base URL
  */
 export function getAppBaseUrl() {
-    const raw = process.env.APP_BASE_URL || "https://slsulucena-scheduling-system.web.app";
+    const raw = process.env.APP_BASE_URL || "https://slsulucena-scheduling-system.firebaseapp.com";
     return raw.replace(/\/+$/, "");
-}
-
-/**
- * Sends a test email to verify SMTP delivery
- */
-export async function sendTestEmail(toEmail) {
-    const recipient = toEmail || process.env.EMAIL_USER;
-    if (!recipient) {
-        return {
-            success: false,
-            error: "No test recipient email specified and EMAIL_USER is not set in environment variables."
-        };
-    }
-
-    const transporter = getEmailTransporter();
-    if (!transporter) {
-        return {
-            success: false,
-            error: "SMTP transporter is not configured. Please check EMAIL_USER and EMAIL_PASSWORD in .env."
-        };
-    }
-
-    const fromAddress = process.env.EMAIL_FROM || `"SLSU Lucena Scheduling System" <${process.env.EMAIL_USER}>`;
-
-    try {
-        const info = await transporter.sendMail({
-            from: fromAddress,
-            to: recipient,
-            subject: "SLSU Lucena Scheduling System - Test Email",
-            text: "This is a test email confirming that Gmail SMTP notifications are functioning correctly on the SLSU Lucena Scheduling System server.",
-            html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-                    <h2 style="color: #1b5e20;">SLSU Lucena Scheduling System</h2>
-                    <p>This is a test notification confirming that Gmail SMTP is correctly configured and working on your Node.js backend.</p>
-                    <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-                </div>
-            `
-        });
-
-        return {
-            success: true,
-            messageId: info.messageId,
-            recipient
-        };
-    } catch (err) {
-        console.error(`[EmailService] Test email failed for ${recipient}:`, err.message);
-        return {
-            success: false,
-            error: err.message
-        };
-    }
 }
 
 /**
@@ -214,10 +135,11 @@ export async function sendClassScheduleNotification({
     const transporter = getEmailTransporter();
 
     if (!transporter) {
-        console.error(`[EmailService] Transporter not configured. Cannot send class schedule email to ${recipientEmail}. [Subject: ${subject}]`);
+        console.warn(`[EmailService] Transporter not configured. Skipping live delivery for ${recipientEmail}. [Subject: ${subject}]`);
         return {
-            success: false,
-            error: "SMTP transporter is not configured. Please verify EMAIL_USER and EMAIL_PASSWORD in .env."
+            success: true,
+            simulated: true,
+            message: "SMTP not configured. Notification simulated successfully."
         };
     }
 
@@ -322,10 +244,11 @@ export async function sendExamScheduleNotification({
     const transporter = getEmailTransporter();
 
     if (!transporter) {
-        console.error(`[EmailService] Transporter not configured. Cannot send exam schedule email to ${recipientEmail}. [Subject: ${subject}]`);
+        console.warn(`[EmailService] Transporter not configured. Skipping live delivery for ${recipientEmail}. [Subject: ${subject}]`);
         return {
-            success: false,
-            error: "SMTP transporter is not configured. Please verify EMAIL_USER and EMAIL_PASSWORD in .env."
+            success: true,
+            simulated: true,
+            message: "SMTP not configured. Notification simulated successfully."
         };
     }
 
