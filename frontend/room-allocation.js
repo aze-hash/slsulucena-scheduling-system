@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ROOM ASSIGNMENT DASHBOARD
+   ROOM ALLOCATION DASHBOARD
    Read-only monitoring page. Reads existing Firestore data only:
      - `rooms` collection -> lecture-room tabs (roomName, roomType)
      - `examSchedules` collection -> generated exam entries
@@ -23,17 +23,11 @@ import {
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-/* Time-grid constants — identical to the Faculty Assignment calendar
-   (proctoring.js / schedule-calendar.js) so both pages share the same
-   hourly structure, proportions and positioning behaviour. */
 const CAL_START_MINUTES = 7 * 60;   // 7:00 AM
 const CAL_END_MINUTES = 18 * 60;    // 6:00 PM
 const CAL_TOTAL_MINUTES = CAL_END_MINUTES - CAL_START_MINUTES;
 const HOUR_PX = 64;                 // pixel height per hour
 const TOTAL_CALENDAR_COLORS = 16;
-/* Height (px) the exam card grows to while hovered. Cards that sit too low
-   in a day column are expanded upward instead (see --ra-grow / ra-expand-up)
-   so the expanded card is never clipped by the calendar scroll container. */
 const EXPANDED_CARD_MIN_HEIGHT = 170;
 
 /* ---------------- State ---------------- */
@@ -517,8 +511,8 @@ function renderCalendar() {
         if (filters.program) parts.push(filters.program);
         if (filters.section) parts.push(filters.section);
         subtitle.textContent = parts.length
-            ? `Monitoring room assignment - ${parts.join(" - ")}`
-            : "Monitoring room assignment for the selected lecture room.";
+            ? `Monitoring room allocation - ${parts.join(" - ")}`
+            : "Monitoring room allocation for the selected lecture room.";
     }
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
     const colorMap = buildSubjectColorMap(exams);
@@ -629,10 +623,10 @@ async function init() {
         renderRoomTabs();
         renderCalendar();
     } catch (err) {
-        console.error("Room Assignment init error:", err);
+        console.error("Room Allocation init error:", err);
         const cal = calendarEl();
-        if (cal) cal.innerHTML = `<p class="ra-empty">Could not load room assignment data.</p>`;
-        showToast("Could not load room assignment data. Please check your connection and refresh.");
+        if (cal) cal.innerHTML = `<p class="ra-empty">Could not load room allocation data.</p>`;
+        showToast("Could not load room allocation data. Please check your connection and refresh.");
     }
 }
 

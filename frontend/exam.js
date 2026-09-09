@@ -2221,17 +2221,38 @@ clsCalModalClose?.addEventListener("click", () => {
 // ===================================================
 // GUIDE MODAL
 // ===================================================
+const EXAM_GUIDE_DONT_SHOW_KEY = "examGuideDontShowAgain";
+
 guideInfoBtn?.addEventListener("click", () => {
     if (examGuideModal) examGuideModal.style.display = "flex";
 });
 
-guideModalClose?.addEventListener("click", () => {
-    if (examGuideModal) examGuideModal.style.display = "none";
-});
+function closeExamGuideModal() {
+    if (!examGuideModal) return;
+    // Persist the preference only when "Don't show this again" is checked
+    if (guideDontShowAgain?.checked) {
+        try {
+            localStorage.setItem(EXAM_GUIDE_DONT_SHOW_KEY, "true");
+        } catch (err) {
+            console.warn("Could not save guide preference:", err);
+        }
+    }
+    examGuideModal.style.display = "none";
+}
 
-guideGotItBtn?.addEventListener("click", () => {
-    if (examGuideModal) examGuideModal.style.display = "none";
-});
+guideModalClose?.addEventListener("click", closeExamGuideModal);
+
+guideGotItBtn?.addEventListener("click", closeExamGuideModal);
+
+// Auto-open the guide on first visit (unless the user opted out)
+try {
+    if (localStorage.getItem(EXAM_GUIDE_DONT_SHOW_KEY) !== "true") {
+        if (examGuideModal) examGuideModal.style.display = "flex";
+    }
+} catch (err) {
+    console.warn("Could not read guide preference:", err);
+    if (examGuideModal) examGuideModal.style.display = "flex";
+}
 
 // ===================================================
 // AUTH & LOGOUT

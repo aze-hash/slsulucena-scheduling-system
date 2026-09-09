@@ -85,6 +85,32 @@ nav {
     font-size:12px;
 }
 
+/* Make the nav profile a clickable button while keeping the same look */
+button.nav-profile {
+    background:transparent;
+    border:none;
+    border-right:1px solid rgba(255,255,255,.3);
+    font-family:inherit;
+    font-size:inherit;
+    cursor:pointer;
+    text-align:right;
+    transition:opacity .2s ease;
+}
+
+button.nav-profile:hover {
+    opacity:.85;
+}
+
+button.nav-profile:hover strong {
+    text-decoration:underline;
+}
+
+button.nav-profile:focus-visible {
+    outline:2px solid rgba(255,255,255,.9);
+    outline-offset:3px;
+    border-radius:4px;
+}
+
 nav ul {
     list-style:none;
     display:flex;
@@ -635,6 +661,60 @@ nav ul li a.active {
 
 .modal-close-btn:hover {
     color:var(--danger);
+}
+
+/* =========================
+   FACULTY PROFILE MODAL (VIEW-ONLY)
+========================= */
+
+.profile-modal {
+    max-width:460px;
+}
+
+.profile-view {
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+.profile-view-row {
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    padding:12px 14px;
+    background:var(--soft, #f7f7f5);
+    border:1px solid #e0dccd;
+    border-radius:8px;
+}
+
+.profile-view-label {
+    font-size:12px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted, #777);
+}
+
+.profile-view-value {
+    font-size:15px;
+    color:black;
+    word-break:break-word;
+}
+
+@media (max-width: 600px) {
+    .profile-modal {
+        padding:18px;
+        max-width:100%;
+        width:calc(100vw - 32px);
+    }
+
+    .profile-view-row {
+        padding:10px 12px;
+    }
+
+    .profile-view-value {
+        font-size:14px;
+    }
 }
 
 /* =========================

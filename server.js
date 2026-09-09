@@ -520,6 +520,93 @@ app.post("/api/publish/exam-schedule", async (req, res) => {
 });
 
 // ======================================
+// ✉️ UPDATE FIREBASE AUTH EMAIL IMMEDIATELY
+// POST /api/auth/update-email
+//
+// Google's Identity Toolkit backend now rejects client-side updateEmail()
+// with auth/operation-not-allowed ("Please verify the new email before
+// changing email") and there is no project setting that disables this.
+// The Admin SDK is the only way to change the email immediately:
+// same UID, no verification email. The client has already reauthenticated
+// with the current password before calling this endpoint; the idToken
+// proves the caller is the signed-in user.
+// ======================================
+app.post("/api/auth/update-email", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const idToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+    const { newEmail } = req.body || {};
+
+    if (!idToken) {
+      return res.status(401).json({
+        success: false,
+        error: "Missing authentication token.",
+      });
+    }
+
+    if (!newEmail || typeof newEmail !== "string" ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: "A valid new email address is required.",
+      });
+    }
+
+    // Verify the caller's identity token (checkRevoked = true).
+    let decoded;
+    try {
+      decoded = await auth.verifyIdToken(idToken, true);
+    } catch (tokenError) {
+      return res.status(401).json({
+        success: false,
+        error: "Your session has expired. Please log in again.",
+      });
+    }
+
+    const uid = decoded.uid;
+
+    // Reject the change if the new email is already used by ANOTHER account.
+    try {
+      const existing = await auth.getUserByEmail(newEmail.trim().toLowerCase());
+      if (existing && existing.uid !== uid) {
+        return res.status(409).json({
+          success: false,
+          error: "This email is already associated with another account.",
+        });
+      }
+      // existing.uid === uid means it is already this user's email; allow the
+      // (no-op) update so Firestore and Auth stay consistent.
+    } catch (lookupError) {
+      // auth/user-not-found simply means the email is free - that is good.
+      if (lookupError.code !== "auth/user-not-found") {
+        throw lookupError;
+      }
+    }
+
+    // IMMEDIATE email change: same UID, no verification email is sent.
+    await auth.updateUser(uid, { email: newEmail.trim().toLowerCase() });
+
+    return res.status(200).json({
+      success: true,
+      message: "Email updated.",
+      uid: uid,
+    });
+  } catch (error) {
+    console.error(
+      "Error updating Firebase Auth email:",
+      error.code || "",
+      error.message
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Unable to update your email address. Please try again.",
+    });
+  }
+});
+
+// ======================================
 // 🏠 ROOT API TEST
 // GET /
 // ======================================

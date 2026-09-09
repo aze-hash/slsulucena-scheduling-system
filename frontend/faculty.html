@@ -15,14 +15,13 @@
     </div>
 
     <div class="nav-right">
-        <div class="nav-profile">
+        <button id="navProfileBtn" class="nav-profile" type="button" title="View your profile" aria-haspopup="dialog">
             <strong id="navFacultyName">Faculty</strong>
             <span id="navFacultyRole">Instructor</span>
-        </div>
+        </button>
         <button id="mobileMenuToggleBtn" class="mobile-menu-toggle" type="button" aria-label="Toggle menu">☰</button>
         <ul>
             <li><a href="faculty.html" class="active">Home</a></li>
-            <li><a href="faculty-exams.html">Recent Exam Schedule</a></li>
             <li><button id="logoutBtn" class="nav-logout-btn" type="button">Logout</button></li>
         </ul>
     </div>
@@ -102,6 +101,33 @@
             </div>
         </div>
         <div id="requestNotifications" class="request-notifications"></div>
+    </div>
+</div>
+
+<!-- Faculty Profile Modal (VIEW-ONLY) -->
+<div id="facultyProfileModal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="facultyProfileTitle">
+    <div class="modal profile-modal">
+        <div class="modal-header">
+            <h3 id="facultyProfileTitle">Faculty Profile</h3>
+            <button id="closeProfileModalBtn" class="modal-close-btn" type="button" aria-label="Close profile">&times;</button>
+        </div>
+
+        <div class="profile-view">
+            <div class="profile-view-row">
+                <span class="profile-view-label">Name</span>
+                <span id="profileViewName" class="profile-view-value">&mdash;</span>
+            </div>
+
+            <div class="profile-view-row">
+                <span class="profile-view-label">Faculty ID</span>
+                <span id="profileViewFacultyId" class="profile-view-value">&mdash;</span>
+            </div>
+
+            <div class="profile-view-row">
+                <span class="profile-view-label">Email Address</span>
+                <span id="profileViewEmail" class="profile-view-value">&mdash;</span>
+            </div>
+        </div>
     </div>
 </div>
 

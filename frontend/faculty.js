@@ -1,9 +1,6 @@
 import { auth, db } from "../firebase.js";
 
-import {
-    onAuthStateChanged,
-    signOut
-} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 import {
     collection,
@@ -42,8 +39,18 @@ const markAllNotificationsReadBtn = document.getElementById("markAllNotification
 const notificationBadge = document.getElementById("notificationBadge");
 const recentExamsBadge = document.getElementById("recentExamsBadge");
 
+/* Faculty Profile modal (VIEW-ONLY) */
+const navProfileBtn = document.getElementById("navProfileBtn");
+const facultyProfileModal = document.getElementById("facultyProfileModal");
+const closeProfileModalBtn = document.getElementById("closeProfileModalBtn");
+const profileViewName = document.getElementById("profileViewName");
+const profileViewFacultyId = document.getElementById("profileViewFacultyId");
+const profileViewEmail = document.getElementById("profileViewEmail");
+
 let currentFacultyName = "";
 let currentFacultyUid = "";
+let currentFacultyEmail = "";
+let currentFacultyId = "";
 let assignedExamSchedules = [];
 let assignedExamsList = [];
 let latestNotificationsList = [];
@@ -971,6 +978,8 @@ async function initializeFacultyDashboard() {
             const fullName = profile.fullName || "Faculty";
             currentFacultyName = fullName;
             currentFacultyUid = user.uid;
+            currentFacultyEmail = profile.email || user.email || "";
+            currentFacultyId = profile.employeeId || profile.facultyId || "";
             navFacultyName.textContent = fullName;
             navFacultyRole.textContent = "Instructor";
 
@@ -1002,6 +1011,54 @@ function closeNotificationsModal() {
     notificationsModal.hidden = true;
 }
 
+/* =========================
+   FACULTY PROFILE MODAL (VIEW-ONLY)
+========================= */
+
+function renderProfileView(name, facultyId, email) {
+    if (profileViewName) profileViewName.textContent = name || "—";
+    if (profileViewFacultyId) profileViewFacultyId.textContent = facultyId || "—";
+    if (profileViewEmail) profileViewEmail.textContent = email || "—";
+}
+
+function openProfileModal() {
+    if (!facultyProfileModal) return;
+
+    /* Immediately show the already-loaded profile data as a fallback,
+       then refresh from Firestore (READ-ONLY - nothing is ever written). */
+    renderProfileView(currentFacultyName, currentFacultyId, currentFacultyEmail);
+
+    facultyProfileModal.hidden = false;
+    document.body.style.overflow = "hidden";
+
+    const user = auth.currentUser;
+    if (!user) return;
+
+    getDoc(doc(db, "users", user.uid))
+        .then(profileDoc => {
+            if (!profileDoc.exists()) return;
+            const profile = profileDoc.data();
+
+            /* Keep the cached values in sync so the rest of the dashboard
+               (proctoring schedule matching, notifications, etc.) is unaffected. */
+            currentFacultyName = profile.fullName || currentFacultyName || "Faculty";
+            currentFacultyEmail = profile.email || user.email || currentFacultyEmail || "";
+            currentFacultyId = profile.employeeId || profile.facultyId || currentFacultyId || "";
+
+            renderProfileView(currentFacultyName, currentFacultyId, currentFacultyEmail);
+        })
+        .catch(error => {
+            console.error("Could not load faculty profile:", error && error.code, error && error.message);
+            /* The cached values remain displayed - the modal is still usable. */
+        });
+}
+
+function closeProfileModal() {
+    if (!facultyProfileModal || facultyProfileModal.hidden) return;
+    facultyProfileModal.hidden = true;
+    document.body.style.overflow = "";
+}
+
 openRescheduleModalBtn.addEventListener("click", openRescheduleModal);
 
 closeRescheduleModalBtn.addEventListener("click", closeRescheduleModal);
@@ -1024,6 +1081,17 @@ notificationsModal.addEventListener("click", event => {
     }
 });
 
+/* Faculty Profile modal events (VIEW-ONLY) */
+navProfileBtn?.addEventListener("click", openProfileModal);
+
+closeProfileModalBtn?.addEventListener("click", closeProfileModal);
+
+facultyProfileModal?.addEventListener("click", event => {
+    if (event.target === facultyProfileModal) {
+        closeProfileModal();
+    }
+});
+
 document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
         if (!rescheduleModal.hidden) {
@@ -1031,6 +1099,9 @@ document.addEventListener("keydown", event => {
         }
         if (!notificationsModal.hidden) {
             closeNotificationsModal();
+        }
+        if (facultyProfileModal && !facultyProfileModal.hidden) {
+            closeProfileModal();
         }
     }
 });

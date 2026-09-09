@@ -1,0 +1,151 @@
+rules_version = '2';
+
+// ============================================================
+// Firestore Security Rules - SLSU Lucena Scheduling System
+//
+// Mirrors the production ruleset, with one hardened rule:
+//
+//   users/{userId} UPDATE
+//   A user may only update their OWN document, and may only
+//   change the `fullName` and `email` fields. Protected fields
+//   such as `role`, `employeeId` (Faculty ID), `department`,
+//   `uid` and `createdAt` cannot be modified, because any
+//   update touching a field other than fullName/email is
+//   rejected. This is what allows the Faculty Profile modal
+//   to work while blocking everything else.
+//
+//   Admin user management is performed server-side via the
+//   Firebase Admin SDK, which bypasses these rules entirely.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.role == 'Admin';
+    }
+
+    function isFaculty() {
+      return request.auth != null
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.role == 'Faculty';
+    }
+
+    // ---------- users ----------
+    match /users/{userId} {
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly([
+                      'fullName',
+                      'email',
+                      'role',
+                      'program',
+                      'major',
+                      'createdAt'
+                    ])
+                    && request.resource.data.fullName is string
+                    && request.resource.data.fullName.size() > 0
+                    && request.resource.data.email == request.auth.token.email
+                    && request.resource.data.role in ['Student', 'Faculty'];
+
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId || isAdmin());
+
+      // HARDENED: users may update their own document, but ONLY the
+      // `fullName` and `email` fields may differ from the existing
+      // document. `role` must remain unchanged. Fields such as
+      // `employeeId` (Faculty ID), `department`, `uid`, `createdAt`
+      // cannot be changed by a faculty from the client.
+      allow update: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['fullName', 'email'])
+                    && (!('fullName' in request.resource.data)
+                        || (request.resource.data.fullName is string
+                            && request.resource.data.fullName.size() > 0))
+                    && (!('email' in request.resource.data)
+                        || (request.resource.data.email is string
+                            && request.resource.data.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')));
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- faculty (legacy) ----------
+    match /faculty/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /rooms/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /majors/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /programs/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /prospectus/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /facultySubjectAssignments/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /sections/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /classSchedules/{documentId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /examSchedules/{documentId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /examNotifications/{notificationId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /facultyScheduleNotifications/{notificationId} {
+      allow read: if isFaculty() || isAdmin();
+
+      allow create: if isAdmin();
+
+      allow update: if isAdmin()
+                    || (
+                      isFaculty()
+                      && resource.data.facultyUid == request.auth.uid
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['viewed'])
+                    );
+
+      allow delete: if isAdmin();
+    }
+
+    match /reports/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    // RESCHEDULE REQUESTS
+    match /rescheduleRequests/{requestId} {
+      allow create: if isFaculty();
+      allow read: if isFaculty() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+  }
+}
