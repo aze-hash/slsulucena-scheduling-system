@@ -1,0 +1,868 @@
+/* ==========================================================================
+   ROOM ASSIGNMENT DASHBOARD
+   SLSU Lucena – Examination Scheduling System
+   Read-only monitoring page. Reuses the shared admin design system tokens,
+   sidebar layout and responsive behaviour from exam.css / report.css.
+   ========================================================================== */
+
+:root{
+    --primary:#2e7d32;
+    --secondary:#4caf50;
+    --dark:#1b5e20;
+    --white:#ffffff;
+    --shadow:rgba(0,0,0,.15);
+}
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Arial,sans-serif;
+}
+
+body{
+    background:#F5F1E6;
+    color:#1a1a1a;
+    min-height:100vh;
+}
+
+/* =========================
+   SIDEBAR
+========================= */
+
+nav{
+    position:fixed;
+    top:0;
+    left:0;
+    width:230px;
+    height:100vh;
+    background:rgba(27,94,32,.95);
+    padding:20px;
+    z-index:1000;
+}
+
+.logo{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    margin-bottom:30px;
+}
+
+.logo img{
+    width:60px;
+    height:60px;
+    border-radius:50%;
+    background:white;
+}
+
+.logo h2{
+    color:white;
+    font-size:14px;
+    text-align:center;
+    margin-top:10px;
+}
+
+nav ul{
+    list-style:none;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+nav ul li a{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px;
+    color:white;
+    text-decoration:none;
+    font-weight:bold;
+    border-radius:8px;
+    transition:.3s;
+}
+
+.nav-icon{
+    display:inline-block;
+    width:20px;
+    text-align:center;
+    font-size:16px;
+    flex-shrink:0;
+}
+
+nav ul li a:hover,
+nav ul li a.active{
+    background:var(--secondary);
+}
+
+/* =========================
+   MAIN CONTENT
+========================= */
+
+.container{
+    margin-left:250px;
+    padding:30px;
+}
+
+.header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+    margin-bottom:25px;
+}
+
+.header h1{
+    font-size:32px;
+    color:black;
+}
+
+.header p{
+    opacity:.8;
+    line-height:1.5;
+}
+
+/* =========================
+   CARD
+========================= */
+
+.card{
+    background:rgba(255,255,255,.7);
+    backdrop-filter:blur(10px);
+    border-radius:18px;
+    padding:20px;
+    box-shadow:0 10px 25px var(--shadow);
+    margin-bottom:20px;
+}
+
+.card h3{
+    color:black;
+}
+
+.card-subtitle{
+    font-size:13px;
+    color:#666;
+    margin-top:4px;
+}
+
+/* =========================
+   FILTERS
+========================= */
+
+.ra-filters-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(165px, 1fr));
+    gap:12px;
+    margin-top:14px;
+}
+
+.ra-control{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+}
+
+.ra-control label{
+    font-size:12px;
+    font-weight:700;
+    color:#333;
+}
+
+.ra-control select{
+    width:100%;
+    padding:10px;
+    border:1px solid #c9c1b0;
+    border-radius:10px;
+    background:white;
+    color:#1a1a1a;
+    outline:none;
+    font-size:14px;
+    font-family:inherit;
+    box-sizing:border-box;
+}
+
+.ra-control select:focus{
+    border-color:var(--primary);
+    box-shadow:0 0 0 2px rgba(46,125,50,.15);
+}
+
+/* =========================
+   LECTURE ROOM TABS
+========================= */
+
+.ra-card-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.ra-counter{
+    font-size:12px;
+    font-weight:700;
+    color:#555;
+    background:rgba(46,125,50,.1);
+    padding:4px 10px;
+    border-radius:999px;
+    border:1px solid rgba(46,125,50,.25);
+    white-space:nowrap;
+}
+
+.ra-room-tabs{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:14px;
+}
+
+.ra-room-tab{
+    padding:9px 20px;
+    border-radius:8px;
+    border:1px solid #c9c1b0;
+    background:#ffffff;
+    color:#333;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+    transition:all 0.2s ease;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+}
+
+.ra-room-tab:hover{
+    border-color:var(--primary);
+    color:var(--primary);
+}
+
+.ra-room-tab.active{
+    background:var(--primary);
+    border-color:var(--primary);
+    color:#ffffff;
+    box-shadow:0 2px 6px rgba(46,125,50,0.25);
+}
+
+.ra-room-tab .ra-tab-count{
+    background:rgba(46,125,50,.12);
+    color:#1b5e20;
+    font-size:11px;
+    font-weight:700;
+    padding:1px 7px;
+    border-radius:999px;
+    min-width:20px;
+    text-align:center;
+}
+
+.ra-room-tab.active .ra-tab-count{
+    background:rgba(255,255,255,.25);
+    color:#fff;
+}
+/* =========================
+   ROOM SUMMARY CHIPS
+========================= */
+
+.ra-summary{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin:4px 0 14px;
+}
+
+.ra-summary-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    font-weight:700;
+    padding:6px 12px;
+    border-radius:999px;
+    border:1px solid #d6d0c2;
+    background:#faf8f2;
+    color:#444;
+    white-space:nowrap;
+}
+
+.ra-summary-chip b{
+    font-size:14px;
+}
+
+.ra-chip-occupied{ background:#e8f5e9; border-color:#c8e6c9; color:#1b5e20; }
+.ra-chip-conflict{ background:#ffebee; border-color:#ffcdd2; color:#c62828; }
+.ra-chip-total{ background:#eceff1; border-color:#cfd8dc; color:#37474f; }
+
+/* =========================
+   CONFLICT BANNER
+========================= */
+
+.ra-conflict-banner{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    background:#ffebee;
+    border:1px solid #ffcdd2;
+    border-left:4px solid #c62828;
+    border-radius:10px;
+    padding:12px 16px;
+    margin-bottom:14px;
+}
+
+.ra-conflict-banner .ra-cb-icon{
+    font-size:18px;
+    line-height:1.3;
+}
+
+.ra-conflict-banner .ra-cb-title{
+    font-size:13px;
+    font-weight:700;
+    color:#b71c1c;
+}
+
+.ra-conflict-banner .ra-cb-list{
+    margin:6px 0 0;
+    padding-left:18px;
+    font-size:12.5px;
+    color:#7f1d1d;
+    line-height:1.55;
+}
+
+/* =========================
+   CALENDAR (TIME-GRID)
+   Same structure as the Faculty Assignment calendar (proctoring.html):
+   vertical time axis on the left, Mon-Fri day columns, hourly lines,
+   and exam blocks absolutely positioned by their actual times.
+========================= */
+
+.ra-cal-scroll{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+}
+
+:root{
+    --cal-day-min-w: 110px;
+    --cal-time-col-w: 56px;
+    --cal-border: #d0ccbf;
+    --cal-bg: #fafaf7;
+    --cal-header-bg: #e8f5e9;
+    --cal-header-color: #1b5e20;
+    --cal-line-color: #e0dbd0;
+}
+
+.cal-timetable-wrapper{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    touch-action:pan-x pan-y;
+    border:1px solid var(--cal-border);
+    border-radius:10px;
+    background:var(--cal-bg);
+    margin-top:6px;
+}
+
+.cal-timetable{
+    display:flex;
+    min-width:calc(var(--cal-time-col-w) + var(--cal-day-min-w) * 5);
+    width:100%;
+}
+
+.cal-time-col{
+    flex:0 0 var(--cal-time-col-w);
+    width:var(--cal-time-col-w);
+    position:sticky;
+    left:0;
+    z-index:10;
+    background:var(--cal-bg);
+    border-right:1px solid var(--cal-border);
+}
+
+.cal-time-header{
+    height:40px;
+    border-bottom:2px solid var(--cal-border);
+    background:var(--cal-header-bg);
+}
+
+.cal-time-body{
+    position:relative;
+    overflow:hidden;
+}
+
+.cal-time-label{
+    position:absolute;
+    left:0;
+    right:0;
+    transform:translateY(-50%);
+    font-size:10px;
+    color:#7a7060;
+    text-align:right;
+    padding-right:7px;
+    pointer-events:none;
+    white-space:nowrap;
+}
+
+.cal-day-col{
+    flex:1 1 var(--cal-day-min-w);
+    min-width:var(--cal-day-min-w);
+    border-right:1px solid var(--cal-border);
+    display:flex;
+    flex-direction:column;
+}
+
+.cal-day-col:last-child{
+    border-right:none;
+}
+
+.cal-day-header{
+    height:40px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    background:var(--cal-header-bg);
+    border-bottom:2px solid var(--cal-border);
+    gap:1px;
+    padding:3px 2px;
+}
+
+.cal-day-name{
+    font-size:10px;
+    font-weight:700;
+    color:var(--cal-header-color);
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    white-space:nowrap;
+}
+
+.cal-day-body{
+    position:relative;
+    /* visible so hover-expanded exam cards can overlay neighbouring columns
+       instead of being clipped by the day-column container; compact cards
+       are still sized inside their own column so nothing changes at rest */
+    overflow:visible;
+    background:#fff;
+}
+
+.cal-hour-line{
+    position:absolute;
+    left:0;
+    right:0;
+    height:1px;
+    background:var(--cal-line-color);
+    pointer-events:none;
+}
+
+.cal-block{
+    position:absolute;
+    border-radius:4px;
+    padding:4px 5px;
+    overflow:hidden;
+    box-sizing:border-box;
+    cursor:default;
+    border-left:3px solid transparent;
+    /* min-width/min-height start at 0 so the :hover expansion
+       (larger min-width/min-height) animates smoothly */
+    min-width:0;
+    min-height:0;
+    transition:box-shadow .2s ease,
+               transform .2s ease,
+               min-width .2s ease,
+               min-height .2s ease,
+               padding .2s ease,
+               font-size .15s ease;
+    display:flex;
+    flex-direction:column;
+    gap:1px;
+    font-size:9px;
+    line-height:1.2;
+    box-shadow:0 1px 3px rgba(0,0,0,.10);
+    text-align:left;
+}
+
+/* ---------------------------------------------------------------
+   HOVER EXPANSION
+   The card keeps its compact inline size at rest. On hover it
+   smoothly grows (min-width/min-height override the inline size),
+   rises above all surrounding calendar content and reveals every
+   detail un-truncated. On mouse leave it returns to compact size.
+   --------------------------------------------------------------- */
+.cal-block:hover{
+    z-index:60;
+    min-width:190px;
+    min-height:170px;
+    padding:8px 10px;
+    gap:3px;
+    font-size:10.5px;
+    overflow:hidden;
+    box-shadow:0 12px 28px rgba(0,0,0,.28);
+    transform:translateY(-2px);
+}
+
+/* Expanded content: larger, fully readable, never truncated */
+.cal-block:hover .ra-card-section{
+    font-size:12.5px;
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    word-break:break-word;
+    margin-bottom:2px;
+}
+
+.cal-block:hover .ra-card-subject{
+    font-size:11.5px;
+    line-height:1.3;
+    -webkit-line-clamp:4;
+}
+
+.cal-block:hover .ra-card-code{
+    font-size:10px;
+}
+
+.cal-block:hover .ra-examtype-badge{
+    font-size:10px;
+    padding:2px 8px;
+}
+
+.cal-block:hover .ra-card-meta{
+    font-size:10.5px;
+    opacity:1;
+    gap:4px;
+    margin-top:3px;
+}
+
+.cal-block:hover .ra-card-meta div{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+}
+
+/* Cards near the bottom of a day column expand upward instead of
+   downward (--ra-grow is set inline per block in room-allocation.js)
+   so they are never clipped by the calendar scroll container. */
+.cal-block.ra-expand-up:hover{
+    transform:translateY(var(--ra-grow, 0px));
+}
+
+/* Conflict cards keep their red styling but must still rise above
+   everything else while expanded (.ra-conflict-card sets z-index:4) */
+.cal-block.ra-conflict-card:hover{
+    z-index:60;
+}
+
+.cal-block-color-1  { background:#e8f5e9; border-left-color:#2e7d32; color:#1b5e20; }
+.cal-block-color-2  { background:#e3f2fd; border-left-color:#1565c0; color:#0d47a1; }
+.cal-block-color-3  { background:#fff8e1; border-left-color:#f57f17; color:#e65100; }
+.cal-block-color-4  { background:#fce4ec; border-left-color:#c2185b; color:#880e4f; }
+.cal-block-color-5  { background:#ede7f6; border-left-color:#512da8; color:#311b92; }
+.cal-block-color-6  { background:#e0f2f1; border-left-color:#00897b; color:#004d40; }
+.cal-block-color-7  { background:#fbe9e7; border-left-color:#e64a19; color:#bf360c; }
+.cal-block-color-8  { background:#e0f7fa; border-left-color:#0097a7; color:#006064; }
+.cal-block-color-9  { background:#f3e5f5; border-left-color:#8e24aa; color:#4a148c; }
+.cal-block-color-10 { background:#f9fbe7; border-left-color:#afb42b; color:#827717; }
+.cal-block-color-11 { background:#efebe9; border-left-color:#6d4c41; color:#3e2723; }
+.cal-block-color-12 { background:#eceff1; border-left-color:#546e7a; color:#263238; }
+.cal-block-color-13 { background:#ffebee; border-left-color:#d32f2f; color:#b71c1c; }
+.cal-block-color-14 { background:#e1f5fe; border-left-color:#0288d1; color:#01579b; }
+.cal-block-color-15 { background:#fffde7; border-left-color:#fbc02d; color:#f57f17; }
+.cal-block-color-16 { background:#e8f8f5; border-left-color:#16a085; color:#0e6655; }
+
+/* =========================
+   EXAM BLOCK CONTENT
+========================= */
+
+.ra-card-section{
+    font-size:10px;
+    font-weight:700;
+    color:inherit;
+    margin-bottom:1px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.ra-card-subject{
+    font-weight:700;
+    font-size:9.5px;
+    color:inherit;
+    margin-bottom:2px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    display:-webkit-box;
+    -webkit-line-clamp:1;
+    -webkit-box-orient:vertical;
+}
+
+.ra-card-code{
+    font-weight:400;
+    font-size:8.5px;
+    opacity:.75;
+}
+
+.ra-examtype-badge{
+    display:inline-block;
+    align-self:flex-start;
+    background:rgba(255,255,255,.65);
+    color:inherit;
+    border:1px solid rgba(0,0,0,.08);
+    font-size:8.5px;
+    font-weight:700;
+    padding:1px 6px;
+    border-radius:999px;
+    margin-bottom:2px;
+    white-space:nowrap;
+}
+
+.ra-card-meta{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:1px;
+    font-size:8.5px;
+    color:inherit;
+    opacity:.85;
+    margin-top:1px;
+}
+
+.ra-card-meta div{
+    display:flex;
+    align-items:flex-start;
+    gap:4px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.ra-card-meta .ra-meta-label{
+    font-weight:700;
+    opacity:.75;
+    flex:0 0 auto;
+}
+
+/* =========================
+   CONFLICT STYLES
+========================= */
+
+.cal-block.ra-conflict-card{
+    border-left-color:#c62828;
+    border:1px solid #ffcdd2;
+    border-left:3px solid #c62828;
+    background:#fff8f8;
+    color:#b71c1c;
+    z-index:4;
+}
+
+.ra-conflict-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:3px;
+    background:#ffebee;
+    color:#c62828;
+    font-size:10px;
+    font-weight:700;
+    padding:1px 7px;
+    border-radius:999px;
+    border:1px solid #ffcdd2;
+    margin-bottom:4px;
+    white-space:nowrap;
+}
+
+/* =========================
+   EMPTY / LOADING STATES
+========================= */
+
+.ra-empty{
+    text-align:center;
+    color:#777;
+    padding:30px 16px;
+    font-size:14px;
+    line-height:1.5;
+}
+
+.ra-loading{
+    text-align:center;
+    color:#777;
+    padding:30px 16px;
+    font-size:14px;
+}
+
+.ra-muted{
+    color:#888;
+    font-size:12px;
+}
+
+/* =========================
+   LEGEND
+========================= */
+
+.ra-legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    margin-top:14px;
+    font-size:11.5px;
+    color:#555;
+}
+
+.ra-legend-item{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+}
+
+.ra-legend-swatch{
+    width:14px;
+    height:14px;
+    border-radius:4px;
+    display:inline-block;
+    border:1px solid #d6d0c2;
+}
+
+.ra-legend-swatch.occupied{ background:#e8f5e9; border-left:3px solid #2e7d32; }
+.ra-legend-swatch.conflict{ background:#ffebee; border-left:3px solid #c62828; border-color:#ffcdd2; }
+
+/* =========================
+   CUSTOM TOAST (shared)
+========================= */
+
+.custom-toast{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,.45);
+    backdrop-filter:blur(2px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:100000;
+}
+
+.custom-toast-content{
+    background:#fff;
+    border-radius:14px;
+    padding:28px 36px;
+    max-width:460px;
+    width:90%;
+    box-shadow:0 15px 35px rgba(0,0,0,.25);
+    text-align:center;
+    position:relative;
+    font-size:16px;
+    color:#1a1a1a;
+    line-height:1.5;
+}
+
+.custom-toast-close{
+    position:absolute;
+    top:8px;
+    right:14px;
+    font-size:28px;
+    font-weight:bold;
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:#888;
+    transition:.2s;
+}
+
+.custom-toast-close:hover{
+    color:#b71c1c;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (min-width:769px){
+    body{
+        zoom:0.9;
+        width:auto;
+        min-height:100vh;
+        overflow-x:hidden;
+    }
+    nav{
+        height:111.111vh;
+    }
+}
+
+@media (max-width:900px){
+    :root{
+        --cal-day-min-w:100px;
+        --cal-time-col-w:56px;
+    }
+}
+
+@media (max-width:600px){
+    :root{
+        --cal-day-min-w:90px;
+        --cal-time-col-w:52px;
+    }
+
+    .cal-block{
+        font-size:8.5px;
+        padding:3px 4px;
+    }
+
+    .cal-day-header{
+        height:44px;
+    }
+}
+
+@media (max-width:992px){
+    .ra-filters-grid{
+        grid-template-columns:repeat(3, 1fr);
+        gap:10px;
+    }
+}
+
+@media (max-width:768px){
+    nav{
+        width:100%;
+        height:auto;
+        position:relative;
+    }
+
+    .container{
+        margin-left:0;
+        padding:20px 16px;
+    }
+
+    .header{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .header h1{
+        font-size:24px;
+    }
+
+    .ra-filters-grid{
+        grid-template-columns:repeat(2, 1fr);
+        gap:10px;
+    }
+
+    .ra-room-tab{
+        padding:9px 14px;
+        font-size:12.5px;
+    }
+}
+
+@media (max-width:576px){
+    .ra-filters-grid{
+        grid-template-columns:1fr;
+        gap:10px;
+    }
+
+    .card{
+        padding:16px;
+    }
+
+    .ra-summary{
+        gap:8px;
+    }
+
+    .ra-summary-chip{
+        font-size:11px;
+        padding:5px 10px;
+    }
+
+    .ra-cal-scroll{
+        max-height:none;
+    }
+}

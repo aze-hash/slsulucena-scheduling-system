@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reports</title>
+    <title>Schedule Archive - Examination Scheduling System</title>
     <link rel="stylesheet" href="report.css">
 </head>
 <body>
@@ -16,10 +16,10 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
-        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
-        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html" class="active"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
         <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -28,57 +28,20 @@
 <div class="container">
 
     <div class="header">
-        <h1>Schedule Archive</h1>
-        <p>Access and view archived class and examination schedule PDFs.</p>
+        <h1>Examination Schedule Archive</h1>
+        <p>Access, view, and print archived examination schedule reports and timetables.</p>
     </div>
 
-    <!-- Class Schedule Archive -->
-    <div class="card" id="classArchiveSection">
-        <div class="section-header">
-            <h3>Class Schedule Archive</h3>
-            <button type="button" class="delete-all-card-btn" id="deleteAllClassArchiveBtn">Delete All</button>
-        </div>
-
-        <div class="archive-filters">
-            <select id="classArchiveAcademicYear">
-                <option value="">All Years</option>
-            </select>
-            <select id="classArchiveSemester">
-                <option value="">All Semesters</option>
-                <option value="1st Semester">1st Semester</option>
-                <option value="2nd Semester">2nd Semester</option>
-            </select>
-            <input type="text" id="classArchiveSearch" placeholder="Search class archive...">
-        </div>
-
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Section / Schedule</th>
-                        <th>Academic Year</th>
-                        <th>Semester</th>
-                        <th>Exported</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="classArchiveTableBody"></tbody>
-            </table>
-        </div>
-
-        <p id="emptyClassArchive" class="empty-note" style="text-align:center; padding:16px; color:#777;">Select a filter to view archived schedules.</p>
-    </div>
-
-    <!-- Exam Schedule Archive -->
+    <!-- Exam Schedule Archive Card -->
     <div class="card" id="examArchiveSection">
-        <div class="section-header">
-            <h3>Exam Schedule Archive</h3>
-            <button type="button" class="delete-all-card-btn" id="deleteAllExamArchiveBtn">Delete All</button>
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 style="margin:0;">Archived Examination Schedules</h3>
+            <button type="button" class="delete-all-card-btn" id="deleteAllExamArchiveBtn">Delete All Archive</button>
         </div>
 
-        <div class="archive-filters">
+        <div class="archive-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:16px 0;">
             <select id="examArchiveAcademicYear">
-                <option value="">All Years</option>
+                <option value="">All Academic Years</option>
             </select>
             <select id="examArchiveSemester">
                 <option value="">All Semesters</option>
@@ -91,44 +54,45 @@
                 <option value="Midterm">Midterm</option>
                 <option value="Final">Final</option>
             </select>
-            <input type="text" id="examArchiveSearch" placeholder="Search exam archive...">
+            <input type="text" id="examArchiveSearch" placeholder="Search section, code, or title...">
         </div>
 
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
-                        <th>Academic Year</th>
-                        <th>Semester</th>
-                        <th>Exam Type</th>
-                        <th>Exported</th>
-                        <th>Action</th>
+                        <th style="min-width:180px;">Section / Schedule</th>
+                        <th style="min-width:140px;">Academic Year</th>
+                        <th style="min-width:130px;">Semester</th>
+                        <th style="min-width:120px;">Exam Type</th>
+                        <th style="min-width:130px;">Archived Date</th>
+                        <th style="min-width:180px; text-align:center;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="examArchiveTableBody"></tbody>
             </table>
         </div>
 
-        <p id="emptyExamArchive" class="empty-note" style="text-align:center; padding:16px; color:#777;">Select a filter to view archived exam schedules.</p>
+        <p id="emptyExamArchive" class="empty-note" style="text-align:center; padding:20px; color:#777;">Loading archived examination schedules...</p>
 
-        <div class="archive-pagination" id="examArchivePagination" style="display:none;">
-            <span id="examArchivePageInfo"></span>
-            <div class="archive-pagination-controls">
-                <button id="examArchivePrevPage" type="button">← Previous</button>
-                <span id="examArchivePageNumbers"></span>
-                <button id="examArchiveNextPage" type="button">Next →</button>
+        <div class="archive-pagination" id="examArchivePagination" style="display:none; justify-content:space-between; align-items:center; margin-top:16px; flex-wrap:wrap; gap:10px;">
+            <span id="examArchivePageInfo" style="font-size:13px; color:#666;"></span>
+            <div class="archive-pagination-controls" style="display:flex; gap:6px; align-items:center;">
+                <button id="examArchivePrevPage" type="button" style="padding:6px 12px; border-radius:6px; border:1px solid #ccc; background:#fff; cursor:pointer;">← Previous</button>
+                <span id="examArchivePageNumbers" style="display:flex; gap:4px;"></span>
+                <button id="examArchiveNextPage" type="button" style="padding:6px 12px; border-radius:6px; border:1px solid #ccc; background:#fff; cursor:pointer;">Next →</button>
             </div>
         </div>
     </div>
 
 </div>
 
-<!-- Class Schedule Calendar Modal -->
-<div id="classCalendarModal" class="cal-modal-overlay" style="display:none;">
+<!-- Exam Schedule Calendar Modal -->
+<div id="examCalendarModal" class="cal-modal-overlay" style="display:none;">
     <div class="cal-modal-content">
         <div class="cal-modal-header">
             <div>
-                <h2 id="calModalTitle" style="margin:0; font-size:18px; color:#1b5e20;">Class Schedule</h2>
+                <h2 id="calModalTitle" style="margin:0; font-size:18px; color:#1b5e20;">Exam Schedule Timetable</h2>
                 <p id="calModalSubtitle" style="margin:4px 0 0 0; font-size:13px; color:#555;"></p>
             </div>
             <button id="calModalClose" class="cal-modal-close" type="button">&times;</button>
@@ -139,7 +103,7 @@
     </div>
 </div>
 
-<!-- Custom Notification Toast -->
+<!-- Custom Centered Toast -->
 <div id="customToast" class="custom-toast" style="display:none;">
     <div class="custom-toast-content">
         <span id="customToastMessage"></span>
@@ -151,4 +115,3 @@
 
 </body>
 </html>
-

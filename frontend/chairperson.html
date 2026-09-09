@@ -18,10 +18,10 @@
 
     <ul>
         <li><a class="active" href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
-        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
-        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
         <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -31,7 +31,7 @@
     <header class="header">
         <div>
             <h1>Welcome, Admin</h1>
-            <p>Manage schedules, academic resources, and system activity.</p>
+            <p>Web-based Automated Examination Scheduling System for SLSU Lucena Campus</p>
         </div>
 
         <div class="admin-profile">
@@ -41,7 +41,7 @@
     </header>
 
     <div class="notice" id="dashboardNotice">
-        Loading your live Firestore dashboard data...
+        Loading live examination scheduling data...
     </div>
 
     <section class="dashboard-grid">
@@ -56,42 +56,43 @@
         </article>
 
         <article class="stat-card">
-            <p>Pending Request</p>
+            <p>Pending Requests</p>
             <h2 id="pendingRequestCount">0</h2>
         </article>
 
         <article class="stat-card">
-            <p>Class Schedule</p>
-            <h2 id="classScheduleCount">0</h2>
+            <p>Total Exam Schedules</p>
+            <h2 id="examScheduleCount">0</h2>
         </article>
 
         <article class="stat-card">
-            <p>Exam Schedule</p>
-            <h2 id="examScheduleCount">0</h2>
+            <p>Published Exams</p>
+            <h2 id="publishedExamCount">0</h2>
         </article>
     </section>
 
-    <!-- Visualizations: Faculty Subject Assignments & Schedule Overview -->
+    <!-- Visualizations: Room Assignment & Schedule Overview -->
     <section class="dashboard-charts-grid">
-        <!-- 1. Faculty Subject Assignments Horizontal Bar Chart -->
+        <!-- 1. Room Assignment Vertical Bar Chart -->
         <div class="card chart-card">
             <div class="chart-card-header">
                 <div>
-                    <h3>Faculty Subject Assignments</h3>
-                    <p class="chart-subtitle">Assigned subjects per faculty member</p>
+                    <h3>Room Assignment</h3>
+                    <p class="chart-subtitle">Assigned examinations per room</p>
                 </div>
                 <div class="chart-controls">
-                    <select id="facultyChartFilter" class="chart-select">
-                        <option value="5" selected>Top 5 Faculty</option>
-                        <option value="10">Top 10 Faculty</option>
-                        <option value="all">All Faculty</option>
+                    <select id="roomChartFilter" class="chart-select">
+                        <option value="this_semester" selected>This Semester</option>
+                        <option value="1st Semester">1st Semester</option>
+                        <option value="2nd Semester">2nd Semester</option>
+                        <option value="all">All</option>
                     </select>
                 </div>
             </div>
-            <div class="chart-container" id="facultyChartWrapper">
-                <canvas id="facultySubjectsChart"></canvas>
-                <div id="facultyChartEmptyState" class="chart-empty-state" style="display:none;">
-                    No subject assignments yet.
+            <div class="chart-container" id="roomChartWrapper">
+                <canvas id="roomAssignmentChart"></canvas>
+                <div id="roomChartEmptyState" class="chart-empty-state" style="display:none;">
+                    No room assignments yet.
                 </div>
             </div>
         </div>

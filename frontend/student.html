@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Dashboard</title>
+    <title>Student Dashboard - Examination Scheduling System</title>
     <link rel="stylesheet" href="student.css">
 </head>
 <body>
@@ -29,26 +29,21 @@
 <div class="container">
     <div class="header">
         <div>
-            <h1>My Schedule</h1>
-            <p>Only your program and major schedules are shown here.</p>
+            <h1>My Examination Schedule</h1>
+            <p>View your published examination schedule for the current semester.</p>
         </div>
     </div>
 
     <div class="card">
         <div class="section-header">
-            <h3>Class Schedule</h3>
+            <h3>Examination Schedule</h3>
         </div>
         <div class="search-bar">
-            <input type="text" id="classSearchInput" placeholder="⌕ Search by section..." />
+            <input type="text" id="examSearchInput" placeholder="⌕ Search by section or subject..." />
         </div>
-        <div id="classScheduleContainer" class="schedule-container"></div>
-    </div>
-
-    <div class="card">
-        <div class="section-header">
-            <h3>Exam Schedule</h3>
+        <div id="examScheduleContainer" class="schedule-container">
+            <div class="empty-state">Loading your examination schedule...</div>
         </div>
-        <div id="examScheduleContainer" class="schedule-container"></div>
     </div>
 </div>
 

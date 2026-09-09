@@ -1,8 +1,10 @@
-/* One-off script: reviews saved class schedules (Firestore "classSchedules")
+/* One-off script: reviews saved exam schedules (Firestore "examSchedules")
    for room/time conflicts across sections.
+   Uses the Firebase Admin SDK (serviceAccountKey.json) so security rules
+   don't block the read.
    Run: node checkConflicts.mjs */
 
-const PROJECT_ID = "slsulucena-scheduling-system";
+import { db } from "./firebase-admin.js";
 
 function parseTime(value) {
   if (!value) return 0;
@@ -21,40 +23,33 @@ function timesOverlap(a, b) {
 }
 
 async function main() {
-  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/classSchedules?pageSize=100`;
-  const res = await fetch(url);
-  const data = await res.json();
+  const snap = await db.collection("examSchedules").get();
 
-  const schedules = (data.documents || []).map(doc => {
-    const f = doc.fields || {};
-    const str = name =>
-      f[name]?.stringValue ?? "";
-    let entries = [];
-    if (f.entries?.arrayValue?.values) {
-      entries = f.entries.arrayValue.values.map(v => {
-        const e = v.mapValue?.fields || {};
-        return {
-          code: e.code?.stringValue || "",
-          day: e.day?.stringValue || "",
-          time: e.time?.stringValue || "",
-          room: e.room?.stringValue || ""
-        };
-      });
-    }
+  const schedules = snap.docs.map(doc => {
+    const d = doc.data() || {};
+    const entries = Array.isArray(d.exams)
+      ? d.exams.map(e => ({
+          code: e?.code || "",
+          day: e?.day || "",
+          date: e?.date || "",
+          time: e?.time || "",
+          room: e?.room || "",
+          proctor: e?.proctor || ""
+        }))
+      : [];
     return {
-      id: doc.name.split("/").pop(),
-      section: str("section"),
-      academicYear: str("academicYear"),
-      semester: str("semester"),
-      status: str("status") || "active",
+      id: doc.id,
+      section: d.section || "",
+      academicYear: d.academicYear || "",
+      semester: d.semester || "",
+      status: d.status || "active",
       entries
     };
   });
 
-  console.log(`Found ${schedules.length} saved schedule(s).
-`);
+  console.log(`Found ${schedules.length} saved schedule(s).\n`);
 
-  // Flatten into bookings per active schedule
+  // Flatten into bookings per schedule
   const bookings = [];
   for (const s of schedules) {
     for (const entry of s.entries) {
@@ -69,20 +64,21 @@ async function main() {
           sem: s.semester,
           code: entry.code,
           day,
+          date: entry.date,
           time: times[i] || times[0] || "",
-          room: rooms[i] || rooms[0] || ""
+          room: rooms[i] || rooms[0] || "",
+          proctor: entry.proctor || ""
         });
       });
     }
   }
 
-  console.log(`Total bookings (expanded per day): ${bookings.length}
-`);
+  console.log(`Total bookings (expanded per day): ${bookings.length}\n`);
 
-  // Group by academic year + semester
+  // Group by academic year + semester + exam date
   const groups = {};
   for (const b of bookings) {
-    const key = `${b.ay} | ${b.sem}`;
+    const key = `${b.ay} | ${b.sem} | ${b.date || b.day}`;
     (groups[key] ||= []).push(b);
   }
 
@@ -95,8 +91,23 @@ async function main() {
         const a = list[i], b = list[j];
         if (a.day !== b.day) continue;
         if (!timesOverlap(a.time, b.time)) continue;
-        if (a.room !== b.room) continue;
         if (a.section === b.section && a.code === b.code) continue;
+
+        // Proctor double-booked in different sections (ignore "TBA" placeholders)
+        if (
+          a.proctor && a.proctor !== "TBA" &&
+          a.proctor === b.proctor && a.section !== b.section
+        ) {
+          conflictCount++;
+          console.log(
+            `PROCTOR CONFLICT: ${a.proctor} on ${a.date || a.day} ${a.time}\n` +
+            `  - ${a.section}: ${a.code} (${a.room})\n` +
+            `  - ${b.section}: ${b.code} (${b.room})`
+          );
+          continue;
+        }
+
+        if (a.room !== b.room) continue;
 
         const isGym = /gym/i.test(a.room);
         if (isGym && a.section !== b.section) {
@@ -113,10 +124,8 @@ async function main() {
 
         conflictCount++;
         console.log(
-          `CONFLICT: ${a.room} on ${a.day} ${a.time}
-` +
-          `  - ${a.section}: ${a.code}
-` +
+          `ROOM CONFLICT: ${a.room} on ${a.date || a.day} ${a.time}\n` +
+          `  - ${a.section}: ${a.code}\n` +
           `  - ${b.section}: ${b.code}`
         );
       }
@@ -129,6 +138,7 @@ async function main() {
   } else {
     console.log(`Total conflicts found: ${conflictCount}`);
   }
+  process.exit(0);
 }
 
 main().catch(err => {

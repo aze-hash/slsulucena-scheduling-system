@@ -3,9 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Faculty Proctoring</title>
+    <title>Faculty Assignment</title>
     <link rel="stylesheet" href="report.css">
     <style>
+        .assignment-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .assignment-tab-btn {
+            padding: 9px 20px;
+            border-radius: 8px;
+            border: 1px solid #c9c1b0;
+            background: #ffffff;
+            color: #333;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .assignment-tab-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .assignment-tab-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(46,125,50,0.25);
+        }
+
         .proctoring-filters {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -33,55 +67,50 @@
             box-shadow: 0 0 0 2px rgba(46,125,50,.15);
         }
 
-        .proctoring-card {
-            background: #ffffff;
-            border: 1px solid #d6cbb8;
-            border-radius: 12px;
-            margin-bottom: 16px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
-            transition: transform .2s, box-shadow .2s;
-        }
-
-        .proctoring-card:hover {
-            box-shadow: 0 6px 16px rgba(0,0,0,0.08);
-        }
-
-        .proctoring-card-header {
-            background: rgba(163, 177, 138, 0.25);
-            padding: 12px 18px;
-            display: flex;
+        .badge-conflict {
+            display: inline-flex;
             align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #d6cbb8;
-            flex-wrap: wrap;
-            gap: 10px;
+            gap: 4px;
+            background: #ffebee;
+            color: #c62828;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #ffcdd2;
+            white-space: nowrap;
         }
 
-        .proctoring-card-header .faculty-title {
-            font-size: 16px;
-            font-weight: bold;
-            color: var(--dark);
-            display: flex;
+        .badge-class {
+            display: inline-flex;
             align-items: center;
-            gap: 10px;
+            gap: 4px;
+            background: #e8f5e9;
+            color: #1b5e20;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #c8e6c9;
+            white-space: nowrap;
         }
 
-        .proctoring-card-header .duties-count-badge {
-            font-size: 12px;
-            padding: 3px 10px;
-            border-radius: 12px;
-            background: var(--primary);
-            color: white;
-            font-weight: normal;
+        .badge-exam {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: #fff3e0;
+            color: #e65100;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #ffe0b2;
+            white-space: nowrap;
         }
 
-        .proctoring-card-body {
-            padding: 14px 18px;
-        }
-
-        .btn-export-pdf {
-            padding: 7px 14px;
+        .btn-view-pdf {
+            padding: 6px 14px;
             border: none;
             border-radius: 6px;
             background: var(--primary);
@@ -90,51 +119,287 @@
             font-weight: bold;
             cursor: pointer;
             transition: .2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
         }
 
-        .btn-export-pdf:hover {
+        .btn-view-pdf:hover {
             background: var(--secondary);
         }
 
-        .btn-export-all {
+        .btn-toggle-schedule {
             padding: 7px 14px;
-            border: none;
-            border-radius: 8px;
-            background: var(--primary);
-            color: white;
+            border-radius: 6px;
+            border: 1px solid #2e7d32;
+            background: #2e7d32;
+            color: #ffffff;
             font-size: 12px;
             font-weight: bold;
             cursor: pointer;
-            transition: .2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
         }
 
-        .btn-export-all:hover {
-            background: var(--secondary);
+        .btn-toggle-schedule:hover {
+            background: #1b5e20;
+            border-color: #1b5e20;
         }
 
-        .duty-table {
+        .btn-toggle-schedule.active {
+            background: #1b5e20;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* =============================================================
+           STUDENT DASHBOARD STYLE TIMETABLE CALENDAR
+        ============================================================= */
+        :root {
+            --cal-day-min-w: 90px;
+            --cal-time-col-w: 48px;
+            --cal-border: #d0ccbf;
+            --cal-bg: #fafaf7;
+            --cal-header-bg: #e8f5e9;
+            --cal-header-color: #1b5e20;
+            --cal-line-color: #e0dbd0;
+        }
+
+        .cal-timetable-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-x pan-y;
+            border: 1px solid var(--cal-border);
+            border-radius: 10px;
+            background: var(--cal-bg);
+            margin-top: 6px;
+        }
+
+        .cal-timetable {
+            display: flex;
+            min-width: calc(var(--cal-time-col-w) + var(--cal-day-min-w) * 5);
             width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            margin-top: 8px;
         }
 
-        .duty-table th {
-            background: rgba(163, 177, 138, 0.15);
-            color: var(--dark);
-            font-weight: bold;
-            padding: 8px 12px;
-            text-align: left;
-            border-bottom: 1px solid #d6cbb8;
+        .cal-time-col {
+            flex: 0 0 var(--cal-time-col-w);
+            width: var(--cal-time-col-w);
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: var(--cal-bg);
+            border-right: 1px solid var(--cal-border);
         }
 
-        .duty-table td {
-            padding: 8px 12px;
-            border-bottom: 1px solid #eee;
+        .cal-time-header {
+            height: 40px;
+            border-bottom: 2px solid var(--cal-border);
+            background: var(--cal-header-bg);
         }
 
-        .duty-table tr:last-child td {
-            border-bottom: none;
+        .cal-time-body {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cal-time-label {
+            position: absolute;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            font-size: 10px;
+            color: #7a7060;
+            text-align: right;
+            padding-right: 7px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .cal-day-col {
+            flex: 1 1 var(--cal-day-min-w);
+            min-width: var(--cal-day-min-w);
+            border-right: 1px solid var(--cal-border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .cal-day-col:last-child {
+            border-right: none;
+        }
+
+        .cal-day-header {
+            height: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--cal-header-bg);
+            border-bottom: 2px solid var(--cal-border);
+            gap: 1px;
+            padding: 3px 2px;
+        }
+
+        .cal-day-name {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--cal-header-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+
+        .cal-day-date {
+            font-size: 9px;
+            color: #4a6741;
+            white-space: nowrap;
+        }
+
+        .cal-day-body {
+            position: relative;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .cal-hour-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--cal-line-color);
+            pointer-events: none;
+        }
+
+        .cal-block {
+            position: absolute;
+            border-radius: 4px;
+            padding: 3px 4px;
+            overflow: hidden;
+            box-sizing: border-box;
+            cursor: default;
+            border-left: 3px solid transparent;
+            transition: box-shadow 0.15s ease, transform 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0px;
+            font-size: 9px;
+            line-height: 1.2;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+        }
+
+        .cal-block:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+            transform: translateY(-1px);
+            z-index: 5;
+        }
+
+        .cal-block-color-1  { background: #e8f5e9; border-left-color: #2e7d32; color: #1b5e20; }
+        .cal-block-color-2  { background: #e3f2fd; border-left-color: #1565c0; color: #0d47a1; }
+        .cal-block-color-3  { background: #fff8e1; border-left-color: #f57f17; color: #e65100; }
+        .cal-block-color-4  { background: #fce4ec; border-left-color: #c2185b; color: #880e4f; }
+        .cal-block-color-5  { background: #ede7f6; border-left-color: #512da8; color: #311b92; }
+        .cal-block-color-6  { background: #e0f2f1; border-left-color: #00897b; color: #004d40; }
+        .cal-block-color-7  { background: #fbe9e7; border-left-color: #e64a19; color: #bf360c; }
+        .cal-block-color-8  { background: #e0f7fa; border-left-color: #0097a7; color: #006064; }
+        .cal-block-color-9  { background: #f3e5f5; border-left-color: #8e24aa; color: #4a148c; }
+        .cal-block-color-10 { background: #f9fbe7; border-left-color: #afb42b; color: #827717; }
+        .cal-block-color-11 { background: #efebe9; border-left-color: #6d4c41; color: #3e2723; }
+        .cal-block-color-12 { background: #eceff1; border-left-color: #546e7a; color: #263238; }
+        .cal-block-color-13 { background: #ffebee; border-left-color: #d32f2f; color: #b71c1c; }
+        .cal-block-color-14 { background: #e1f5fe; border-left-color: #0288d1; color: #01579b; }
+        .cal-block-color-15 { background: #fffde7; border-left-color: #fbc02d; color: #f57f17; }
+        .cal-block-color-16 { background: #e8f8f5; border-left-color: #16a085; color: #0e6655; }
+
+        .cal-color-dot {
+            border: 1px solid rgba(0,0,0,0.15);
+        }
+
+        .cal-block-code {
+            font-weight: 700;
+            font-size: 9px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .cal-block-name {
+            font-size: 8px;
+            opacity: 0.85;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+        }
+
+        .cal-block-time {
+            font-size: 8px;
+            font-weight: 600;
+            margin-top: auto;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .cal-block-room {
+            font-size: 8px;
+            opacity: 0.75;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .cal-details-collapsible summary::-webkit-details-marker {
+            display: none;
+        }
+        .cal-details-collapsible summary::marker {
+            display: none;
+        }
+        .cal-details-collapsible summary {
+            outline: none;
+        }
+        .cal-details-collapsible summary:focus-visible {
+            outline: 2px solid var(--secondary);
+            outline-offset: -2px;
+        }
+        .cal-details-summary:hover {
+            background: #eef6ee !important;
+        }
+        .cal-details-summary:hover .cal-details-toggle-icon {
+            background: #c8e6c9 !important;
+        }
+        .cal-details-collapsible[open] .cal-details-toggle-icon {
+            transform: rotate(180deg);
+            background: #c8e6c9 !important;
+        }
+
+        @media (max-width: 900px) {
+            :root {
+                --cal-day-min-w: 100px;
+                --cal-time-col-w: 56px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            :root {
+                --cal-day-min-w: 90px;
+                --cal-time-col-w: 52px;
+            }
+
+            .cal-block {
+                font-size: 9.5px;
+                padding: 3px 4px;
+            }
+
+            .cal-day-header {
+                height: 44px;
+            }
+
+            .cal-time-header {
+                height: 44px;
+            }
         }
     </style>
 </head>
@@ -148,10 +413,10 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
-        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
-        <li><a href="proctoring.html" class="active"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="proctoring.html" class="active"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
         <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -160,18 +425,19 @@
 <div class="container">
 
     <div class="header">
-        <h1>Faculty Proctoring Dashboard</h1>
-        <p>View and manage faculty proctoring exam schedule assignments and PDFs.</p>
+        <h1>Faculty Examination Proctoring Dashboard</h1>
+        <p>View and manage examination proctoring duties and conflict prevention for faculty members.</p>
     </div>
 
-    <!-- Main Card: Faculty Proctoring Exam Schedules -->
+    <!-- Main Card: Faculty Assignments -->
     <div class="card" id="proctoringSection">
-        <div class="section-header">
-            <h3>Faculty Proctoring Exam Schedules</h3>
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 style="margin:0;">Faculty Examination Proctoring Assignments</h3>
+            <div id="tableCounterBadge" style="font-size:12px; color:#666; font-weight:600;"></div>
         </div>
 
         <div class="proctoring-filters">
-            <input type="text" id="proctorSearchName" placeholder="⌕ Search Faculty Name...">
+            <input type="text" id="proctorSearchName" placeholder="⌕ Search Faculty, Subject, or Section...">
             <select id="proctorAcademicYear">
                 <option value="">All Academic Years</option>
             </select>
@@ -183,7 +449,7 @@
             <select id="proctorSection">
                 <option value="">All Sections</option>
             </select>
-            <select id="proctorExamType">
+            <select id="proctorExamTypeFilter">
                 <option value="">All Exam Types</option>
                 <option value="Preliminary">Preliminary</option>
                 <option value="Midterm">Midterm</option>
@@ -193,21 +459,18 @@
 
         <div class="table-container">
             <table>
-                <thead>
+                <thead id="proctoringTableHead">
                     <tr>
-                        <th>Faculty Name</th>
-                        <th>Academic Year</th>
-                        <th>Semester</th>
-                        <th>Section</th>
-                        <th>Exam Type</th>
-                        <th>PDF's</th>  
+                        <th style="min-width:240px;">Faculty Name</th>
+                        <th style="min-width:180px;">A.Y. &amp; Semester</th>
+                        <th style="min-width:180px; text-align:center;">Action</th>  
                     </tr>
                 </thead>
                 <tbody id="proctoringTableBody"></tbody>
             </table>
         </div>
 
-        <p id="emptyProctoringNote" class="empty-note" style="text-align:center; padding:16px; color:#777;">No faculty proctoring exam schedules found matching the selected filters.</p>
+        <p id="emptyProctoringNote" class="empty-note" style="text-align:center; padding:20px; color:#777;">Loading faculty assignments...</p>
     </div>
 
 </div>

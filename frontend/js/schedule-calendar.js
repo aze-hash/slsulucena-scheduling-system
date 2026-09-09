@@ -1,7 +1,7 @@
 /**
  * schedule-calendar.js
  * ---------------------
- * Shared utility for rendering released class schedules and exam schedules
+ * Shared utility for rendering released exam schedules and exam schedules
  * as visual weekly timetable grids on the Student Dashboard and Faculty Dashboard.
  *
  * DOES NOT modify any Firestore data, schedule generation logic, or admin pages.
@@ -22,8 +22,8 @@ const CAL_TOTAL_MINUTES = CAL_END_MINUTES - CAL_START_MINUTES; // 660
 /** Pixel height per 60-minute hour slot in the calendar */
 const HOUR_PX = 64;
 
-/** Days used by the class schedule calendar (Mon–Fri only) */
-const CLASS_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+/** Days used by the exam schedule calendar (Mon–Fri only) */
+const EXAM_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 // ─── Time Parsing ─────────────────────────────────────────────────────────────
 
@@ -47,7 +47,8 @@ export function parseTimeToMinutes(rawTime) {
 
     // Normalise separators: "7:30-10:00" → "7:30 - 10:00"
     // Also handle em-dash and en-dash
-    const normalised = str.replace(/\s*[–—-]\s*/g, " - ");
+    // Generated slots use compact ranges such as "7:30-9:00".
+    const normalised = str.replace(/\s*(?:-|–|—)\s*/g, " - ");
 
     // Split on " - "
     const parts = normalised.split(" - ");
@@ -190,16 +191,16 @@ function buildSubjectColorMap(entries) {
     return map;
 }
 
-// ─── Class Schedule Block Builder ─────────────────────────────────────────────
+// ─── Exam Schedule Block Builder ─────────────────────────────────────────────
 
 /**
  * Build the positioned blocks HTML for a single day column in a class calendar.
- * @param {Array<Object>} entries - All class schedule entries
+ * @param {Array<Object>} entries - All exam schedule entries
  * @param {string} day - e.g., "Monday"
  * @param {Map<string, string>} [subjectColorMap] - Mapping of subject key to color class
  * @returns {string} HTML
  */
-function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
+function buildArchivedScheduleDayBlocks(entries, day, subjectColorMap = new Map(), isFacultySchedule = false) {
     // Collect blocks for this specific day
     const dayBlocks = [];
 
@@ -210,7 +211,12 @@ function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
         const rawRooms = String(entry.room || "").split(/\s*\/\s*/);
 
         rawDays.forEach((d, i) => {
-            if (d.trim().toLowerCase() !== day.toLowerCase()) return;
+            const dt = d.trim().toLowerCase();
+            const dayLower = day.toLowerCase();
+            const matchesDay = dt === dayLower ||
+                               (dt.length >= 3 && dayLower.startsWith(dt)) ||
+                               (dayLower.length >= 3 && dt.startsWith(dayLower.slice(0, 3)));
+            if (!matchesDay) return;
 
             const rawTime = (rawTimes[i] || rawTimes[0] || "").trim();
             const room    = (rawRooms[i] || rawRooms[0] || "").trim();
@@ -223,7 +229,9 @@ function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
                 code:  entry.subjectCode || entry.code || "",
                 name:  entry.subjectName || entry.name || "",
                 time:  rawTime,
-                room
+                room,
+                section: entry.section || "",
+                faculty: entry.facultyName || ""
             });
         });
     }
@@ -236,6 +244,8 @@ function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
 
     for (const cluster of clusters) {
         const colCount = cluster.length;
+        const isClusterClash = Boolean(isFacultySchedule && colCount > 1);
+
         cluster.forEach((block, colIndex) => {
             const clampedStart = Math.max(block.start, CAL_START_MINUTES);
             const clampedEnd   = Math.min(block.end,   CAL_END_MINUTES);
@@ -248,14 +258,26 @@ function buildClassDayBlocks(entries, day, subjectColorMap = new Map()) {
 
             const displayTime = `${minutesToDisplay(block.start)} – ${minutesToDisplay(block.end)}`;
             const subjectKey  = String(block.code || block.name || "").trim().toUpperCase();
-            const colorClass  = subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`;
+            const colorClass  = isClusterClash ? "cal-block-conflict" : (subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`);
+
+            const displayExtra = [block.room, block.section || block.faculty].filter(Boolean).join(" • ");
+            const conflictTag = isClusterClash
+                ? `<div class="cal-block-conflict-tag" style="background:#d32f2f; color:#ffffff; font-size:8.5px; font-weight:800; padding:1px 4px; border-radius:3px; display:inline-flex; align-items:center; gap:2px; margin-bottom:2px; line-height:1.2; width:fit-content; letter-spacing:0.3px;">⚠️ CLASH</div>`
+                : "";
+            const conflictStyle = isClusterClash
+                ? `background:#ffebee !important; border-left:3px solid #d32f2f !important; color:#b71c1c !important; box-shadow:0 0 0 1px #ef9a9a, 0 2px 6px rgba(211,47,47,0.25) !important; z-index:4;`
+                : "";
+            const conflictTitle = isClusterClash
+                ? `⚠️ CONFLICT: Instructor has overlapping classes on ${esc(day)} at ${esc(displayTime)}! Subject: ${esc(block.code)}, Section: ${esc(block.section || 'N/A')}, Room: ${esc(block.room || 'N/A')}`
+                : `${esc(block.code)} — ${esc(block.name)}${block.section ? ` [${esc(block.section)}]` : ""}${block.faculty ? ` (${esc(block.faculty)})` : ""}`;
 
             html += `
-<div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} — ${esc(block.name)}">
+<div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px); ${conflictStyle}" title="${conflictTitle}">
+  ${conflictTag}
   <div class="cal-block-code">${esc(block.code)}</div>
   <div class="cal-block-name">${esc(block.name)}</div>
   <div class="cal-block-time">${esc(displayTime)}</div>
-  <div class="cal-block-room">${esc(block.room)}</div>
+  <div class="cal-block-room">${esc(displayExtra)}</div>
 </div>`;
         });
     }
@@ -288,7 +310,8 @@ function buildExamDayBlocks(exams, day, subjectColorMap = new Map()) {
             code:  exam.code  || exam.subjectCode  || "",
             name:  exam.name  || exam.subjectName  || "",
             time:  rawTime,
-            room:  exam.room  || ""
+            room:  exam.room  || "",
+            proctor: exam.proctor || exam.facultyName || "TBA"
         });
     }
 
@@ -314,11 +337,12 @@ function buildExamDayBlocks(exams, day, subjectColorMap = new Map()) {
             const colorClass  = subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`;
 
             html += `
-<div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} — ${esc(block.name)}">
+<div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} — ${esc(block.name)} — Proctor: ${esc(block.proctor)}">
   <div class="cal-block-code">${esc(block.code)}</div>
   <div class="cal-block-name">${esc(block.name)}</div>
   <div class="cal-block-time">${esc(displayTime)}</div>
-  <div class="cal-block-room">${esc(block.room)}</div>
+  <div class="cal-block-room">Room: ${esc(block.room)}</div>
+  <div class="cal-block-room">Proctor: ${esc(block.proctor)}</div>
 </div>`;
         });
     }
@@ -360,12 +384,12 @@ function formatExamDateHeader(dateStr) {
 // ─── Public API: Render Class Calendar ────────────────────────────────────────
 
 /**
- * Render a weekly class schedule as a visual Mon–Fri timetable with schedule details table.
+ * Render a weekly exam schedule as a visual Mon–Fri timetable with schedule details table.
  *
- * @param {Object} schedule  - A classSchedules document (with .entries[] or .rawEntries[])
+ * @param {Object} schedule  - A examSchedules document (with .entries[] or .rawEntries[])
  * @returns {string} HTML string for the timetable and details table (to be injected into a container)
  */
-export function renderClassCalendar(schedule) {
+function renderArchivedScheduleCalendar(schedule) {
     let entries = Array.isArray(schedule.entries) && schedule.entries.length > 0
         ? schedule.entries
         : (Array.isArray(schedule.rawEntries) ? schedule.rawEntries : []);
@@ -380,12 +404,102 @@ export function renderClassCalendar(schedule) {
         `;
     }
 
+    const isFac = !!schedule.isFacultySchedule;
+    let conflictBannerHtml = "";
+
+    if (isFac) {
+        // Collect discrete items
+        const discreteBlocks = [];
+        for (const entry of entries) {
+            const rawDays  = String(entry.day  || "").split(/\s*\/\s*/);
+            const rawTimes = String(entry.time || "").split(/\s*\/\s*/);
+            const rawRooms = String(entry.room || "").split(/\s*\/\s*/);
+
+            rawDays.forEach((d, i) => {
+                const dayTrim = d.trim();
+                const rawTime = (rawTimes[i] || rawTimes[0] || "").trim();
+                const room    = (rawRooms[i] || rawRooms[0] || "").trim();
+                const parsed  = parseTimeToMinutes(rawTime);
+                if (!parsed || !dayTrim) return;
+
+                discreteBlocks.push({
+                    day: dayTrim,
+                    start: parsed.start,
+                    end: parsed.end,
+                    time: rawTime,
+                    code: entry.subjectCode || entry.code || "",
+                    name: entry.subjectName || entry.name || "",
+                    section: entry.section || "",
+                    room
+                });
+            });
+        }
+
+        // Find pairs of overlapping blocks on the same day
+        const clashPairs = [];
+        const seenClashKeys = new Set();
+
+        for (let i = 0; i < discreteBlocks.length; i++) {
+            for (let j = i + 1; j < discreteBlocks.length; j++) {
+                const b1 = discreteBlocks[i];
+                const b2 = discreteBlocks[j];
+                if (b1.day.toLowerCase() === b2.day.toLowerCase()) {
+                    // Time overlap
+                    if (b1.start < b2.end && b2.start < b1.end) {
+                        const clashKey = [b1.day, b1.code, b1.section, b2.code, b2.section, b1.start].sort().join("_");
+                        if (!seenClashKeys.has(clashKey)) {
+                            seenClashKeys.add(clashKey);
+                            clashPairs.push({ b1, b2 });
+                        }
+                    }
+                }
+            }
+        }
+
+        if (clashPairs.length > 0) {
+            const listHtml = clashPairs.map(cp => {
+                const day = cp.b1.day;
+                const time1 = minutesToDisplay(cp.b1.start) + " – " + minutesToDisplay(cp.b1.end);
+                const time2 = minutesToDisplay(cp.b2.start) + " – " + minutesToDisplay(cp.b2.end);
+                return `
+                    <div style="display:flex; align-items:flex-start; gap:8px; padding:6px 10px; background:#fff; border-radius:6px; border:1px solid #ffcdd2;">
+                        <span style="font-weight:700; color:#d32f2f; font-size:12px; min-width:85px;">${esc(day)}:</span>
+                        <div style="font-size:12px; color:#333; flex-grow:1;">
+                            <div><strong style="color:#b71c1c;">${esc(cp.b1.code)}</strong> in <strong>${esc(cp.b1.section || 'Section')}</strong> (${esc(cp.b1.room || 'Room TBA')}) at ${esc(time1)}</div>
+                            <div style="color:#d32f2f; font-weight:700; font-size:11px; margin:2px 0;">⚡ CLASHES WITH</div>
+                            <div><strong style="color:#b71c1c;">${esc(cp.b2.code)}</strong> in <strong>${esc(cp.b2.section || 'Section')}</strong> (${esc(cp.b2.room || 'Room TBA')}) at ${esc(time2)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            conflictBannerHtml = `
+                <div class="faculty-conflict-alert" style="margin-bottom:14px; padding:12px 16px; background:#ffebee; border:2px solid #ef5350; border-radius:10px; box-shadow:0 3px 10px rgba(211,47,47,0.12);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                        <div style="font-size:14px; font-weight:bold; color:#b71c1c; display:flex; align-items:center; gap:6px;">
+                            <span style="font-size:18px;">⚠️</span> FACULTY SCHEDULE CONFLICT DETECTED
+                        </div>
+                        <span style="background:#d32f2f; color:#fff; font-size:11px; font-weight:bold; padding:3px 10px; border-radius:999px;">
+                            ${clashPairs.length} Overlapping Slot Clash${clashPairs.length > 1 ? 'es' : ''}
+                        </span>
+                    </div>
+                    <div style="font-size:12.5px; color:#5c0000; margin-bottom:8px; line-height:1.4;">
+                        This instructor has been assigned multiple simultaneous classes in different rooms. An instructor cannot teach more than one section at the same time.
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        ${listHtml}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
     const subjectColorMap = buildSubjectColorMap(entries);
 
     // Build day columns
-    const dayColumnsHtml = CLASS_DAYS.map(day => {
-        const blocks = buildClassDayBlocks(entries, day, subjectColorMap);
+    const dayColumnsHtml = EXAM_DAYS.map(day => {
+        const blocks = buildArchivedScheduleDayBlocks(entries, day, subjectColorMap, isFac);
         return `
 <div class="cal-day-col">
   <div class="cal-day-header"><span class="cal-day-name">${esc(day)}</span></div>
@@ -412,6 +526,7 @@ export function renderClassCalendar(schedule) {
             <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.day || "—")}</td>
             <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:600;">${esc(entry.time || "—")}</td>
             <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.room || "—")}</td>
+            <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:600; color:#1b5e20;">${esc(isFac ? (entry.section || "—") : (entry.proctor || entry.facultyName || "TBA"))}</td>
         </tr>`;
     }).join("");
 
@@ -441,6 +556,7 @@ export function renderClassCalendar(schedule) {
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Day</th>
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Time</th>
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Room</th>
+                        <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">${isFac ? "Section" : "Instructor"}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -452,6 +568,7 @@ export function renderClassCalendar(schedule) {
 </details>`;
 
     return `
+${conflictBannerHtml}
 <div class="cal-timetable-wrapper">
   <div class="cal-timetable">
     <div class="cal-time-col">
@@ -513,6 +630,132 @@ export function renderExamCalendar(schedule) {
     <span class="cal-day-name">${esc(day)}</span>
     ${dateLabel ? `<span class="cal-day-date">${esc(dateLabel)}</span>` : ""}
   </div>
+  <div class="cal-day-body" style="height:${calendarHeight}px">
+    ${buildHourLines()}
+    ${blocks}
+  </div>
+</div>`;
+    }).join("");
+
+    return `
+<div class="cal-timetable-wrapper">
+  <div class="cal-timetable">
+    <div class="cal-time-col">
+      <div class="cal-time-header"></div>
+      <div class="cal-time-body" style="height:${calendarHeight}px">
+        ${buildTimeLabels()}
+      </div>
+    </div>
+    ${dayColumnsHtml}
+  </div>
+</div>`;
+}
+
+// ─── Public API: Weekly Exam Subject Calendar ────────────────────────────────
+
+/**
+ * Build the positioned subject blocks for a single weekday column of a weekly
+ * exam calendar. Supports a single day value ("Tuesday") as well as multi-day
+ * values ("Monday / Wednesday") while keeping day/time/room entries paired,
+ * exactly like the admin Proctoring dashboard does.
+ *
+ * @param {Array<Object>} exams - Flattened exam entries assigned to the faculty
+ * @param {string} day - Column weekday name, e.g. "Monday"
+ * @param {Map<string, string>} [subjectColorMap] - Subject -> color class map
+ * @returns {string} HTML string of the positioned blocks
+ */
+function buildWeeklyExamDayBlocks(exams, day, subjectColorMap = new Map()) {
+    const dayBlocks = [];
+
+    for (const exam of exams) {
+        const rawDays  = String(exam.day  || "").split(/\s*\/\s*/);
+        const rawTimes = String(exam.time || "").split(/\s*\/\s*/);
+        const rawRooms = String(exam.room || "").split(/\s*\/\s*/);
+
+        rawDays.forEach((d, i) => {
+            const dt = d.trim().toLowerCase();
+            const dayLower = day.toLowerCase();
+            const matchesDay = dt === dayLower ||
+                               (dt.length >= 3 && dayLower.startsWith(dt.slice(0, 3))) ||
+                               (dayLower.length >= 3 && dt.startsWith(dayLower.slice(0, 3)));
+            if (!matchesDay) return;
+
+            const rawTime = (rawTimes[i] || rawTimes[0] || exam.time || "").trim();
+            const room    = (rawRooms[i] || rawRooms[0] || exam.room || "").trim();
+            const parsed  = parseTimeToMinutes(rawTime);
+            if (!parsed) return;
+
+            dayBlocks.push({
+                start: parsed.start,
+                end:   parsed.end,
+                code:  exam.code  || exam.subjectCode  || "",
+                name:  exam.name  || exam.subjectName  || "",
+                time:  rawTime,
+                room,
+                section: exam.section || "",
+                examType: exam.examType || ""
+            });
+        });
+    }
+
+    if (!dayBlocks.length) return "";
+
+    const clusters = groupOverlaps(dayBlocks);
+    let html = "";
+
+    for (const cluster of clusters) {
+        const colCount = cluster.length;
+        cluster.forEach((block, colIndex) => {
+            const clampedStart = Math.max(block.start, CAL_START_MINUTES);
+            const clampedEnd   = Math.min(block.end,   CAL_END_MINUTES);
+            if (clampedEnd <= clampedStart) return;
+
+            const top    = ((clampedStart - CAL_START_MINUTES) / 60) * HOUR_PX;
+            const height = Math.max(((clampedEnd - clampedStart) / 60) * HOUR_PX, 28);
+            const widthPct  = 100 / colCount;
+            const leftPct   = widthPct * colIndex;
+
+            const displayTime = `${minutesToDisplay(block.start)} \u2013 ${minutesToDisplay(block.end)}`;
+            const subjectKey  = String(block.code || block.name || "").trim().toUpperCase();
+            const colorClass  = subjectColorMap.get(subjectKey) || `cal-block-color-${((colIndex) % TOTAL_CALENDAR_COLORS) + 1}`;
+
+            const metaParts = [block.examType, block.section, block.room].filter(Boolean);
+
+            html += `
+<div class="cal-block ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);" title="${esc(block.code)} \u2014 ${esc(block.name)} \u2014 ${esc(block.examType)} \u2014 ${esc(block.section)} \u2014 Room: ${esc(block.room)}">
+  <div class="cal-block-code">${esc(block.code)}</div>
+  <div class="cal-block-name">${esc(block.name)}</div>
+  <div class="cal-block-time">${esc(displayTime)}</div>
+  <div class="cal-block-room">${esc(metaParts.join(" \u2022 "))}</div>
+</div>`;
+        });
+    }
+
+    return html;
+}
+
+/**
+ * Render the exam SUBJECTS assigned to one faculty member as a weekly
+ * Mon\u2013Fri timetable calendar (same visual style as the admin Proctoring
+ * dashboard's per-faculty calendar cards).
+ *
+ * @param {Array<Object>} exams - Flattened exam entries assigned to the faculty
+ * @returns {string} HTML string for the weekly timetable
+ */
+export function renderWeeklyExamCalendar(exams) {
+    const entries = Array.isArray(exams) ? exams : [];
+    if (!entries.length) {
+        return `<div class="empty-state">No exam subjects assigned to you yet.</div>`;
+    }
+
+    const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
+    const subjectColorMap = buildSubjectColorMap(entries);
+
+    const dayColumnsHtml = EXAM_DAYS.map(day => {
+        const blocks = buildWeeklyExamDayBlocks(entries, day, subjectColorMap);
+        return `
+<div class="cal-day-col">
+  <div class="cal-day-header"><span class="cal-day-name">${esc(day)}</span></div>
   <div class="cal-day-body" style="height:${calendarHeight}px">
     ${buildHourLines()}
     ${blocks}

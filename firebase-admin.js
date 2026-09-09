@@ -4,6 +4,12 @@ import { getAuth } from "firebase-admin/auth";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import dns from "node:dns";
+
+// Prefer IPv4 over IPv6 to avoid 60-second timeouts on networks with broken IPv6 routing
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 dotenv.config();
 
@@ -39,6 +45,13 @@ if (!getApps().length) {
 }
 
 const db = getFirestore();
+// Enable REST transport for Firestore to prevent gRPC connection deadline timeouts
+try {
+  db.settings({ preferRest: true });
+} catch (settingsErr) {
+  console.warn("Could not set Firestore preferRest setting:", settingsErr.message);
+}
+
 const auth = getAuth();
 
 export { db, auth };

@@ -1,11 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Exam Schedule Generator</title>
-
-<link rel="stylesheet" href="exam.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Schedule Generator - SLSU Lucena</title>
+    <link rel="stylesheet" href="exam.css">
 </head>
 <body>
 
@@ -17,10 +16,10 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
-        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
         <li><a href="exam.html" class="active"><span class="nav-icon">📝</span> Exam Schedule</a></li>
-        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
         <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -28,120 +27,227 @@
 
 <div class="container">
 
-<div class="header">
-    <div class="header-text">
-        <h1>Exam Schedule Generator</h1>
-        <p>Generate examinations from saved class schedules.</p>
-    </div>
-    <button id="guideInfoBtn" type="button" class="guide-info-btn" title="View Guide" aria-label="View Guide">&#9432;</button>
-</div>
-
-<div class="card">
-
-<div class="section-header">
-<h3>Saved Class Schedules</h3>
-<button id="deleteAllClassSchedulesBtn" type="button" class="delete-all-card-btn" style="background:#c62828; color:white; border:none; border-radius:8px; padding:7px 14px; font-weight:bold; font-size:12px; cursor:pointer; transition:.3s;">Delete All</button>
-</div>
-
-<!-- Academic Year, Semester, Exam Date, Exam Type Controls -->
-<div class="schedule-controls-card">
-    <div class="schedule-controls-grid">
-        <div class="control-group">
-            <label for="academicYearFilter">Academic Year</label>
-            <select id="academicYearFilter">
-                <option value="">Select Academic Year</option>
-            </select>
+    <div class="header">
+        <div class="header-text">
+            <h1>Exam Schedule Generator</h1>
+            <p>Automated Examination Scheduling System for SLSU Lucena Campus</p>
         </div>
-
-        <div class="control-group">
-            <label for="semesterFilter">Semester</label>
-            <select id="semesterFilter">
-                <option value="">Select Semester</option>
-            </select>
-        </div>
-
-        <div class="control-group">
-            <label for="examDateInput">Select Exam Date</label>
-            <input type="date" id="examDateInput">
-        </div>
-
-        <div class="control-group">
-            <label for="examType">Select Exam Type</label>
-            <select id="examType">
-                <option value="">Select Exam Type</option>
-                <option value="Preliminary">Preliminary Examinations</option>
-                <option value="Midterm">Midterm Examinations</option>
-                <option value="Final">Final Examinations</option>
-            </select>
-        </div>
+        <button id="guideInfoBtn" type="button" class="guide-info-btn" title="View Guide" aria-label="View Guide">&#9432;</button>
     </div>
 
-    <div id="selectedDatesContainer" class="date-chips">
-        <span class="date-chips-empty">No dates selected yet. Add at least one exam date.</span>
-    </div>
-</div>
+    <!-- Exam Parameters & Section Filters Card -->
+    <div class="card">
+        <h3>Exam Scheduling Filters</h3>
 
-<div class="table-container saved-classes-table-container">
+        <div class="schedule-controls-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(164px, 1fr)); gap:12px; margin-top:14px;">
+            <div class="control-group">
+                <label for="academicYear" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Academic Year</label>
+                <input type="text" id="academicYear" placeholder="A.Y. (e.g. 2026-2027)" style="width:100%;padding:11px;border:1px solid #c9c1b0;border-radius:10px;background:white;color:#1a1a1a;outline:none;font-size:14px;box-sizing:border-box;">
+            </div>
 
-<table>
+            <div class="control-group">
+                <label for="semester" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Semester</label>
+                <select id="semester" class="exam-native-select">
+                    <option value="">Select Semester</option>
+                    <option value="1">1st Semester</option>
+                    <option value="2">2nd Semester</option>
+                </select>
+            </div>
 
-<thead>
+            <div class="control-group">
+                <label for="program" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Program</label>
+                <div class="msd" id="program" data-placeholder="Select Program" data-noun="Program" title="Select one or more programs"></div>
+            </div>
 
-<tr>
-<th><input type="checkbox" id="selectAllCheckbox" aria-label="Select all sections"></th>
-<th>Section</th>
-<th>Subjects</th>
-<th>Preliminary</th>
-<th>Midterm</th>
-<th>Final</th>
-</tr>
+            <div class="control-group">
+                <label for="major" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Major</label>
+                <div class="msd" id="major" data-placeholder="Select Major" data-noun="Major" title="Select one or more majors"></div>
+            </div>
 
-</thead>
+            <div class="control-group">
+                <label for="yearLevel" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Year Level</label>
+                <div class="msd" id="yearLevel" data-placeholder="Select Year Level" data-noun="Year Level" title="Select one or more year levels"></div>
+            </div>
 
-<tbody id="savedScheduleTable"></tbody>
+            <div class="control-group">
+                <label for="section" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Section</label>
+                <div class="section-select-group">
+                    <div class="msd section-multi-wrap" id="section" data-placeholder="Select Section" data-noun="Section" title="Select one or more sections"></div>
+                    <button type="button" id="addSectionBtn" class="add-section-btn" title="Add new section" aria-label="Add new section">+</button>
+                </div>
+            </div>
 
-</table>
+            <div class="control-group">
+                <label for="examType" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Exam Type</label>
+                <select id="examType" class="exam-native-select">
+                    <option value="">Select Exam Type</option>
+                    <option value="Preliminary">Preliminary Examinations</option>
+                    <option value="Midterm">Midterm Examinations</option>
+                    <option value="Final">Final Examinations</option>
+                </select>
+            </div>
 
-</div>
+            <div class="control-group">
+                <label for="examDateInput" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:#333;">Select Exam Date</label>
+                <input type="date" id="examDateInput" style="width:100%;padding:11px;border:1px solid #c9c1b0;border-radius:10px;background:white;color:#1a1a1a;outline:none;font-size:14px;box-sizing:border-box;">
+            </div>
+        </div>
 
-</div>
-
-<div class="generate-container">
-<button id="generateExamBtn">
-Generate Exam Schedule
-</button>
-</div>
-
-<!-- Saved Exam Schedules -->
-<div class="card" id="savedExamCard">
-    <div class="section-header">
-        <h3>Saved Exam Schedules</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="publishAllExamBtn" type="button" style="background:#2e7d32; color:white;">Publish All</button>
-            <button id="exportExamPdfBtn" type="button">Export All to PDF</button>
-            <button id="deleteAllExamBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
+        <div style="margin-top:12px;">
+            <span style="font-size:12px; font-weight:600; color:#555;">Selected Exam Dates:</span>
+            <div id="selectedDatesContainer" class="date-chips" style="margin-top:6px;">
+                <span class="date-chips-empty">No dates selected yet. Pick at least one examination date above.</span>
+            </div>
         </div>
     </div>
-    <p id="emptyExamSchedules">No saved exam schedules yet.</p>
-    <div id="savedExamSchedules"></div>
-</div>
+
+    <!-- Curriculum Subjects Card -->
+    <div class="card">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Curriculum Subjects</h3>
+            <button id="loadSubjectsBtn" type="button" style="padding:9px 18px; border:none; border-radius:8px; background:var(--primary); color:white; font-weight:bold; cursor:pointer;">Load Subjects</button>
+        </div>
+
+        <div id="curriculumCardsContainer" style="margin-top:12px;">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Subject Code</th>
+                            <th>Subject Name</th>
+                            <th>Units</th>
+                            <th>Lec</th>
+                            <th>Lab</th>
+                            <th>Hrs/wk</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subjectTableBody">
+                        <tr>
+                            <td colspan="6" style="text-align:center; color:#777; padding:20px;">Please select filters and click "Load Subjects" to load curriculum subjects.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Container -->
+    <div class="generate-container" style="text-align:center; margin:24px 0;">
+        <button id="generateExamBtn" type="button" style="padding:11px 14px; border:none; border-radius:10px; background:var(--primary); color:white; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 4px 12px rgba(46,125,50,0.3); transition:all 0.2s ease;">Generate Schedule</button>
+    </div>
+
+    <!-- Saved Exam Schedules Card -->
+    <div class="card" id="savedExamCard">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3>Saved Exam Schedules</h3>
+            <div class="export-btn-container" style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button id="publishAllExamBtn" type="button" style="background:#2e7d32; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Publish All</button>
+                <button id="moveExamArchiveBtn" type="button" style="background:#37474f; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Move to Archive</button>
+                <button id="deleteAllExamBtn" type="button" style="background:#b71c1c; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Delete All</button>
+            </div>
+        </div>
+
+        <div class="search-bar" style="margin-top:14px;">
+            <input type="text" id="savedScheduleSearchInput" placeholder="⌕ Search saved exam schedules by A.Y., semester, year level or section..." aria-label="Search saved schedules">
+        </div>
+
+        <p id="emptyExamSchedules" style="text-align:center; color:#777; padding:24px 0;">No saved exam schedules yet.</p>
+        <div id="savedExamSchedules" class="saved-schedules-list"></div>
+    </div>
 
 </div>
 
-<!-- Exam Schedule Modal -->
-<div id="examModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
+<!-- Generated Exam Schedule Preview Modal -->
+<div id="examModal" class="modal" style="display:none;">
+    <div class="exam-preview-modal-content">
+        <div class="exam-preview-modal-header">
             <h2>Generated Exam Schedule</h2>
-            <span class="close-modal">&times;</span>
+            <span class="close-modal" id="closeExamModalBtn">&times;</span>
         </div>
 
-        <div id="examModalBody" class="modal-body-sections"></div>
+        <div id="examModalBody" class="exam-preview-modal-body"></div>
 
-        <div style="margin:20px 24px 8px; display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
-            <button id="saveExamBtn" type="button" style="background:#546e7a; color:white; border:none; border-radius:8px; padding:10px 20px; font-weight:bold; font-size:14px; cursor:pointer;">Save as Draft</button>
-            <button id="publishExamBtn" type="button" style="background:#2e7d32; color:white; border:none; border-radius:8px; padding:10px 24px; font-weight:bold; font-size:14px; cursor:pointer;">Publish Exam Schedule</button>
+        <div class="exam-preview-modal-footer">
+            <button id="saveExamBtn" type="button" class="exam-preview-btn exam-preview-btn-secondary">Save as Draft</button>
+            <button id="publishExamBtn" type="button" class="exam-preview-btn exam-preview-btn-primary">Publish Exam Schedule</button>
         </div>
+    </div>
+</div>
+
+<!-- Add New Section Modal -->
+<div id="addSectionModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content">
+        <div class="custom-confirm-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Add New Section</h3>
+            <span id="closeAddSectionModalBtn" class="close-modal" style="color:white; font-size:24px; cursor:pointer; line-height:1;" title="Close">&times;</span>
+        </div>
+        <div class="custom-confirm-body">
+            <label for="newSectionInput" style="display:block; margin-bottom:8px; font-weight:600; color:#1a1a1a; font-size:14px;">Section Code</label>
+            <input type="text" id="newSectionInput" placeholder="e.g. BINDTECH-CPT 1A" style="width:100%;padding:12px;border:1px solid #c9c1b0;border-radius:10px;background:white;color:#1a1a1a;outline:none;font-size:14px;box-sizing:border-box;">
+            <p style="margin-top:8px; font-size:12px; color:#666; line-height:1.4;">Only letters, numbers, spaces, and hyphens (-) are allowed.</p>
+        </div>
+        <div class="custom-confirm-footer">
+            <button type="button" id="cancelNewSectionBtn" class="custom-confirm-btn cancel">Cancel</button>
+            <button type="button" id="saveNewSectionBtn" class="custom-confirm-btn ok">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Saved Exam Schedule Modal -->
+<div id="editScheduleModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content edit-schedule-modal-content" style="max-width:980px; width:95%;">
+        <div class="custom-confirm-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <h3 id="editScheduleTitle" style="margin:0; font-size:18px;">Edit Exam Schedule</h3>
+                <small id="editScheduleSubtitle" style="color:rgba(255,255,255,0.85); font-size:12px; margin-top:2px; display:block;"></small>
+            </div>
+            <span id="closeEditScheduleModalBtn" class="close-modal" style="color:white; font-size:24px; cursor:pointer; line-height:1;" title="Close">&times;</span>
+        </div>
+        <div class="custom-confirm-body" style="max-height:65vh; overflow-y:auto; padding:20px;">
+            <div class="table-container">
+                <table class="edit-schedule-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th style="min-width:100px;">Subject Code</th>
+                            <th style="min-width:160px;">Subject Name</th>
+                            <th style="width:50px;">Units</th>
+                            <th style="min-width:120px;">Exam Date</th>
+                            <th style="min-width:130px;">Exam Time</th>
+                            <th style="min-width:130px;">Room</th>
+                            <th style="min-width:150px;">Faculty Proctor</th>
+                        </tr>
+                    </thead>
+                    <tbody id="editScheduleTableBody"></tbody>
+                </table>
+            </div>
+            <div id="editScheduleConflicts" style="display:none; margin-top:16px;"></div>
+        </div>
+        <div class="custom-confirm-footer">
+            <button type="button" id="cancelEditScheduleBtn" class="custom-confirm-btn cancel">Cancel</button>
+            <button type="button" id="saveEditScheduleBtn" class="custom-confirm-btn ok">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Exam Calendar View Modal -->
+<div id="examCalendarModal" class="cls-cal-modal-overlay" style="display:none;">
+    <div class="cls-cal-modal-content">
+        <div class="cls-cal-modal-header">
+            <div>
+                <h2 id="clsCalModalTitle" style="margin:0; font-size:18px; color:#1b5e20;">Exam Schedule Timetable</h2>
+                <p id="clsCalModalSubtitle" style="margin:4px 0 0 0; font-size:13px; color:#555;"></p>
+            </div>
+            <button id="clsCalModalClose" class="cls-cal-modal-close" type="button">&times;</button>
+        </div>
+        <div class="cls-cal-modal-body" id="clsCalModalBody"></div>
+    </div>
+</div>
+
+<!-- Generating Overlay -->
+<div id="generatingOverlay" class="generating-overlay" style="display:none;">
+    <div class="generating-overlay-content">
+        <span class="generating-spinner">⚙️</span>
+        <span>Generating conflict-free examination schedule...</span>
     </div>
 </div>
 
@@ -152,7 +258,7 @@ Generate Exam Schedule
             <circle class="saved-check-circle" cx="26" cy="26" r="24" fill="none"/>
             <path class="saved-check-mark" fill="none" d="M14 27l8 8 16-16"/>
         </svg>
-        <span>Schedule saved successfully.</span>
+        <span id="savedOverlayText">Examination schedule saved successfully.</span>
     </div>
 </div>
 
@@ -169,28 +275,28 @@ Generate Exam Schedule
 
             <ol class="guide-steps">
                 <li>
-                    <strong>Filter Academic Year & Semester</strong>
-                    <span>Select the Academic Year and Semester to filter and display the saved class schedules and sections available for exam generation.</span>
+                    <strong>Filter Academic Term & Section</strong>
+                    <span>Enter the Academic Year (e.g. <em>2026-2027</em>), choose Semester, Program, Major, Year Level, and Section. Click the + button to add a new section code if needed.</span>
                 </li>
                 <li>
                     <strong>Set Exam Dates & Exam Type</strong>
-                    <span>Add one or more examination dates using the date picker (e.g. Day 1, Day 2, Day 3) and select the Exam Type (<em>Preliminary</em>, <em>Midterm</em>, or <em>Final</em>).</span>
+                    <span>Pick one or more examination dates using the date picker (Day 1, Day 2, Day 3) and choose the Exam Type (<em>Preliminary</em>, <em>Midterm</em>, or <em>Final</em>).</span>
                 </li>
                 <li>
-                    <strong>Select Sections</strong>
-                    <span>Check the boxes for the specific class sections you want to schedule, or check the header box to select all sections at once.</span>
+                    <strong>Load Curriculum Subjects</strong>
+                    <span>Click <strong>Load Subjects</strong> to populate subjects from the university curriculum.</span>
                 </li>
                 <li>
                     <strong>Generate Exam Schedule</strong>
-                    <span>Click <strong>Generate Exam Schedule</strong>. The system automatically assigns exam dates, time slots, and rooms while avoiding section time conflicts and room double-bookings.</span>
+                    <span>Click <strong>Generate Exam Schedule</strong>. The system automatically assigns exam dates, time slots, lecture/lab rooms, and faculty proctors while avoiding time overlaps and double-bookings.</span>
                 </li>
                 <li>
-                    <strong>Review & Save</strong>
-                    <span>Review the generated timetable in the preview modal, then click <strong>Save Exam Schedule</strong>. Saved exams sync to Firestore and appear in the Saved Exam Schedules section.</span>
+                    <strong>Review, Save & Publish</strong>
+                    <span>Review the timetable in the preview modal, then click <strong>Save as Draft</strong> or <strong>Publish Exam Schedule</strong> to immediately notify students and proctors.</span>
                 </li>
                 <li>
-                    <strong>Export & Manage</strong>
-                    <span>Use <strong>Export All to PDF</strong> to generate printable examination timetables, or manage existing schedules using individual and bulk delete options.</span>
+                    <strong>Manage, Export & Archive</strong>
+                    <span>Use <strong>Export All to PDF</strong> to archive schedules, or use <strong>View Calendar</strong> and <strong>Edit</strong> on saved cards to modify schedules with live conflict prevention.</span>
                 </li>
             </ol>
 
@@ -206,8 +312,6 @@ Generate Exam Schedule
         </div>
     </div>
 </div>
-
-<script type="module" src="exam.js"></script>
 
 <!-- Custom Notification Toast -->
 <div id="customToast" class="custom-toast" style="display:none;">
@@ -232,6 +336,9 @@ Generate Exam Schedule
         </div>
     </div>
 </div>
+
+<script type="module" src="exam.js"></script>
+<script src="exam-native-select-style.js"></script>
 
 </body>
 </html>

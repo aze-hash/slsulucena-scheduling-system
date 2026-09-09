@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room Assignment - SLSU Lucena</title>
+    <link rel="stylesheet" href="room-allocation.css">
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="new slsu logo.jpg" alt="SLSU Logo">
+        <h2>Admin Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html" class="active"><span class="nav-icon">🏫</span> Room Assignment</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+    <div class="header">
+        <div>
+            <h1>Room Assignment Dashboard</h1>
+            <p>Monitor which sections are assigned to which rooms during examinations.
+                This page is <strong>read‑only</strong> — it only displays the existing generated examination schedules.
+                Use the Exam Schedule page to change room assignments.</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card" id="raFiltersCard">
+        <h3>Room Filters</h3>
+        <p class="card-subtitle">Filters update the calendar instantly without reloading the page.</p>
+
+        <div class="ra-filters-grid">
+            <div class="ra-control">
+                <label for="raAcademicYear">Academic Year</label>
+                <select id="raAcademicYear">
+                    <option value="">All Academic Years</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
+                <label for="raSemester">Semester</label>
+                <select id="raSemester">
+                    <option value="">All Semesters</option>
+                    <option value="1st Semester">1st Semester</option>
+                    <option value="2nd Semester">2nd Semester</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
+                <label for="raExamType">Exam Type</label>
+                <select id="raExamType">
+                    <option value="">All Exam Types</option>
+                    <option value="Preliminary">Preliminary</option>
+                    <option value="Midterm">Midterm</option>
+                    <option value="Final">Final</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
+                <label for="raProgram">Program</label>
+                <select id="raProgram">
+                    <option value="">All Programs</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
+                <label for="raSection">Section</label>
+                <select id="raSection">
+                    <option value="">All Sections</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
+                <label for="raRoom">Room</label>
+                <select id="raRoom">
+                    <option value="">Select Room</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lecture Rooms -->
+    <div class="card" id="raRoomsCard">
+        <div class="ra-card-header">
+            <div>
+                <h3>Rooms</h3>
+                <p class="card-subtitle">Tabs are generated automatically from the <code>roomName</code> field of the Firestore <code>rooms</code> collection.</p>
+            </div>
+            <span class="ra-counter" id="raRoomCounter">0 rooms</span>
+        </div>
+        <div id="raRoomTabs" class="ra-room-tabs"></div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="card" id="raCalendarCard">
+        <h3 id="raCalendarTitle">Weekly Examination Room Usage</h3>
+        <p class="card-subtitle" id="raCalendarSubtitle">Monitoring room assignment for the selected lecture room.</p>
+
+        <div id="raRoomSummary" class="ra-summary"></div>
+        <div id="raConflictBanner" class="ra-conflict-banner" style="display:none;"></div>
+
+        <div id="raCalendar" class="ra-cal-scroll">
+            <p class="ra-loading" id="raLoading">Loading examination schedules from Firestore...</p>
+        </div>
+
+        <p id="raEmpty" class="ra-empty" style="display:none;"></p>
+
+        <div class="ra-legend">
+            <span class="ra-legend-item"><span class="ra-legend-swatch occupied"></span> Occupied — examination assigned</span>
+            <span class="ra-legend-item"><span class="ra-legend-swatch conflict"></span> Room conflict — two or more exams in the same room, date &amp; time</span>
+        </div>
+    </div>
+
+</div>
+
+<!-- Custom Notification Toast -->
+<div id="customToast" class="custom-toast" style="display:none;">
+    <div class="custom-toast-content">
+        <span id="customToastMessage"></span>
+        <button id="customToastClose" class="custom-toast-close">&times;</button>
+    </div>
+</div>
+
+<script type="module" src="room-allocation.js"></script>
+
+</body>
+</html>

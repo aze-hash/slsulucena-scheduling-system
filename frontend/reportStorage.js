@@ -37,7 +37,7 @@ export async function saveReportToFirestore(report) {
     const docId = report.id || reportDocId(report);
     const docRef = doc(db, REPORTS_COLLECTION, docId);
     await setDoc(docRef, {
-        category: report.category || "",
+        category: report.category || "Exam Schedule",
         academicYear: report.academicYear || "",
         semester: report.semester || "",
         yearLevel: report.yearLevel || "",
@@ -100,7 +100,7 @@ export async function deleteReportFromFirestore(reportId) {
 
 /**
  * Delete all reports in a specific category from Firestore ("reports" collection).
- * @param {string} category - "Class Schedule" or "Exam Schedule"
+ * @param {string} category - "Exam Schedule" or "Exam Schedule"
  * @returns {Promise<number>} Number of reports deleted.
  */
 export async function deleteReportsByCategoryFromFirestore(category) {
@@ -140,15 +140,15 @@ export async function deleteAllReportsFromFirestore() {
     }
 }
 
-export async function deleteArchivedClassSchedulesFromFirestore() {
+export async function deleteArchivedExamSchedulesFromFirestore() {
     try {
-        const snapshot = await getDocs(collection(db, "classSchedules"));
+        const snapshot = await getDocs(collection(db, "examSchedules"));
         const archivedDocs = snapshot.docs.filter(d => d.data()?.status === "archived");
-        const deletePromises = archivedDocs.map(d => deleteDoc(doc(db, "classSchedules", d.id)));
+        const deletePromises = archivedDocs.map(d => deleteDoc(doc(db, "examSchedules", d.id)));
         await Promise.all(deletePromises);
         return archivedDocs.length;
     } catch (error) {
-        console.error("Could not delete archived class schedules from Firestore:", error);
+        console.error("Could not delete archived exam schedules from Firestore:", error);
         throw error;
     }
 }

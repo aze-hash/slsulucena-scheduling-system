@@ -6,7 +6,6 @@ dotenv.config();
 
 import { db, auth } from "./firebase-admin.js";
 import {
-  sendClassScheduleNotification,
   sendExamScheduleNotification,
   normalizeExamType
 } from "./emailService.js";
@@ -24,7 +23,6 @@ app.use(express.json());
 // ======================================
 const prospectusRef = db.collection("prospectus");
 const usersRef = db.collection("users");
-const classSchedulesRef = db.collection("classSchedules");
 const examSchedulesRef = db.collection("examSchedules");
 const emailNotificationsRef = db.collection("emailNotifications");
 
@@ -83,9 +81,6 @@ app.get("/prospectus/program/:programCode", async (req, res) => {
 // ======================================
 // 🎓 FILTER PROSPECTUS
 // GET /prospectus/filter
-//
-// Example:
-// /prospectus/filter?programCode=BIT-CPT&yearLevel=1&semester=1
 // ======================================
 app.get("/prospectus/filter", async (req, res) => {
   try {
@@ -94,27 +89,15 @@ app.get("/prospectus/filter", async (req, res) => {
     let queryRef = prospectusRef;
 
     if (programCode) {
-      queryRef = queryRef.where(
-        "programCode",
-        "==",
-        programCode
-      );
+      queryRef = queryRef.where("programCode", "==", programCode);
     }
 
     if (yearLevel) {
-      queryRef = queryRef.where(
-        "yearLevel",
-        "==",
-        Number(yearLevel)
-      );
+      queryRef = queryRef.where("yearLevel", "==", Number(yearLevel));
     }
 
     if (semester) {
-      queryRef = queryRef.where(
-        "semester",
-        "==",
-        Number(semester)
-      );
+      queryRef = queryRef.where("semester", "==", Number(semester));
     }
 
     const snapshot = await queryRef.get();
@@ -236,10 +219,6 @@ app.get("/users/:uid", async (req, res) => {
 // ======================================
 // 🗑️ DELETE USER
 // DELETE /users/:uid
-//
-// Deletes from:
-// 1. Firebase Authentication
-// 2. Firestore users collection
 // ======================================
 app.delete("/users/:uid", async (req, res) => {
   try {
@@ -254,9 +233,7 @@ app.delete("/users/:uid", async (req, res) => {
 
     console.log(`Deleting user: ${uid}`);
 
-    // ----------------------------------
     // 1. Delete from Firebase Auth
-    // ----------------------------------
     try {
       await auth.deleteUser(uid);
       console.log(`Firebase Authentication user deleted: ${uid}`);
@@ -264,26 +241,17 @@ app.delete("/users/:uid", async (req, res) => {
       console.log(`Auth delete note for ${uid}: ${authError.message}. Proceeding to delete Firestore document...`);
     }
 
-    // ----------------------------------
     // 2. Delete Firestore user document
-    // ----------------------------------
     const userDoc = await usersRef.doc(uid).get();
 
     if (userDoc.exists) {
       await usersRef.doc(uid).delete();
-
-      console.log(
-        `Firestore user document deleted: ${uid}`
-      );
+      console.log(`Firestore user document deleted: ${uid}`);
     } else {
-      console.log(
-        `Firestore user document not found: ${uid}`
-      );
+      console.log(`Firestore user document not found: ${uid}`);
     }
 
-    // ----------------------------------
     // 3. Delete faculty subject assignments if present
-    // ----------------------------------
     try {
       const assignmentDoc = await db.collection("facultySubjectAssignments").doc(uid).get();
       if (assignmentDoc.exists) {
@@ -294,9 +262,6 @@ app.delete("/users/:uid", async (req, res) => {
       console.warn(`Note on deleting facultySubjectAssignments for ${uid}:`, assignError.message);
     }
 
-    // ----------------------------------
-    // SUCCESS
-    // ----------------------------------
     return res.status(200).json({
       success: true,
       message: "User deleted successfully.",
@@ -315,134 +280,67 @@ app.delete("/users/:uid", async (req, res) => {
 });
 
 // ======================================
-// 📢 PUBLISH CLASS SCHEDULE & SEND NOTIFICATIONS
-// POST /api/publish/class-schedule
+// ✏️ UPDATE USER
+// PUT /users/:uid
 // ======================================
-app.post("/api/publish/class-schedule", async (req, res) => {
-  try {
-    const { scheduleId, scheduleData, publishedBy } = req.body;
+app.put("/users/:uid", async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const updates = req.body;
 
-    if (!scheduleId && (!scheduleData || !scheduleData.id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Schedule ID or schedule data is required."
-      });
+        if (!uid) {
+            return res.status(400).json({
+                success: false,
+                message: "User UID is required.",
+            });
+        }
+
+        if (!updates || typeof updates !== "object") {
+            return res.status(400).json({
+                success: false,
+                message: "Update data is required.",
+            });
+        }
+
+        console.log(`Updating user ${uid}:`, JSON.stringify(updates));
+
+        // Check if user document exists
+        const userDoc = await usersRef.doc(uid).get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found.",
+            });
+        }
+
+        // Add server timestamp
+        const updateData = {
+            ...updates,
+            updatedAt: new Date(),
+        };
+
+        // Update the user document
+        await usersRef.doc(uid).update(updateData);
+
+        console.log(`User ${uid} updated successfully`);
+
+        return res.status(200).json({
+            success: true,
+            message: "User updated successfully.",
+            uid,
+            updates: updateData,
+        });
+
+    } catch (error) {
+        console.error("Error updating user:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update user.",
+            error: error.message,
+        });
     }
-
-    const docId = scheduleId || scheduleData.id;
-    let schedule = scheduleData;
-
-    if (!schedule || !schedule.program) {
-      const docSnap = await classSchedulesRef.doc(docId).get();
-      if (docSnap.exists) {
-        schedule = { id: docSnap.id, ...docSnap.data() };
-      }
-    }
-
-    if (!schedule) {
-      return res.status(404).json({
-        success: false,
-        message: "Class schedule not found."
-      });
-    }
-
-    const releaseId = `${docId}_${Date.now()}`;
-    const publishedAt = new Date();
-
-    // 1. Mark schedule as published in Firestore
-    await classSchedulesRef.doc(docId).set({
-      ...schedule,
-      id: docId,
-      status: "published",
-      publishedAt,
-      publishedBy: publishedBy || null,
-      releaseId,
-      updatedAt: new Date()
-    }, { merge: true });
-
-    // 2. Query target students associated with this schedule
-    const program = String(schedule.program || "").trim().toLowerCase();
-    const major = String(schedule.major || "").trim().toLowerCase();
-
-    const usersSnap = await usersRef.get();
-    const students = usersSnap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => {
-        const isStudent = String(u.role || "").trim().toLowerCase() === "student";
-        if (!isStudent) return false;
-        const uProg = String(u.program || "").trim().toLowerCase();
-        const uMaj = String(u.major || "").trim().toLowerCase();
-        
-        // Match program
-        if (program && uProg !== program) return false;
-        // Match major if both schedule and user have major
-        if (major && uMaj && uMaj !== major) return false;
-        
-        return Boolean(u.email && u.email.includes("@"));
-      });
-
-    // 3. Dispatch emails with duplicate prevention
-    let sentCount = 0;
-    let failedCount = 0;
-    let skippedCount = 0;
-
-    for (const student of students) {
-      const notifDocId = `class_${docId}_${student.id}`;
-
-      // Check duplicate
-      const existingNotif = await emailNotificationsRef.doc(notifDocId).get();
-      if (existingNotif.exists && existingNotif.data().status === "sent") {
-        skippedCount++;
-        continue;
-      }
-
-      const emailResult = await sendClassScheduleNotification({
-        recipientEmail: student.email,
-        recipientName: student.fullName || "Student",
-        scheduleInfo: schedule
-      });
-
-      const notifRecord = {
-        recipientUserId: student.id,
-        recipientEmail: student.email,
-        recipientName: student.fullName || "Student",
-        notificationType: "class",
-        scheduleType: "class",
-        scheduleId: docId,
-        releaseId,
-        status: emailResult.success ? "sent" : "failed",
-        sentAt: new Date(),
-        error: emailResult.error || null
-      };
-
-      await emailNotificationsRef.doc(notifDocId).set(notifRecord, { merge: true });
-
-      if (emailResult.success) {
-        sentCount++;
-      } else {
-        failedCount++;
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      published: true,
-      scheduleId: docId,
-      recipientsCount: students.length,
-      sentCount,
-      failedCount,
-      skippedCount,
-      message: `Class schedule published successfully. ${sentCount} notifications processed.`
-    });
-
-  } catch (error) {
-    console.error("Error publishing class schedule:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to publish class schedule.",
-      error: error.message
-    });
-  }
 });
 
 // ======================================
@@ -628,7 +526,7 @@ app.post("/api/publish/exam-schedule", async (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Scheduling System API is running.",
+    message: "Examination Scheduling System API is running.",
   });
 });
 
@@ -648,5 +546,5 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Scheduling System API running on port ${PORT}`);
+  console.log(`Examination Scheduling System API running on port ${PORT}`);
 });

@@ -9,32 +9,35 @@ import {
 
 import { db } from "./firebase.js";
 
-const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DEFAULT_EXAM_DAYS = ["Monday", "Tuesday", "Wednesday"];
 
-// Subjects that don't require a room/day/time (e.g. OJT, Field Study, etc.)
+// Subjects that don't require an exam room/day/time (e.g. OJT, Field Study, etc.)
 const TBA_SUBJECT_CODES = new Set([
   "SIP01", "SIP02", "OJT01", "OJT02",
   "AMC01", "FS001", "FS002", "PED11", "TCC01"
 ]);
 
-// Preferred day pairs: keeps a section's classes balanced across the week
-const DAY_PAIRS = [
-  ["Monday", "Thursday"],
-  ["Tuesday", "Friday"],
-  ["Monday", "Wednesday"],
-  ["Wednesday", "Friday"],
-  ["Tuesday", "Thursday"],
-  ["Monday", "Tuesday"]
-];
-
-const minorSlots = [
-  "7:30-9:00", "9:00-10:30", "10:30-12:00",
+// Major-subject examinations use 90-minute blocks.
+const majorExamSlots = [
+  "8:00-9:30", "9:30-11:00", "11:00-12:30",
   "1:00-2:30", "2:30-4:00", "4:00-5:30"
 ];
 
-const majorSlots = [
-  "7:30-10:00", "10:00-12:30", "1:00-3:30", "3:30-6:00"
+// Minor and activity examinations use 60-minute blocks.
+const shortExamSlots = [
+  "8:00-9:00", "9:00-10:00", "10:00-11:00", "11:00-12:00",
+  "1:00-2:00", "2:00-3:00", "3:00-4:00", "4:00-5:00"
 ];
+
+const SECTION_EXAM_GAP_MINUTES = 60;
+
+function getExamDurationMinutes(subject) {
+  return String(subject?.subjectType || "").trim().toLowerCase() === "major" ? 90 : 60;
+}
+
+function getExamSlots(subject) {
+  return getExamDurationMinutes(subject) === 90 ? majorExamSlots : shortExamSlots;
+}
 
 function parseTime(value) {
   if (!value) return 0;
@@ -61,46 +64,25 @@ function timesOverlap(firstTime, secondTime) {
   return firstStart < secondEnd && secondStart < firstEnd;
 }
 
-/**
- * Checks if adding candidateTime to existingDayEntries keeps vacant gaps
- * acceptable (back-to-back up to 90 minutes, plus lunch-break allowance).
- */
-function isVacantGapAcceptable(existingDayEntries, candidateTime) {
-  const candidateRange = parseTimeRange(candidateTime);
-  if (!candidateRange) return false;
+function hasRequiredSectionGap(bookedTimes, candidateTime) {
+  if (!candidateTime || candidateTime === "TBA") return true;
+  const [candidateStart, candidateEnd] = candidateTime.split("-").map(parseTime);
 
-  const allRanges = existingDayEntries
-    .map(entry => parseTimeRange(entry.time))
-    .filter(Boolean);
-  allRanges.push(candidateRange);
-  allRanges.sort((a, b) => a.start - b.start);
-
-  const lunchStart = 12 * 60; // 720
-  const lunchEnd = 13 * 60;   // 780
-
-  for (let i = 0; i < allRanges.length - 1; i++) {
-    const rawGap = allRanges[i + 1].start - allRanges[i].end;
-    if (rawGap <= 0) continue;
-
-    let lunchAllowance = 0;
-    if (allRanges[i].end <= lunchStart && allRanges[i + 1].start >= lunchEnd) {
-      lunchAllowance = 60;
-    } else if (allRanges[i].end <= 750 && allRanges[i + 1].start >= lunchEnd) {
-      lunchAllowance = 30;
-    }
-
-    if (Math.max(0, rawGap - lunchAllowance) > 90) {
-      return false;
-    }
-  }
-
-  return true;
+  return bookedTimes.every(bookedTime => {
+    if (!bookedTime || bookedTime === "TBA") return true;
+    const [bookedStart, bookedEnd] = bookedTime.split("-").map(parseTime);
+    return candidateStart >= bookedEnd + SECTION_EXAM_GAP_MINUTES ||
+      bookedStart >= candidateEnd + SECTION_EXAM_GAP_MINUTES;
+  });
 }
 
-export async function generateSchedule(sectionId) {
+export async function generateExamSchedule(sectionId, options = {}) {
+  const {
+    examType = "Midterm",
+    examDates = DEFAULT_EXAM_DAYS
+  } = options;
 
   try {
-
     // =========================
     // GET SECTION
     // =========================
@@ -108,14 +90,11 @@ export async function generateSchedule(sectionId) {
     const sectionSnap = await getDoc(sectionRef);
 
     if (!sectionSnap.exists()) {
-      console.log("Section not found");
+      console.log("Section not found:", sectionId);
       return null;
     }
 
     const section = sectionSnap.data();
-
-    console.log("Section:");
-    console.log(section);
 
     // =========================
     // GET SUBJECTS
@@ -129,7 +108,6 @@ export async function generateSchedule(sectionId) {
     );
 
     const subjectsSnapshot = await getDocs(subjectQuery);
-
     const subjects = [];
     const tbaSubjects = [];
 
@@ -150,29 +128,20 @@ export async function generateSchedule(sectionId) {
       subjects.push(subject);
     });
 
-    console.log("Subjects Found:");
-    console.table(subjects);
-
     // =========================
     // GET ROOMS
     // =========================
     const roomsSnapshot = await getDocs(collection(db, "rooms"));
-    const rooms = roomsSnapshot.docs.map(docSnap => docSnap.data());
+    let rooms = roomsSnapshot.docs.map(docSnap => docSnap.data());
 
-    // Fallback to hardcoded rooms if Firestore has none
     if (!rooms.length) {
-      rooms.push(
-        ...["Room 101", "Room 102", "Room 103"].map(code => ({
-          roomCode: code,
-          roomName: code,
-          roomType: "Lecture Room"
-        })),
-        ...["Lab 1", "Lab 2"].map(code => ({
-          roomCode: code,
-          roomName: code,
-          roomType: "Laboratory"
-        }))
-      );
+      rooms = [
+        { roomCode: "Room 101", roomName: "Room 101", roomType: "Lecture Room" },
+        { roomCode: "Room 102", roomName: "Room 102", roomType: "Lecture Room" },
+        { roomCode: "Room 103", roomName: "Room 103", roomType: "Lecture Room" },
+        { roomCode: "Lab 1", roomName: "Lab 1", roomType: "Laboratory" },
+        { roomCode: "Lab 2", roomName: "Lab 2", roomType: "Laboratory" }
+      ];
     }
 
     function normalizeRoomType(roomType) {
@@ -182,7 +151,7 @@ export async function generateSchedule(sectionId) {
       return "Lecture Room";
     }
 
-    // Sort subjects: lab/major subjects first (harder to place), then by units
+    // Sort subjects: lab/major subjects first
     subjects.sort((first, second) => {
       const firstIsLab = /lab/i.test(first.requiredRoomType || "");
       const secondIsLab = /lab/i.test(second.requiredRoomType || "");
@@ -191,164 +160,137 @@ export async function generateSchedule(sectionId) {
     });
 
     // =========================
-    // GENERATE SCHEDULE (conflict-free)
+    // GET FACULTY PROCTORS
     // =========================
+    let facultyMembers = [];
+    try {
+      const usersSnap = await getDocs(collection(db, "users"));
+      facultyMembers = usersSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(u => String(u.role || "").toLowerCase() === "faculty")
+        .filter(u => u.excluded !== true);
+    } catch {
+      // ignore
+    }
+
+    const availableDays = Array.isArray(examDates) && examDates.length > 0 ? examDates : DEFAULT_EXAM_DAYS;
     const MAX_ATTEMPTS = 20;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // timetable[day] = list of booked slots for this section
+      const timetable = {};
+      const roomBookings = {};
+      const proctorBookings = {};
 
-      // timetable[day] = list of { time, roomCode } booked FOR THIS SECTION
-      const timetable = {
-        Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: []
-      };
+      availableDays.forEach(day => {
+        timetable[day] = [];
+        roomBookings[day] = [];
+        proctorBookings[day] = [];
+      });
 
-      // roomBookings[day] = list of { time, roomCode } booked ACROSS ALL ROOMS
-      const roomBookings = {
-        Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: []
-      };
-
-      const schedule = [];
+      const examSchedule = [];
       let failed = false;
-
-      function findSlotAndRoom(day, reqRoomType, slots) {
-        const candidateSlots = slots
-          .filter(time => {
-            const range = parseTimeRange(time);
-            if (!range) return false;
-            // Empty day must start at 7:30 AM
-            if (timetable[day].length === 0 && range.start !== 450) return false;
-            return true;
-          })
-          .sort((s1, s2) => {
-            const start1 = parseTimeRange(s1)?.start || 0;
-            const start2 = parseTimeRange(s2)?.start || 0;
-            return start1 - start2;
-          });
-
-        for (const time of candidateSlots) {
-          // 1. Section conflict check (this section can't be in two places)
-          if (timetable[day].some(item => timesOverlap(item.time, time))) {
-            continue;
-          }
-
-          // 2. Vacant gap check
-          if (!isVacantGapAcceptable(timetable[day], time)) {
-            continue;
-          }
-
-          // 3. Room availability check (no double-booking any room)
-          const availableRooms = rooms.filter(room => {
-            if (normalizeRoomType(room.roomType) !== reqRoomType) return false;
-            return !roomBookings[day].some(booking =>
-              booking.roomCode === room.roomCode &&
-              timesOverlap(booking.time, time)
-            );
-          });
-
-          if (availableRooms.length > 0) {
-            const room = availableRooms[
-              Math.floor(Math.random() * availableRooms.length)
-            ];
-            return { time, room };
-          }
-        }
-
-        return null;
-      }
 
       for (const subject of subjects) {
         const reqRoomType = normalizeRoomType(subject.requiredRoomType);
-        const units = Number(subject.units) || 3;
-        const isMajor = String(subject.subjectType || "").toLowerCase() === "major";
-
-        // Major/lab-heavy subjects get longer blocks
-        const slots = isMajor || /lab/i.test(subject.requiredRoomType || "")
-          ? majorSlots
-          : minorSlots;
-
-        // Two meetings per week on distinct days (e.g. Mon/Thu)
+        const durationMinutes = getExamDurationMinutes(subject);
+        const subjectType = subject.subjectType || "Minor / Activity";
         let placed = false;
 
-        // Try preferred pairs first, then all remaining distinct day pairs
-        const candidatePairs = [...DAY_PAIRS];
-        for (let i = 0; i < days.length && candidatePairs.length < 10; i++) {
-          for (let j = i + 1; j < days.length; j++) {
-            const pair = [days[i], days[j]];
-            if (!candidatePairs.some(p =>
-              p[0] === pair[0] && p[1] === pair[1]
-            )) {
-              candidatePairs.push(pair);
+        // Try days in round-robin order
+        for (const day of availableDays) {
+          // Limit 3 exams per section per day
+          if (timetable[day].length >= 3) continue;
+
+          for (const time of getExamSlots(subject)) {
+            // Keep a one-hour break for the section; rooms remain usable by
+            // other sections during that break.
+            if (!hasRequiredSectionGap(timetable[day].map(item => item.time), time)) {
+              continue;
             }
+
+            // 2. Room availability check
+            const availableRooms = rooms.filter(room => {
+              if (normalizeRoomType(room.roomType) !== reqRoomType) return false;
+              return !roomBookings[day].some(booking =>
+                booking.roomCode === room.roomCode && timesOverlap(booking.time, time)
+              );
+            });
+
+            if (!availableRooms.length) continue;
+            const chosenRoom = availableRooms[Math.floor(Math.random() * availableRooms.length)];
+
+            // 3. Proctor assignment check
+            let assignedProctor = "TBA";
+            if (facultyMembers.length) {
+              const freeFaculty = facultyMembers.filter(f =>
+                !proctorBookings[day].some(b => b.proctorId === f.id && timesOverlap(b.time, time))
+              );
+              if (freeFaculty.length) {
+                const picked = freeFaculty[Math.floor(Math.random() * freeFaculty.length)];
+                assignedProctor = picked.fullName || picked.name || "Faculty Proctor";
+                proctorBookings[day].push({ proctorId: picked.id, time });
+              }
+            }
+
+            // Commit
+            timetable[day].push({ time, roomCode: chosenRoom.roomCode });
+            roomBookings[day].push({ time, roomCode: chosenRoom.roomCode });
+
+            examSchedule.push({
+              subjectCode: subject.subjectCode,
+              subjectName: subject.subjectName,
+              units: subject.units || 3,
+              subjectType,
+              durationMinutes,
+              examType,
+              day,
+              date: day,
+              time,
+              room: chosenRoom.roomName || chosenRoom.roomCode,
+              proctor: assignedProctor
+            });
+
+            placed = true;
+            break;
           }
-        }
 
-        for (const [day1, day2] of candidatePairs) {
-          const m1 = findSlotAndRoom(day1, reqRoomType, slots);
-          if (!m1) continue;
-
-          const m2 = findSlotAndRoom(day2, reqRoomType, slots);
-          if (!m2) continue;
-
-          // Commit bookings
-          timetable[day1].push({ time: m1.time, roomCode: m1.room.roomCode });
-          timetable[day2].push({ time: m2.time, roomCode: m2.room.roomCode });
-          roomBookings[day1].push({ time: m1.time, roomCode: m1.room.roomCode });
-          roomBookings[day2].push({ time: m2.time, roomCode: m2.room.roomCode });
-
-          schedule.push({
-            subjectCode: subject.subjectCode,
-            subjectName: subject.subjectName,
-            day: `${day1} / ${day2}`,
-            time: `${m1.time} / ${m2.time}`,
-            room: `${m1.room.roomName || m1.room.roomCode} / ${m2.room.roomName || m2.room.roomCode}`
-          });
-
-          placed = true;
-          break;
+          if (placed) break;
         }
 
         if (!placed) {
-          console.warn(
-            `Could not place ${subject.subjectCode} without conflicts ` +
-            `(attempt ${attempt}). Retrying...`
-          );
           failed = true;
           break;
         }
       }
 
       if (!failed) {
-        // =========================
-        // APPEND TBA SUBJECTS
-        // =========================
         for (const subject of tbaSubjects) {
-          schedule.push({
+          examSchedule.push({
             subjectCode: subject.subjectCode,
             subjectName: subject.subjectName,
-            day: "MTWThF",
-            time: "7:30am-6:30pm",
-            room: "TBA"
+            units: subject.units || 0,
+            examType,
+            day: "TBA",
+            date: "TBA",
+            time: "TBA",
+            room: "TBA",
+            proctor: "TBA"
           });
         }
 
-        // =========================
-        // FINAL OUTPUT
-        // =========================
-        console.log("FINAL SCHEDULE:");
-        console.table(schedule);
-
-        return schedule;
+        return examSchedule;
       }
     }
 
-    console.error(
-      "Could not generate a complete conflict-free schedule after " +
-      `${MAX_ATTEMPTS} attempts. Consider adding more rooms or time slots.`
-    );
+    console.error(`Could not generate a conflict-free examination schedule after ${MAX_ATTEMPTS} attempts.`);
     return null;
 
   } catch (error) {
-    console.error("ERROR:", error);
+    console.error("Exam scheduler error:", error);
     return null;
   }
 }
+
+// Backwards compatibility alias
+export const generateSchedule = generateExamSchedule;

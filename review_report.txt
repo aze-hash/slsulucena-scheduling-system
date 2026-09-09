@@ -1,0 +1,55 @@
+========================================================================
+  EXAM SCHEDULE REVIEW — TBA PROCTOR ASSIGNMENT & CONFLICT CHECK
+========================================================================
+
+Loaded 43 faculty members from the roster.
+Loaded 36 saved exam schedule(s) from Firestore.
+
+Total exam entries across all schedules: 300
+  Legitimate TBA subjects (no exam, left as-is): 0
+  Real exams requiring a slot (room/date/time): 300
+
+Exams already assigned a faculty proctor: 300
+Exams needing a faculty proctor (TBA/unassigned): 0
+
+All real exams already have a faculty proctor. Nothing to assign.
+
+------------------------------------------------------------------------
+PHASE 1: Pre-assignment conflict scan (before any fixes)
+------------------------------------------------------------------------
+  ✓ No conflicts found among currently-saved schedules.
+
+------------------------------------------------------------------------
+PHASE 2: Assigning faculty proctors to TBA exams
+------------------------------------------------------------------------
+  TBA exams assigned a proctor: 0
+  TBA exams that could NOT be assigned: 0
+
+------------------------------------------------------------------------
+PHASE 2b: Resolving existing faculty-proctor conflicts
+------------------------------------------------------------------------
+  Proctor conflicts resolved: 0
+  Proctor conflicts unresolved: 0
+
+------------------------------------------------------------------------
+PHASE 3: Final conflict scan (after all fixes)
+------------------------------------------------------------------------
+  ✓ No conflicts remain (room, time, and faculty proctor).
+
+------------------------------------------------------------------------
+SUMMARY
+------------------------------------------------------------------------
+  Schedules reviewed:        36
+  Faculty roster size:        43
+  Real exams:                 300
+  Legitimate TBA subjects:    0 (correctly left as TBA)
+  TBA proctors fixed:         0
+  TBA proctors unresolved:    0
+  Proctor conflicts resolved: 0
+  Proctor conflicts unresolved: 0
+  Remaining unassigned proctors: 0
+  Conflicts after fix:        0 (room: 0, proctor: 0, section: 0)
+
+No proctor changes were made — Firestore left unchanged.
+
+Review complete.

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Faculty Dashboard</title>
+    <title>Faculty Dashboard - Examination Scheduling System</title>
     <link rel="stylesheet" href="faculty.css">
 </head>
 <body>
@@ -32,7 +32,7 @@
     <div class="header">
         <div>
             <h1>Welcome, Faculty!</h1>
-            <p>Newly generated exam schedules assigned to you will appear here.</p>
+            <p>Your assigned examination proctoring schedules will appear here once published by the administrator.</p>
         </div>
 
         <div class="header-actions">
@@ -46,11 +46,17 @@
         </div>
     </div>
 
+    <!-- Assigned Exam Proctoring Schedule Card -->
     <div class="card">
-        <div class="section-header">
-            <h3>Assigned Exam Schedule</h3>
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+                <h3 style="margin:0;">Assigned Examination Proctoring Schedule</h3>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Published examination schedules assigned to you as proctor will appear here.</p>
+            </div>
         </div>
-        <div id="examScheduleContainer" class="schedule-container"></div>
+        <div id="examScheduleContainer" class="schedule-container" style="margin-top:16px;">
+            <div class="empty-state">Loading your examination proctoring assignments...</div>
+        </div>
     </div>
 </div>
 

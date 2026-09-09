@@ -209,7 +209,7 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-left: 105px;
+            margin-left: 66px;
         }
 
         .manage-subjects-btn:hover {
@@ -228,7 +228,7 @@
             font-size: 12px;
             color: #555;
             font-weight: 500;
-            margin-left: 110px;
+            margin-left: 75px;
         }
 
         .assigned-count-text.has-subjects {
@@ -564,6 +564,121 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Create Faculty Button & Faculty Load Styles */
+        .btn-create-faculty {
+            background: #1b5e20;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            box-shadow: 0 2px 5px rgba(27, 94, 32, 0.2);
+        }
+
+        .btn-create-faculty:hover {
+            background: #144818;
+            transform: translateY(-1px);
+        }
+
+        .load-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        .load-normal {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #c8e6c9;
+        }
+
+        .load-overload {
+            background: #fff3e0;
+            color: #e65100;
+            border: 1px solid #ffe0b2;
+        }
+
+        .load-exceeded {
+            background: #ffebee;
+            color: #b71c1c;
+            border: 1px solid #ffcdd2;
+        }
+
+        .load-details {
+            font-size: 11px;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        /* Include/Exclude Faculty Toggle Button */
+        .exclude-btn {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            transition: .3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 8px;
+        }
+
+        .exclude-btn.included {
+            background: #dc8134;
+        }
+
+        .exclude-btn.included:hover {
+            background: #b71c1c;
+            transform: translateY(-1px);
+        }
+
+        .exclude-btn.excluded {
+            background: #2e7d32;
+        }
+
+        .exclude-btn.excluded:hover {
+            background: #1b5e20;
+            transform: translateY(-1px);
+        }
+
+        /* Visually indicate excluded faculty in the table */
+        tr.faculty-excluded {
+            opacity: 0.55;
+        }
+
+        tr.faculty-excluded .user-name::after {
+            content: " (Excluded)";
+            font-size: 11px;
+            color: #b71c1c;
+            font-weight: normal;
+        }
+
+        .excluded-badge {
+            display: inline-block;
+            background: #ffebee;
+            color: #b71c1c;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -576,10 +691,10 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
-        <li><a href="class.html"><span class="nav-icon">📅</span> Class Schedule</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
-        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Proctoring</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
         <li><a href="manage_users.html" class="active"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -627,6 +742,9 @@
     <section class="card">
         <div class="section-header">
             <h3 id="tableTitle">Registered Students</h3>
+            <button type="button" id="openCreateFacultyModalBtn" class="btn-create-faculty" style="display:none;">
+                <span style="font-size:15px; line-height:1;">+</span> Create Faculty Account
+            </button>
         </div>
 
         <div class="table-container">
@@ -662,7 +780,10 @@
                     <div class="faculty-summary-name" id="modalFacultyName">—</div>
                     <div class="faculty-summary-email" id="modalFacultyEmail">—</div>
                 </div>
-                <div class="faculty-summary-badge" id="modalAssignedBadge">0 subjects assigned</div>
+                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                    <div class="faculty-summary-badge" id="modalAssignedBadge">0 subjects assigned</div>
+                    <div id="modalLoadBadge" class="load-badge load-normal">0.0 Units • 0 Hrs (Normal Load)</div>
+                </div>
             </div>
 
             <div class="modal-filters-section">
@@ -725,6 +846,86 @@
             <div class="modal-footer">
                 <button type="button" class="btn-cancel" id="cancelAssignBtn">Cancel</button>
                 <button type="button" class="btn-save" id="saveAssignBtn">Save Subjects</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Faculty Account Modal -->
+    <div class="modal-overlay" id="createFacultyModal" style="display:none;">
+        <div class="modal create-faculty-modal" style="max-width: 480px;">
+            <div class="modal-header">
+                <div>
+                    <h3 style="color:var(--dark); margin:0;">Create Faculty Account</h3>
+                    <p style="font-size:13px; color:#555; margin-top:2px;">Register a new faculty member and create authentication credentials.</p>
+                </div>
+                <button class="modal-close" id="closeCreateFacultyModalBtn" aria-label="Close modal">&times;</button>
+            </div>
+            
+            <form id="createFacultyForm">
+                <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;">
+                    <div>
+                        <label for="facultyFullName" style="display:block; font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">Full Name *</label>
+                        <input type="text" id="facultyFullName" placeholder="e.g. Maria Santos" required style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:14px; box-sizing:border-box;">
+                    </div>
+
+                    <div>
+                        <label for="facultyEmployeeId" style="display:block; font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">Employee / Faculty ID *</label>
+                        <input type="text" id="facultyEmployeeId" placeholder="e.g. SLSU-FAC-001" required style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:14px; box-sizing:border-box;">
+                    </div>
+
+                    <div>
+                        <label for="facultyEmail" style="display:block; font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">Email Address *</label>
+                        <input type="email" id="facultyEmail" placeholder="e.g. msantos@slsu.edu.ph" required style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:14px; box-sizing:border-box;">
+                    </div>
+
+                    <div>
+                        <label style="display:block; font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">
+                            Department / Program * <span style="font-size:11px; font-weight:normal; color:#666;">(Select up to 2)</span>
+                        </label>
+                        <div id="facultyDeptContainer" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; background:#f9f8f5; padding:10px 12px; border:1px solid #cbbfa6; border-radius:8px;">
+                            <label style="display:flex; align-items:center; gap:7px; font-size:13px; color:#333; cursor:pointer;">
+                                <input type="checkbox" name="facultyDepartment" value="BIT" style="cursor:pointer; accent-color:#1b5e20;"> BIT
+                            </label>
+                            <label style="display:flex; align-items:center; gap:7px; font-size:13px; color:#333; cursor:pointer;">
+                                <input type="checkbox" name="facultyDepartment" value="BINDTECH" style="cursor:pointer; accent-color:#1b5e20;"> BINDTECH
+                            </label>
+                            <label style="display:flex; align-items:center; gap:7px; font-size:13px; color:#333; cursor:pointer;">
+                                <input type="checkbox" name="facultyDepartment" value="BTVTED" style="cursor:pointer; accent-color:#1b5e20;"> BTVTED
+                            </label>
+                        </div>
+                        <small id="deptSelectHint" style="font-size:11px; color:#666; margin-top:3px; display:block;">Select 1 or up to 2 departments/programs handled.</small>
+                    </div>
+
+                    <div>
+                        <label for="facultyPassword" style="display:block; font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">Initial Password (Optional)</label>
+                        <input type="text" id="facultyPassword" placeholder="Default: SlsuLucena2026!" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:14px; box-sizing:border-box;">
+                        <small style="font-size:11px; color:#666; margin-top:3px; display:block;">Leave blank to use default password (<code>SlsuLucena2026!</code>).</small>
+                    </div>
+
+                    <div id="createFacultyError" style="color:#b71c1c; font-size:13px; display:none; padding:8px 12px; background:#ffebee; border-radius:6px; border:1px solid #ffcdd2;"></div>
+                </div>
+
+                <div class="modal-footer" style="padding: 14px 24px;">
+                    <button type="button" class="btn-cancel" id="cancelCreateFacultyBtn">Cancel</button>
+                    <button type="submit" class="btn-save" id="submitCreateFacultyBtn" style="background:#1b5e20;">Create Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Exclude / Include Faculty Confirmation Modal -->
+    <div class="modal-overlay" id="excludeConfirmModal" style="display:none;">
+        <div class="modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3 id="excludeConfirmTitle">Exclude Faculty</h3>
+                <button class="modal-close" id="closeExcludeConfirmModalBtn" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="excludeConfirmMessage">Are you sure?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="cancelExcludeConfirmBtn">Cancel</button>
+                <button type="button" class="btn-save" id="confirmExcludeBtn" style="background:#c62828;">Exclude</button>
             </div>
         </div>
     </div>

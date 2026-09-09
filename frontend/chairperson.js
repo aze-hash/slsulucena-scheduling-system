@@ -42,12 +42,11 @@ onAuthStateChanged(auth, async user => {
 
     watchStudents();
     watchFaculty();
-    watchClassSchedules();
     watchExamSchedules();
     watchRescheduleRequests();
 
     // Initialize the two dashboard visualization charts independently
-    initFacultySubjectAssignmentsChart();
+    initRoomAssignmentChart();
     initScheduleOverviewChart();
 });
 
@@ -90,54 +89,44 @@ function updateFacultyCount() {
         facultyCountState.registered + facultyCountState.legacy;
 }
 
-let scheduleState = { class: 0, exam: 0 };
-
-function watchClassSchedules() {
-    onSnapshot(
-        collection(db, "classSchedules"),
-        snapshot => {
-            scheduleState.class = snapshot.size;
-            updateScheduleCounts();
-        },
-        error => console.error(error)
-    );
-}
+let examScheduleStats = { total: 0, published: 0 };
 
 function watchExamSchedules() {
     onSnapshot(
         collection(db, "examSchedules"),
         snapshot => {
-            scheduleState.exam = snapshot.size;
+            const all = snapshot.docs.map(d => d.data());
+            examScheduleStats.total = all.length;
+            examScheduleStats.published = all.filter(d => d.status === "published").length;
             updateScheduleCounts();
         },
         error => {
-            console.error(error);
-            document.getElementById("dashboardNotice").textContent =
-                "Unable to load exam schedules. Check your Firestore rules.";
+            console.error("watchExamSchedules error:", error);
+            const noticeEl = document.getElementById("dashboardNotice");
+            if (noticeEl) noticeEl.textContent = "Unable to load examination schedules. Check Firestore rules.";
         }
     );
 }
 
 function updateScheduleCounts() {
-    document.getElementById("classScheduleCount").textContent = scheduleState.class;
-    document.getElementById("examScheduleCount").textContent = scheduleState.exam;
+    const countEl = document.getElementById("examScheduleCount");
+    const pubEl = document.getElementById("publishedExamCount");
+    if (countEl) countEl.textContent = examScheduleStats.total;
+    if (pubEl) pubEl.textContent = examScheduleStats.published;
     updateDashboardNotice();
 }
 
 function updateDashboardNotice() {
-    const { class: classCount, exam: examCount } = scheduleState;
+    const noticeEl = document.getElementById("dashboardNotice");
+    if (!noticeEl) return;
+    const { total, published } = examScheduleStats;
 
-    if (!classCount && !examCount) {
-        document.getElementById("dashboardNotice").innerHTML =
-            "Your dashboard is live. No class or exam schedules have been saved yet.";
+    if (!total) {
+        noticeEl.innerHTML = "Your dashboard is live. No examination schedules have been generated yet.";
         return;
     }
 
-    const classText = `<strong>${classCount}</strong> class schedule${classCount === 1 ? "" : "s"}`;
-    const examText = `<strong>${examCount}</strong> exam schedule${examCount === 1 ? "" : "s"}`;
-
-    document.getElementById("dashboardNotice").innerHTML =
-        `Your dashboard is live. ${classCount ? classText : "no class schedules"} and ${examCount ? examText : "no exam schedules"} are saved in Firestore.`;
+    noticeEl.innerHTML = `Your dashboard is live. <strong>${total}</strong> total examination schedule${total === 1 ? "" : "s"} (${published} published) saved in Firestore.`;
 }
 
 function watchRescheduleRequests() {
@@ -558,6 +547,7 @@ async function handleRequestDecision(requestId, action) {
             const rawFacultyUsers = usersSnapshot.docs
                 .map(d => ({ uid: d.id, ...d.data() }))
                 .filter(u => String(u.role || "").toLowerCase() === "faculty")
+                .filter(u => u.excluded !== true)
                 .filter(u => u.uid !== currentRequest.requestingFacultyId && u.uid !== currentRequest.facultyUid);
 
             // 1.1 Fetch facultySubjectAssignments to exclude faculty who teach the affected exam subjects
@@ -828,141 +818,103 @@ document.getElementById("requestModal")?.addEventListener("click", event => {
 });
 
 /* ================================================================== */
-/*  1. Faculty Subject Assignments — Horizontal Bar Chart             */
+/*  1. Room Assignment — Vertical Bar Chart                           */
 /* ================================================================== */
 
-let facultyChartInstance = null;
-let cachedFacultyAssignments = []; // [{ facultyId, fullName, count }]
-let facultyNameMap = new Map();
+let roomChartInstance = null;
+let cachedRoomExamSchedules = []; // examSchedules documents from Firestore
 
-async function initFacultySubjectAssignmentsChart() {
+function initRoomAssignmentChart() {
     try {
-        const filterSelect = document.getElementById("facultyChartFilter");
+        const filterSelect = document.getElementById("roomChartFilter");
         if (filterSelect) {
             filterSelect.addEventListener("change", () => {
-                renderFacultyChart();
+                renderRoomAssignmentChart();
             });
         }
 
-        // Fetch registered and legacy faculty names for lookup
-        await loadFacultyNamesMap();
-
-        // Listen in real-time to facultySubjectAssignments
+        // Listen in real-time to the same examSchedules collection used by the dashboard
         onSnapshot(
-            collection(db, "facultySubjectAssignments"),
+            collection(db, "examSchedules"),
             snapshot => {
-                const list = [];
-                snapshot.docs.forEach(docSnap => {
-                    const data = docSnap.data();
-                    const handled = Array.isArray(data.handledSubjects) ? data.handledSubjects : [];
-                    const facultyId = data.facultyId || docSnap.id;
-                    const name = facultyNameMap.get(facultyId) || facultyNameMap.get(docSnap.id) || "Faculty Member";
-
-                    if (handled.length > 0) {
-                        list.push({
-                            facultyId,
-                            fullName: name,
-                            count: handled.length
-                        });
-                    }
-                });
-
-                // Sort from highest to lowest
-                list.sort((a, b) => b.count - a.count);
-                cachedFacultyAssignments = list;
-                renderFacultyChart();
+                cachedRoomExamSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderRoomAssignmentChart();
             },
             error => {
-                console.error("Error watching faculty subject assignments:", error);
-                showFacultyChartEmptyState("No subject assignments yet.");
+                console.error("Error watching exam schedules for room assignments:", error);
+                showRoomChartEmptyState("No room assignments yet.");
             }
         );
     } catch (err) {
-        console.error("Failed to initialize faculty subject assignments chart:", err);
-        showFacultyChartEmptyState("No subject assignments yet.");
+        console.error("Failed to initialize room assignment chart:", err);
+        showRoomChartEmptyState("No room assignments yet.");
     }
 }
 
-async function loadFacultyNamesMap() {
-    try {
-        const [usersSnap, legacySnap] = await Promise.all([
-            getDocs(collection(db, "users")),
-            getDocs(collection(db, "faculty"))
-        ]);
+// Aggregates the number of assigned examinations per room from the
+// existing examSchedules documents (each schedule has an exams array
+// where every exam entry carries the room it was assigned to).
+function collectRoomAssignmentCounts() {
+    const filterSelect = document.getElementById("roomChartFilter");
+    const filterVal = filterSelect ? filterSelect.value : "this_semester";
 
-        usersSnap.docs.forEach(d => {
-            const data = d.data();
-            const name = data.fullName || data.name || "";
-            if (name) {
-                facultyNameMap.set(d.id, name);
-                if (data.uid) facultyNameMap.set(data.uid, name);
-            }
-        });
+    const filteredSchedules = cachedRoomExamSchedules.filter(s =>
+        matchSemesterFilter(s.semester, filterVal)
+    );
 
-        legacySnap.docs.forEach(d => {
-            const data = d.data();
-            const name = data.fullName || data.name || data.facultyName || "";
-            if (name) {
-                if (!facultyNameMap.has(d.id)) facultyNameMap.set(d.id, name);
-                if (data.uid && !facultyNameMap.has(data.uid)) facultyNameMap.set(data.uid, name);
-            }
+    const roomCounts = new Map();
+    filteredSchedules.forEach(schedule => {
+        const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+        exams.forEach(exam => {
+            const room = String(exam.room || "").trim();
+            if (!room || room.toLowerCase() === "tba") return;
+            roomCounts.set(room, (roomCounts.get(room) || 0) + 1);
         });
-    } catch (e) {
-        console.warn("Could not load faculty name map:", e);
-    }
+    });
+
+    return Array.from(roomCounts.entries())
+        .map(([room, count]) => ({ room, count }))
+        .sort((a, b) => b.count - a.count || a.room.localeCompare(b.room));
 }
 
-function showFacultyChartEmptyState(message) {
-    const emptyEl = document.getElementById("facultyChartEmptyState");
-    const canvas = document.getElementById("facultySubjectsChart");
+function showRoomChartEmptyState(message) {
+    const emptyEl = document.getElementById("roomChartEmptyState");
+    const canvas = document.getElementById("roomAssignmentChart");
     if (emptyEl) {
-        emptyEl.textContent = message || "No subject assignments yet.";
+        emptyEl.textContent = message || "No room assignments yet.";
         emptyEl.style.display = "flex";
     }
     if (canvas) {
         canvas.style.display = "none";
     }
-    if (facultyChartInstance) {
-        facultyChartInstance.destroy();
-        facultyChartInstance = null;
+    if (roomChartInstance) {
+        roomChartInstance.destroy();
+        roomChartInstance = null;
     }
 }
 
-function renderFacultyChart() {
-    const canvas = document.getElementById("facultySubjectsChart");
-    const emptyEl = document.getElementById("facultyChartEmptyState");
-    const filterSelect = document.getElementById("facultyChartFilter");
+function renderRoomAssignmentChart() {
+    const canvas = document.getElementById("roomAssignmentChart");
+    const emptyEl = document.getElementById("roomChartEmptyState");
 
     if (!canvas) return;
 
-    if (!cachedFacultyAssignments || cachedFacultyAssignments.length === 0) {
-        showFacultyChartEmptyState("No subject assignments yet.");
-        return;
-    }
+    const roomData = collectRoomAssignmentCounts();
 
-    const filterVal = filterSelect ? filterSelect.value : "5";
-    let dataToDisplay = [...cachedFacultyAssignments];
-
-    if (filterVal === "5") {
-        dataToDisplay = dataToDisplay.slice(0, 5);
-    } else if (filterVal === "10") {
-        dataToDisplay = dataToDisplay.slice(0, 10);
-    }
-
-    if (dataToDisplay.length === 0) {
-        showFacultyChartEmptyState("No subject assignments yet.");
+    if (!roomData || roomData.length === 0) {
+        showRoomChartEmptyState("No room assignments yet.");
         return;
     }
 
     if (emptyEl) emptyEl.style.display = "none";
     canvas.style.display = "block";
 
-    const labels = dataToDisplay.map(d => d.fullName);
-    const dataValues = dataToDisplay.map(d => d.count);
+    const labels = roomData.map(d => d.room);
+    const dataValues = roomData.map(d => d.count);
     const maxVal = Math.max(...dataValues, 1);
 
-    if (facultyChartInstance) {
-        facultyChartInstance.destroy();
+    if (roomChartInstance) {
+        roomChartInstance.destroy();
     }
 
     if (typeof Chart === "undefined") {
@@ -970,10 +922,11 @@ function renderFacultyChart() {
         return;
     }
 
-    const endOfBarPlugin = {
-        id: "endOfBarValues",
+    // Draws the examination count on top of each vertical bar
+    const topOfBarValuesPlugin = {
+        id: "topOfBarValues",
         afterDatasetsDraw(chart) {
-            const { ctx, scales: { x } } = chart;
+            const { ctx } = chart;
             chart.data.datasets.forEach((dataset, datasetIndex) => {
                 const meta = chart.getDatasetMeta(datasetIndex);
                 meta.data.forEach((bar, index) => {
@@ -981,10 +934,10 @@ function renderFacultyChart() {
                     ctx.save();
                     ctx.fillStyle = "#1b5e20";
                     ctx.font = "bold 12px Arial, sans-serif";
-                    ctx.textAlign = "left";
-                    ctx.textBaseline = "middle";
-                    const xPos = bar.x + 8;
-                    const yPos = bar.y;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "bottom";
+                    const xPos = bar.x;
+                    const yPos = bar.y - 5;
                     ctx.fillText(String(value), xPos, yPos);
                     ctx.restore();
                 });
@@ -992,12 +945,12 @@ function renderFacultyChart() {
         }
     };
 
-    facultyChartInstance = new Chart(canvas, {
+    roomChartInstance = new Chart(canvas, {
         type: "bar",
         data: {
             labels: labels,
             datasets: [{
-                label: "Assigned Subjects",
+                label: "Assigned Examinations",
                 data: dataValues,
                 backgroundColor: "rgba(46, 125, 50, 0.85)",
                 borderColor: "#2e7d32",
@@ -1008,12 +961,11 @@ function renderFacultyChart() {
             }]
         },
         options: {
-            indexAxis: "y",
             responsive: true,
             maintainAspectRatio: false,
             layout: {
                 padding: {
-                    right: 35
+                    top: 20
                 }
             },
             plugins: {
@@ -1026,12 +978,24 @@ function renderFacultyChart() {
                     cornerRadius: 8,
                     displayColors: false,
                     callbacks: {
-                        label: context => ` ${context.parsed.x} assigned subject${context.parsed.x === 1 ? "" : "s"}`
+                        label: context => ` ${context.parsed.y} assigned examination${context.parsed.y === 1 ? "" : "s"}`
                     }
                 }
             },
             scales: {
                 x: {
+                    ticks: {
+                        color: "#1a1a1a",
+                        font: { size: 11, weight: "bold" },
+                        maxRotation: 45,
+                        minRotation: 0,
+                        autoSkip: false
+                    },
+                    grid: {
+                        display: false
+                    }
+                },
+                y: {
                     beginAtZero: true,
                     suggestedMax: maxVal + 1,
                     ticks: {
@@ -1044,18 +1008,9 @@ function renderFacultyChart() {
                     },
                     title: {
                         display: true,
-                        text: "Number of Assigned Subjects",
+                        text: "Number of Assigned Examinations",
                         color: "#666",
                         font: { size: 11, weight: "bold" }
-                    }
-                },
-                y: {
-                    ticks: {
-                        color: "#1a1a1a",
-                        font: { size: 12, weight: "bold" }
-                    },
-                    grid: {
-                        display: false
                     }
                 }
             },
@@ -1064,7 +1019,7 @@ function renderFacultyChart() {
                 easing: "easeOutQuart"
             }
         },
-        plugins: [endOfBarPlugin]
+        plugins: [topOfBarValuesPlugin]
     });
 }
 
@@ -1073,7 +1028,6 @@ function renderFacultyChart() {
 /* ================================================================== */
 
 let scheduleOverviewChartInstance = null;
-let rawClassSchedules = [];
 let rawExamSchedules = [];
 let rawRescheduleRequests = [];
 
@@ -1086,12 +1040,7 @@ function initScheduleOverviewChart() {
             });
         }
 
-        // Real-time watchers for the 3 categories
-        onSnapshot(collection(db, "classSchedules"), snapshot => {
-            rawClassSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            renderScheduleOverviewChart();
-        }, err => console.warn("Chart classSchedules watch error:", err));
-
+        // Real-time watchers for exam schedules and reschedule requests
         onSnapshot(collection(db, "examSchedules"), snapshot => {
             rawExamSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             renderScheduleOverviewChart();
@@ -1122,8 +1071,7 @@ function matchSemesterFilter(recordSemester, filterValue) {
     }
 
     if (filterValue === "this_semester") {
-        // Dynamic detection of current academic semester: Aug-Dec is 1st sem, Jan-Jul is 2nd sem
-        const month = new Date().getMonth(); // 0-indexed: 7=Aug, 11=Dec
+        const month = new Date().getMonth();
         const isFirstSem = (month >= 7 || month === 0);
         return isFirstSem
             ? (semStr.includes("1") || semStr.includes("first") || !semStr)
@@ -1149,21 +1097,21 @@ function showScheduleOverviewEmptyState(message) {
             <div class="legend-row">
                 <div class="legend-label-group">
                     <span class="legend-color-dot" style="background:#2e7d32;"></span>
-                    <span class="legend-name">Class Schedules</span>
+                    <span class="legend-name">Preliminary</span>
                 </div>
                 <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
             </div>
             <div class="legend-row">
                 <div class="legend-label-group">
-                    <span class="legend-color-dot" style="background:#3b82f6;"></span>
-                    <span class="legend-name">Exam Schedules</span>
+                    <span class="legend-color-dot" style="background:#1565c0;"></span>
+                    <span class="legend-name">Midterm</span>
                 </div>
                 <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
             </div>
             <div class="legend-row">
                 <div class="legend-label-group">
-                    <span class="legend-color-dot" style="background:#f59e0b;"></span>
-                    <span class="legend-name">Reschedule Requests</span>
+                    <span class="legend-color-dot" style="background:#e65100;"></span>
+                    <span class="legend-name">Final</span>
                 </div>
                 <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
             </div>
@@ -1187,66 +1135,58 @@ function renderScheduleOverviewChart() {
 
     const filterVal = filterSelect ? filterSelect.value : "this_semester";
 
-    const classCount = rawClassSchedules.filter(s => matchSemesterFilter(s.semester, filterVal)).length;
-    const examCount = rawExamSchedules.filter(s => matchSemesterFilter(s.semester, filterVal)).length;
-    const requestCount = rawRescheduleRequests.filter(s => {
-        // If request has semester, check it; otherwise, check if its affectedExams have matching semester
-        if (s.semester) return matchSemesterFilter(s.semester, filterVal);
-        if (Array.isArray(s.affectedExams) && s.affectedExams.length > 0) {
-            return matchSemesterFilter(s.affectedExams[0]?.semester, filterVal);
-        }
-        return matchSemesterFilter("", filterVal);
-    }).length;
+    const filtered = rawExamSchedules.filter(s => matchSemesterFilter(s.semester, filterVal));
+    const prelimCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("prelim")).length;
+    const midtermCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("midterm")).length;
+    const finalCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("final")).length;
 
-    const totalCount = classCount + examCount + requestCount;
+    const totalCount = prelimCount + midtermCount + finalCount;
 
     if (totalCountEl) {
         totalCountEl.textContent = totalCount;
     }
 
-    // Calculate percentages
-    const classPct = totalCount > 0 ? ((classCount / totalCount) * 100).toFixed(1) : "0.0";
-    const examPct = totalCount > 0 ? ((examCount / totalCount) * 100).toFixed(1) : "0.0";
-    const requestPct = totalCount > 0 ? ((requestCount / totalCount) * 100).toFixed(1) : "0.0";
+    const prelimPct = totalCount > 0 ? ((prelimCount / totalCount) * 100).toFixed(1) : "0.0";
+    const midtermPct = totalCount > 0 ? ((midtermCount / totalCount) * 100).toFixed(1) : "0.0";
+    const finalPct = totalCount > 0 ? ((finalCount / totalCount) * 100).toFixed(1) : "0.0";
 
-    // Render legend
     if (legendEl) {
         legendEl.innerHTML = `
             <div class="legend-row">
                 <div class="legend-label-group">
                     <span class="legend-color-dot" style="background:#2e7d32;"></span>
-                    <span class="legend-name">Class Schedules</span>
+                    <span class="legend-name">Preliminary Exams</span>
                 </div>
                 <div class="legend-values">
-                    <span class="legend-count">${classCount}</span>
-                    <span class="legend-pct">${classPct}%</span>
+                    <span class="legend-count">${prelimCount}</span>
+                    <span class="legend-pct">${prelimPct}%</span>
                 </div>
             </div>
             <div class="legend-row">
                 <div class="legend-label-group">
-                    <span class="legend-color-dot" style="background:#3b82f6;"></span>
-                    <span class="legend-name">Exam Schedules</span>
+                    <span class="legend-color-dot" style="background:#1565c0;"></span>
+                    <span class="legend-name">Midterm Exams</span>
                 </div>
                 <div class="legend-values">
-                    <span class="legend-count">${examCount}</span>
-                    <span class="legend-pct">${examPct}%</span>
+                    <span class="legend-count">${midtermCount}</span>
+                    <span class="legend-pct">${midtermPct}%</span>
                 </div>
             </div>
             <div class="legend-row">
                 <div class="legend-label-group">
-                    <span class="legend-color-dot" style="background:#f59e0b;"></span>
-                    <span class="legend-name">Reschedule Requests</span>
+                    <span class="legend-color-dot" style="background:#e65100;"></span>
+                    <span class="legend-name">Final Exams</span>
                 </div>
                 <div class="legend-values">
-                    <span class="legend-count">${requestCount}</span>
-                    <span class="legend-pct">${requestPct}%</span>
+                    <span class="legend-count">${finalCount}</span>
+                    <span class="legend-pct">${finalPct}%</span>
                 </div>
             </div>
         `;
     }
 
     if (totalCount === 0) {
-        showScheduleOverviewEmptyState("No schedule data available.");
+        showScheduleOverviewEmptyState("No examination schedule data available.");
         return;
     }
 
@@ -1265,13 +1205,13 @@ function renderScheduleOverviewChart() {
     scheduleOverviewChartInstance = new Chart(canvas, {
         type: "doughnut",
         data: {
-            labels: ["Class Schedules", "Exam Schedules", "Reschedule Requests"],
+            labels: ["Preliminary Exams", "Midterm Exams", "Final Exams"],
             datasets: [{
-                data: [classCount, examCount, requestCount],
+                data: [prelimCount, midtermCount, finalCount],
                 backgroundColor: [
                     "#2e7d32",
-                    "#3b82f6",
-                    "#f59e0b"
+                    "#1565c0",
+                    "#e65100"
                 ],
                 borderColor: "#ffffff",
                 borderWidth: 2,

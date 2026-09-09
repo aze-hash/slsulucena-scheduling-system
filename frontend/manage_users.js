@@ -12,6 +12,7 @@ import {
     collection,
     deleteDoc,
     setDoc,
+    updateDoc,
     serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
@@ -19,7 +20,19 @@ import {
    API
 ========================= */
 
-const API_URL = "https://slsulucena-scheduling-system.onrender.com";
+const isLocalHost = (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "[::1]" ||
+    window.location.protocol === "file:" ||
+    window.location.hostname.startsWith("192.168.") ||
+    window.location.hostname.startsWith("10.") ||
+    !window.location.hostname
+);
+
+const API_URL = isLocalHost
+    ? "http://localhost:3000"
+    : "https://slsulucena-scheduling-system.onrender.com";
 
 /* =========================
    STATE
@@ -59,6 +72,76 @@ function getSubjectKey(subject) {
         String(subject.semester     || "").trim(),
         String(subject.subjectCode  || "").trim()
     ].join("_");
+}
+
+/* =========================
+   FACULTY LOAD CALCULATION
+========================= */
+
+/**
+ * Calculates total teaching units, total contact hours, and load status
+ * for an array of assigned subject keys.
+ */
+function calculateFacultyLoad(handledKeys = []) {
+    if (!Array.isArray(handledKeys) || !handledKeys.length) {
+        return {
+            totalUnits: 0,
+            totalHours: 0,
+            subjectCount: 0,
+            statusText: "No Load",
+            statusClass: "load-normal"
+        };
+    }
+
+    let totalUnits = 0;
+    let totalHours = 0;
+
+    const subjectMapByKey = new Map();
+    const subjectMapByCode = new Map();
+
+    for (const subj of prospectusSubjects) {
+        subjectMapByKey.set(getSubjectKey(subj), subj);
+        const code = String(subj.subjectCode || "").trim().toUpperCase();
+        if (code && !subjectMapByCode.has(code)) {
+            subjectMapByCode.set(code, subj);
+        }
+    }
+
+    for (const key of handledKeys) {
+        let subj = subjectMapByKey.get(key);
+        if (!subj && typeof key === "string") {
+            const parts = key.split("_");
+            const code = parts[parts.length - 1].toUpperCase();
+            subj = subjectMapByCode.get(code) || subjectMapByCode.get(key.toUpperCase());
+        }
+
+        const u = (subj && !isNaN(Number(subj.units))) ? Number(subj.units) : 3;
+        const lec = (subj && !isNaN(Number(subj.lecHours))) ? Number(subj.lecHours) : 0;
+        const lab = (subj && !isNaN(Number(subj.labHours))) ? Number(subj.labHours) : 0;
+        const h = (lec > 0 || lab > 0) ? (lec + lab) : (u >= 3 ? u + 2 : u);
+
+        totalUnits += u;
+        totalHours += h;
+    }
+
+    let statusText = "Normal Load";
+    let statusClass = "load-normal";
+
+    if (totalUnits > 21) {
+        statusText = "Over Capacity";
+        statusClass = "load-exceeded";
+    } else if (totalUnits >= 19) {
+        statusText = "Overload";
+        statusClass = "load-overload";
+    }
+
+    return {
+        totalUnits,
+        totalHours,
+        subjectCount: handledKeys.length,
+        statusText,
+        statusClass
+    };
 }
 
 /* =========================
@@ -156,7 +239,9 @@ async function loadProspectusSubjects() {
                     majorCode: String(data.majorCode || "").trim(),
                     yearLevel: data.yearLevel !== undefined ? Number(data.yearLevel) : "",
                     semester: data.semester !== undefined ? Number(data.semester) : "",
-                    units: data.units !== undefined ? Number(data.units) : "",
+                    units: (data.units !== undefined && !isNaN(Number(data.units))) ? Number(data.units) : 3,
+                    lecHours: (data.lecHours !== undefined && !isNaN(Number(data.lecHours))) ? Number(data.lecHours) : 0,
+                    labHours: (data.labHours !== undefined && !isNaN(Number(data.labHours))) ? Number(data.labHours) : 0,
                     subjectType: data.subjectType || ""
                 });
             });
@@ -357,12 +442,16 @@ function renderUsers() {
     // Toggle column headers: Students have Program/Major; Faculty have Assigned Subjects
     const programMajorHeader = document.getElementById("programMajorHeader");
     const assignedSubjectsHeader = document.getElementById("assignedSubjectsHeader");
+    const createFacultyBtn = document.getElementById("openCreateFacultyModalBtn");
 
     if (programMajorHeader) {
         programMajorHeader.style.display = isStudent ? "" : "none";
     }
     if (assignedSubjectsHeader) {
         assignedSubjectsHeader.style.display = isStudent ? "none" : "";
+    }
+    if (createFacultyBtn) {
+        createFacultyBtn.style.display = isStudent ? "none" : "inline-flex";
     }
 
     if (!users.length) {
@@ -381,7 +470,11 @@ function renderUsers() {
         const userId = user.id || user.uid;
         const initials = getInitials(user.fullName);
 
-        if (isStudent) {
+        const userRole = String(user.role || "").toLowerCase().trim();
+        const isFaculty = userRole === "faculty";
+
+        if (!isFaculty) {
+            // Student (or other non-faculty) row
             const program = user.program
                 ? `<span class="program-tag">${safe(user.program)}</span>`
                 : "";
@@ -416,7 +509,7 @@ function renderUsers() {
 
                     <td>
                         <span class="role-badge role-student">
-                            Student
+                            ${safe(user.role || "Student")}
                         </span>
                     </td>
 
@@ -441,26 +534,30 @@ function renderUsers() {
             // Faculty row
             const handledList = facultyAssignmentsMap.get(userId) || [];
             const count = handledList.length;
+            const isExcluded = user.excluded === true;
+
             const countText = count > 0
                 ? `${count} subject${count === 1 ? "" : "s"} assigned`
                 : "No subjects assigned";
 
             return `
-                <tr>
+                <tr class="${isExcluded ? "faculty-excluded" : ""}">
                     <td>
                         <div class="user-cell">
-                            <div class="user-avatar">
+                            <div class="user-avatar" style="${isExcluded ? "opacity:0.4;" : ""}">
                                 ${safe(initials)}
                             </div>
 
                             <div>
                                 <div class="user-name">
-                                    ${safe(user.fullName || "Unknown")}
+                                    ${safe(user.fullName || "Unknown")}${isExcluded ? '<span class="excluded-badge"></span>' : ""}
                                 </div>
+
 
                                 <div class="user-email">
                                     ${safe(user.email || "—")}
                                 </div>
+                                ${user.employeeId ? `<div style="font-size:11px; color:#666; margin-top:2px;">ID: ${safe(user.employeeId)}</div>` : ""}
                             </div>
                         </div>
                     </td>
@@ -469,6 +566,7 @@ function renderUsers() {
                         <span class="role-badge role-faculty">
                             Faculty
                         </span>
+                        ${(user.department || user.program) ? `<div style="font-size:11px; color:#555; margin-top:3px; font-weight:600;">${safe(user.department || user.program)}</div>` : ""}
                     </td>
 
                     <td class="date-text">
@@ -492,6 +590,14 @@ function renderUsers() {
                     </td>
 
                     <td>
+                        <button
+                            class="exclude-btn ${isExcluded ? "excluded" : "included"}"
+                            data-user-id="${safe(userId)}"
+                            data-user-name="${safe(user.fullName || "Unknown")}"
+                            data-excluded="${isExcluded ? "true" : "false"}"
+                        >
+                            ${isExcluded ? "Include" : "Exclude"}
+                        </button>
                         <button
                             class="delete-btn"
                             data-user-id="${safe(userId)}"
@@ -523,6 +629,15 @@ function renderUsers() {
             const userName = button.dataset.userName;
             const userEmail = button.dataset.userEmail;
             openAssignSubjectsModal(userId, userName, userEmail);
+        });
+    });
+
+    body.querySelectorAll(".exclude-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            const userId = button.dataset.userId;
+            const userName = button.dataset.userName;
+            const isExcluded = button.dataset.excluded === "true";
+            toggleFacultyExclusion(userId, userName, isExcluded);
         });
     });
 }
@@ -613,6 +728,93 @@ async function handleDeleteUser(userId, userName) {
 }
 
 /* =========================
+   TOGGLE FACULTY EXCLUSION
+   ========================= */
+
+let pendingExclusionAction = null; // stores { userId, userName, currentlyExcluded }
+
+function openExcludeConfirmModal(userId, userName, currentlyExcluded) {
+    pendingExclusionAction = { userId, userName, currentlyExcluded };
+
+    const modal = document.getElementById("excludeConfirmModal");
+    const title = document.getElementById("excludeConfirmTitle");
+    const message = document.getElementById("excludeConfirmMessage");
+    const confirmBtn = document.getElementById("confirmExcludeBtn");
+
+    if (!modal || !title || !message || !confirmBtn) return;
+
+    const action = currentlyExcluded ? "include" : "exclude";
+
+    title.textContent = currentlyExcluded ? "Include Faculty" : "Exclude Faculty";
+
+    const firstLine = `Are you sure you want to ${action} <strong>${userName}</strong>?`;
+    const secondLine = currentlyExcluded
+        ? `${userName} will be <strong>INCLUDED</strong> in the exam proctoring assignment.`
+        : `${userName} will be <strong>EXCLUDED</strong> from the exam proctoring assignment.<br>They will <strong>NOT</strong> be assigned any proctoring duties.`;
+
+    message.innerHTML = `${firstLine}<br><br>${secondLine}`;
+
+    confirmBtn.textContent = currentlyExcluded ? "Include" : "Exclude";
+    confirmBtn.style.background = currentlyExcluded ? "#2e7d32" : "#c62828";
+
+    modal.style.display = "flex";
+}
+
+function closeExcludeConfirmModal() {
+    const modal = document.getElementById("excludeConfirmModal");
+    if (modal) modal.style.display = "none";
+    pendingExclusionAction = null;
+}
+
+// Wire up modal close buttons
+document.getElementById("closeExcludeConfirmModalBtn")?.addEventListener("click", closeExcludeConfirmModal);
+document.getElementById("cancelExcludeConfirmBtn")?.addEventListener("click", closeExcludeConfirmModal);
+document.getElementById("excludeConfirmModal")?.addEventListener("click", event => {
+    if (event.target === document.getElementById("excludeConfirmModal")) {
+        closeExcludeConfirmModal();
+    }
+});
+
+// Confirm button handler
+document.getElementById("confirmExcludeBtn")?.addEventListener("click", async () => {
+    if (!pendingExclusionAction) closeExcludeConfirmModal();
+
+    const { userId, userName, currentlyExcluded } = pendingExclusionAction;
+    const action = currentlyExcluded ? "include" : "exclude";
+
+    closeExcludeConfirmModal();
+
+    try {
+        // Use server-side API to update user (bypasses Firestore client security rules)
+        const response = await fetch(`${API_URL}/users/${encodeURIComponent(userId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ excluded: !currentlyExcluded }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || `Server returned ${response.status}`);
+        }
+
+        // Update local state
+        const user = allUsers.find(u => (u.id === userId || u.uid === userId));
+        if (user) {
+            user.excluded = !currentlyExcluded;
+        }
+
+        renderUsers();
+    } catch (error) {
+        console.error("Could not update faculty exclusion status:", error);
+        alert(`Failed to ${action} ${userName}.\n\n${error.message || error}`);
+    }
+});
+
+async function toggleFacultyExclusion(userId, userName, currentlyExcluded) {
+    openExcludeConfirmModal(userId, userName, currentlyExcluded);
+}
+
+/* =========================
    MANAGE SUBJECTS MODAL
 ========================= */
 
@@ -677,6 +879,19 @@ function updateModalHeaderBadge() {
         badge.textContent = count > 0
             ? `${count} subject${count === 1 ? "" : "s"} assigned`
             : "No subjects assigned";
+    }
+
+    const loadBadge = document.getElementById("modalLoadBadge");
+    if (loadBadge) {
+        const handled = Array.from(selectedSubjectKeys);
+        const load = calculateFacultyLoad(handled);
+        if (count === 0) {
+            loadBadge.className = "load-badge load-normal";
+            loadBadge.textContent = "0.0 Units • 0 Hrs (No Load)";
+        } else {
+            loadBadge.className = `load-badge ${load.statusClass}`;
+            loadBadge.textContent = `${load.totalUnits} Units • ${load.totalHours} Hrs (${load.statusText})`;
+        }
     }
 }
 
@@ -1008,6 +1223,172 @@ function safe(value) {
 }
 
 /* =========================
+   CREATE FACULTY ACCOUNT MODAL
+========================= */
+
+function openCreateFacultyModal() {
+    const modal = document.getElementById("createFacultyModal");
+    if (!modal) return;
+
+    document.getElementById("createFacultyForm")?.reset();
+    document.querySelectorAll('input[name="facultyDepartment"]').forEach(cb => {
+        cb.checked = false;
+        cb.disabled = false;
+    });
+
+    const errorEl = document.getElementById("createFacultyError");
+    if (errorEl) {
+        errorEl.style.display = "none";
+        errorEl.textContent = "";
+    }
+
+    modal.style.display = "flex";
+}
+
+function closeCreateFacultyModal() {
+    const modal = document.getElementById("createFacultyModal");
+    if (!modal) return;
+    modal.style.display = "none";
+}
+
+document.getElementById("openCreateFacultyModalBtn")?.addEventListener("click", openCreateFacultyModal);
+document.getElementById("closeCreateFacultyModalBtn")?.addEventListener("click", closeCreateFacultyModal);
+document.getElementById("cancelCreateFacultyBtn")?.addEventListener("click", closeCreateFacultyModal);
+
+document.getElementById("createFacultyModal")?.addEventListener("click", event => {
+    if (event.target === document.getElementById("createFacultyModal")) {
+        closeCreateFacultyModal();
+    }
+});
+
+// Enforce maximum 2 departments selection
+document.querySelectorAll('input[name="facultyDepartment"]').forEach(cb => {
+    cb.addEventListener("change", () => {
+        const checked = document.querySelectorAll('input[name="facultyDepartment"]:checked');
+        if (checked.length >= 2) {
+            document.querySelectorAll('input[name="facultyDepartment"]:not(:checked)').forEach(other => {
+                other.disabled = true;
+            });
+        } else {
+            document.querySelectorAll('input[name="facultyDepartment"]').forEach(other => {
+                other.disabled = false;
+            });
+        }
+    });
+});
+
+document.getElementById("createFacultyForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    const submitBtn = document.getElementById("submitCreateFacultyBtn");
+    const errorEl = document.getElementById("createFacultyError");
+    if (errorEl) {
+        errorEl.style.display = "none";
+        errorEl.textContent = "";
+    }
+
+    const fullName = document.getElementById("facultyFullName").value.trim();
+    const employeeId = document.getElementById("facultyEmployeeId").value.trim();
+    const email = document.getElementById("facultyEmail").value.trim();
+    const rawPassword = document.getElementById("facultyPassword").value.trim();
+    const password = rawPassword || "SlsuLucena2026!";
+
+    const checkedDepts = Array.from(document.querySelectorAll('input[name="facultyDepartment"]:checked')).map(cb => cb.value);
+
+    if (!fullName || !employeeId || !email) {
+        if (errorEl) {
+            errorEl.textContent = "Please fill in all required fields.";
+            errorEl.style.display = "block";
+        }
+        return;
+    }
+
+    if (rawPassword && rawPassword.length < 6) {
+        if (errorEl) {
+            errorEl.textContent = "Password must be at least 6 characters long.";
+            errorEl.style.display = "block";
+        }
+        return;
+    }
+
+    if (checkedDepts.length === 0) {
+        if (errorEl) {
+            errorEl.textContent = "Please select at least 1 department/program.";
+            errorEl.style.display = "block";
+        }
+        return;
+    }
+
+    if (checkedDepts.length > 2) {
+        if (errorEl) {
+            errorEl.textContent = "You can select a maximum of 2 departments/programs.";
+            errorEl.style.display = "block";
+        }
+        return;
+    }
+
+    const department = checkedDepts.join(", ");
+
+    const originalText = submitBtn ? submitBtn.textContent : "Create Account";
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Creating Account...";
+    }
+
+    try {
+        const payload = { fullName, employeeId, email, department, password };
+
+        const response = await fetch(`${API_URL}/api/faculty/create`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `Server returned status ${response.status}`);
+        }
+
+        const createdUserData = data.user || {
+            uid: data.uid,
+            id: data.uid,
+            fullName,
+            employeeId,
+            email,
+            department,
+            role: "Faculty",
+            createdAt: new Date().toISOString()
+        };
+
+        // Immediately update local array & UI so changes appear without delay
+        const alreadyExists = allUsers.some(u => (u.id === createdUserData.uid || u.uid === createdUserData.uid));
+        if (!alreadyExists) {
+            allUsers.unshift(createdUserData);
+            updateCounts();
+            renderUsers();
+        }
+
+        closeCreateFacultyModal();
+        alert(`Faculty account created successfully for ${fullName} (${email}).`);
+
+        // Refresh user list in background to sync with server/Firestore
+        loadUsers();
+
+    } catch (error) {
+        console.error("Error creating faculty account:", error);
+        if (errorEl) {
+            errorEl.textContent = error.message || "Failed to create faculty account. Please try again.";
+            errorEl.style.display = "block";
+        }
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+        }
+    }
+});
+
+/* =========================
    TAB SWITCHING
 ========================= */
 
@@ -1020,6 +1401,9 @@ document.getElementById("tabStudents").addEventListener("click", () => {
     document.getElementById("programFilter").style.display = "";
     document.getElementById("majorFilter").style.display = "";
 
+    const createBtn = document.getElementById("openCreateFacultyModalBtn");
+    if (createBtn) createBtn.style.display = "none";
+
     renderUsers();
 });
 
@@ -1031,6 +1415,9 @@ document.getElementById("tabFaculty").addEventListener("click", () => {
 
     document.getElementById("programFilter").style.display = "none";
     document.getElementById("majorFilter").style.display = "none";
+
+    const createBtn = document.getElementById("openCreateFacultyModalBtn");
+    if (createBtn) createBtn.style.display = "inline-flex";
 
     renderUsers();
 });

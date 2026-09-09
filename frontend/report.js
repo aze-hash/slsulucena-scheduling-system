@@ -2,10 +2,11 @@ import { db, auth } from "../firebase.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
     loadReportsFromFirestore,
+    deleteReportFromFirestore,
     deleteReportsByCategoryFromFirestore,
-    deleteArchivedClassSchedulesFromFirestore
+    deleteArchivedExamSchedulesFromFirestore
 } from "./reportStorage.js";
-import { renderClassCalendar } from "./js/schedule-calendar.js";
+import { renderExamCalendar } from "./js/schedule-calendar.js";
 
 import {
     collection,
@@ -16,7 +17,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 /* ------------------------------------------------------------------ */
-/*  Custom centered notification system                                */
+/*  Toast Notification                                                */
 /* ------------------------------------------------------------------ */
 
 function showToast(message) {
@@ -66,7 +67,7 @@ function formatDate(rawDate) {
 function openPrintWindow(htmlContent) {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-        showToast("The print window was blocked by the browser.");
+        showToast("The print window was blocked by the browser. Please allow popups.");
         return;
     }
 
@@ -84,12 +85,6 @@ function openPrintWindow(htmlContent) {
 
 const PAGE_SIZE = 10;
 
-let classArchiveRecords = [];
-let classFilterYear = "";
-let classFilterSemester = "";
-let classFilterSearch = "";
-let classCurrentPage = 1;
-
 let examArchiveReports = [];
 let examFilterYear = "";
 let examFilterSemester = "";
@@ -98,284 +93,7 @@ let examFilterSearch = "";
 let examCurrentPage = 1;
 
 /* ------------------------------------------------------------------ */
-/*  CLASS SCHEDULE ARCHIVE                                            */
-/* ------------------------------------------------------------------ */
-
-function populateClassYearFilter(records) {
-    const yearSelect = document.getElementById("classArchiveAcademicYear");
-    if (!yearSelect) return;
-
-    const years = [...new Set(
-        records.map(r => r.academicYear).filter(Boolean)
-    )].sort((a, b) => b.localeCompare(a));
-
-    const currentValue = yearSelect.value;
-    yearSelect.innerHTML = `<option value="">All Years</option>` +
-        years.map(year => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join("");
-
-    if (currentValue && years.includes(currentValue)) {
-        yearSelect.value = currentValue;
-    }
-}
-
-function renderClassArchive() {
-    const tbody = document.getElementById("classArchiveTableBody");
-    const emptyNote = document.getElementById("emptyClassArchive");
-
-    if (!tbody || !emptyNote) return;
-
-    populateClassYearFilter(classArchiveRecords);
-
-    // If no filter is set by user, default to the latest Academic Year in classArchiveRecords
-    if (!classFilterYear && !classFilterSemester && !classFilterSearch.trim() && classArchiveRecords.length > 0) {
-        const sortedByLatest = [...classArchiveRecords].sort((a, b) => {
-            const aTime = a.exportedAt || a.createdAt || "";
-            const bTime = b.exportedAt || b.createdAt || "";
-            return String(bTime).localeCompare(String(aTime));
-        });
-        const latestAY = sortedByLatest[0]?.academicYear;
-        if (latestAY) {
-            classFilterYear = latestAY;
-            const yearSelect = document.getElementById("classArchiveAcademicYear");
-            if (yearSelect) yearSelect.value = latestAY;
-        }
-    }
-
-    const hasFilter = Boolean(classFilterYear || classFilterSemester || classFilterSearch.trim());
-
-    if (!hasFilter) {
-        tbody.innerHTML = "";
-        emptyNote.textContent = "No archived class schedules available.";
-        emptyNote.hidden = false;
-        return;
-    }
-
-    let filtered = [...classArchiveRecords];
-
-    if (classFilterYear) {
-        filtered = filtered.filter(r => (r.academicYear || "") === classFilterYear);
-    }
-    if (classFilterSemester) {
-        filtered = filtered.filter(r => (r.semester || "") === classFilterSemester);
-    }
-    if (classFilterSearch) {
-        const term = normalise(classFilterSearch);
-        filtered = filtered.filter(r =>
-            normalise(r.title || r.section || r.name).includes(term) ||
-            normalise(r.academicYear).includes(term) ||
-            normalise(r.semester).includes(term)
-        );
-    }
-
-    filtered.sort((a, b) => {
-        const aTime = a.exportedAt || a.createdAt || "";
-        const bTime = b.createdAt || "";
-        return String(bTime).localeCompare(String(aTime));
-    });
-
-    if (!filtered.length) {
-        tbody.innerHTML = "";
-        emptyNote.textContent = "No archived class schedules matching the selected filter(s).";
-        emptyNote.hidden = false;
-        return;
-    }
-
-    emptyNote.hidden = true;
-
-    tbody.innerHTML = filtered.map(item => `
-        <tr>
-            <td>${escapeHtml(item.title || item.section || item.name || "Section")}</td>
-            <td>${escapeHtml(item.academicYear ? `A.Y. ${item.academicYear}` : "—")}</td>
-            <td>${escapeHtml(item.semester || "—")}</td>
-            <td>${escapeHtml(formatDate(item.exportedAt || item.createdAt))}</td>
-            <td>
-                <button type="button" class="archive-view-schedule" data-view-class-id="${escapeHtml(item.id)}">View Schedule</button>
-            </td>
-        </tr>
-    `).join("");
-}
-
-function viewClassSchedulePdf(id) {
-    const item = classArchiveRecords.find(r => r.id === id);
-    if (!item) {
-        showToast("Could not find the archived class schedule record.");
-        return;
-    }
-
-    if (item.html) {
-        openPrintWindow(item.html);
-        return;
-    }
-
-    /* Fallback: construct printable HTML for class schedules loaded directly from classSchedules collection */
-    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
-    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
-
-    const printStyles = `
-        <style>
-            @page { size: A4 portrait; margin: 12mm 15mm; }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color: #1a1a1a; }
-            .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
-            .logo-img { width: 65px; height: 65px; }
-            .logo-left, .logo-right { flex-shrink: 0; }
-            .header-text { text-align: center; flex-grow: 1; }
-            .uni-name { font-size: 15px; font-weight: bold; color: #1b5e20; letter-spacing: 0.5px; }
-            .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
-            .city-name { font-size: 11px; color: #555; margin-top: 1px; }
-            .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
-            h1 { color: #1b5e20; margin-bottom: 5px; font-size: 22px;}
-            p { margin-top: 0; margin-bottom: 20px; font-size: 13px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #bdbdbd; padding: 8px; text-align: left; }
-            th { background: #e4e8dc; color: #1b5e20; }
-        </style>
-    `;
-
-    const rows = (item.entries || []).map(entry => `
-        <tr>
-            <td>${escapeHtml(entry.code)}</td>
-            <td>${escapeHtml(entry.name)}</td>
-            <td>${escapeHtml(entry.units)}</td>
-            <td>${escapeHtml(entry.day)}</td>
-            <td>${escapeHtml(entry.time)}</td>
-            <td>${escapeHtml(entry.room)}</td>
-        </tr>
-    `).join("");
-
-    const html = `<!DOCTYPE html><html><head><title>${escapeHtml(item.name || item.section)}</title>${printStyles}</head><body>
-        <div class="header-section">
-            <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
-            <div class="header-text">
-                <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
-                <div class="dtlc-name">Dual Training and Livelihood Center</div>
-                <div class="campus-name">LUCENA CAMPUS</div>
-                <div class="city-name">Lucena City</div>
-            </div>
-            <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
-        </div>
-        <div class="divider"></div>
-        <h1>${escapeHtml(item.name || item.section)}</h1>
-        <p>${escapeHtml([item.academicYear ? `A.Y. ${item.academicYear}` : "", item.semester, item.yearLevel].filter(Boolean).join(" • "))}</p>
-        <table>
-            <thead><tr><th>Subject Code</th><th>Subject Name</th><th>Units</th><th>Day</th><th>Time</th><th>Room</th></tr></thead>
-            <tbody>${rows}</tbody>
-        </table>
-    </body></html>`;
-
-    openPrintWindow(html);
-}
-
-async function loadClassArchiveData() {
-    try {
-        const reports = await loadReportsFromFirestore();
-        const classReports = reports.filter(r => r.category !== "Exam Schedule");
-
-        /* Also fetch all class schedules from classSchedules collection */
-        let classSchedules = [];
-        try {
-            const snapshot = await getDocs(collection(db, "classSchedules"));
-            classSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch (e) {
-            console.warn("Could not load classSchedules from Firestore:", e);
-        }
-
-        // Also check local storage saved schedules
-        let localSchedules = [];
-        try {
-            localSchedules = JSON.parse(localStorage.getItem("chairpersonSavedSchedules")) || [];
-        } catch (e) {
-            localSchedules = [];
-        }
-
-        const allSchedulesSource = [...classSchedules, ...localSchedules];
-
-        // Enrich classReports with entries from classSchedules/localSchedules if missing
-        const enrichedClassReports = classReports.map(r => {
-            if (r.entries && r.entries.length > 0) return r;
-            const matching = allSchedulesSource.find(s =>
-                s.id === r.id ||
-                ((s.name === r.title || s.section === r.section || s.section === r.title) &&
-                 (s.academicYear || "") === (r.academicYear || "") &&
-                 (s.semester || "") === (r.semester || ""))
-            );
-            if (matching && matching.entries && matching.entries.length > 0) {
-                return {
-                    ...r,
-                    entries: matching.entries,
-                    rawEntries: matching.rawEntries || []
-                };
-            }
-            return r;
-        });
-
-        // Add any archived schedules from classSchedules or localSchedules not present in classReports
-        const archivedSchedules = allSchedulesSource.filter(s => s.status === "archived");
-        const merged = [...enrichedClassReports];
-
-        for (const sched of archivedSchedules) {
-            const index = merged.findIndex(r =>
-                r.id === sched.id ||
-                ((r.title === sched.name || r.section === sched.section) &&
-                 (r.academicYear || "") === (sched.academicYear || "") &&
-                 (r.semester || "") === (sched.semester || ""))
-            );
-
-            if (index === -1) {
-                merged.push({
-                    id: sched.id,
-                    title: sched.name || sched.section,
-                    section: sched.section,
-                    academicYear: sched.academicYear,
-                    semester: sched.semester,
-                    yearLevel: sched.yearLevel,
-                    entries: sched.entries || [],
-                    rawEntries: sched.rawEntries || [],
-                    exportedAt: sched.exportedAt?.toDate?.()?.toISOString?.() || sched.exportedAt || sched.createdAt
-                });
-            } else if (!merged[index].entries || merged[index].entries.length === 0) {
-                merged[index].entries = sched.entries || [];
-                merged[index].rawEntries = sched.rawEntries || [];
-            }
-        }
-
-        // Deduplicate merged records by title + academicYear + semester (keeping newest with entries)
-        const dedupedMap = new Map();
-        merged.forEach(item => {
-            const key = [
-                normalise(item.title || item.section || item.name),
-                normalise(item.academicYear),
-                normalise(item.semester)
-            ].join("::");
-
-            const existing = dedupedMap.get(key);
-            if (!existing) {
-                dedupedMap.set(key, item);
-            } else {
-                const existingHasEntries = existing.entries && existing.entries.length > 0;
-                const itemHasEntries = item.entries && item.entries.length > 0;
-                const existingTime = new Date(existing.exportedAt || existing.createdAt || 0).getTime();
-                const itemTime = new Date(item.exportedAt || item.createdAt || 0).getTime();
-
-                if ((!existingHasEntries && itemHasEntries) || (itemTime > existingTime && (itemHasEntries || !existingHasEntries))) {
-                    dedupedMap.set(key, {
-                        ...item,
-                        entries: item.entries?.length ? item.entries : existing.entries,
-                        rawEntries: item.rawEntries?.length ? item.rawEntries : existing.rawEntries
-                    });
-                }
-            }
-        });
-
-        classArchiveRecords = Array.from(dedupedMap.values());
-        renderClassArchive();
-    } catch (error) {
-        console.error("Could not load class archive data:", error);
-    }
-}
-
-/* ------------------------------------------------------------------ */
-/*  EXAM SCHEDULE ARCHIVE                                             */
+/*  Filter Population                                                 */
 /* ------------------------------------------------------------------ */
 
 function populateExamYearFilter(reports) {
@@ -387,13 +105,17 @@ function populateExamYearFilter(reports) {
     )].sort((a, b) => b.localeCompare(a));
 
     const currentValue = yearSelect.value;
-    yearSelect.innerHTML = `<option value="">All Years</option>` +
+    yearSelect.innerHTML = `<option value="">All Academic Years</option>` +
         years.map(year => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join("");
 
     if (currentValue && years.includes(currentValue)) {
         yearSelect.value = currentValue;
     }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Render Table                                                      */
+/* ------------------------------------------------------------------ */
 
 function renderExamArchive() {
     const tbody = document.getElementById("examArchiveTableBody");
@@ -408,31 +130,6 @@ function renderExamArchive() {
 
     populateExamYearFilter(examArchiveReports);
 
-    // If no filter is set by user, default to the latest Academic Year in examArchiveReports
-    if (!examFilterYear && !examFilterSemester && !examFilterExamType && !examFilterSearch.trim() && examArchiveReports.length > 0) {
-        const sortedByLatest = [...examArchiveReports].sort((a, b) => {
-            const aTime = a.createdAt || "";
-            const bTime = b.createdAt || "";
-            return String(bTime).localeCompare(String(aTime));
-        });
-        const latestAY = sortedByLatest[0]?.academicYear;
-        if (latestAY) {
-            examFilterYear = latestAY;
-            const yearSelect = document.getElementById("examArchiveAcademicYear");
-            if (yearSelect) yearSelect.value = latestAY;
-        }
-    }
-
-    const hasFilter = Boolean(examFilterYear || examFilterSemester || examFilterExamType || examFilterSearch.trim());
-
-    if (!hasFilter) {
-        tbody.innerHTML = "";
-        emptyNote.textContent = "No archived exam schedules available.";
-        emptyNote.hidden = false;
-        if (pagination) pagination.style.display = "none";
-        return;
-    }
-
     let filtered = [...examArchiveReports];
 
     if (examFilterYear) {
@@ -442,13 +139,13 @@ function renderExamArchive() {
         filtered = filtered.filter(r => (r.semester || "") === examFilterSemester);
     }
     if (examFilterExamType) {
-        filtered = filtered.filter(r => (r.examType || "") === examFilterExamType);
+        filtered = filtered.filter(r => (r.examType || "").toLowerCase() === examFilterExamType.toLowerCase());
     }
     if (examFilterSearch) {
         const term = normalise(examFilterSearch);
         filtered = filtered.filter(r =>
             normalise(r.title).includes(term) ||
-            normalise(r.filename).includes(term) ||
+            normalise(r.section).includes(term) ||
             normalise(r.academicYear).includes(term) ||
             normalise(r.semester).includes(term) ||
             normalise(r.examType).includes(term)
@@ -463,7 +160,9 @@ function renderExamArchive() {
 
     if (!filtered.length) {
         tbody.innerHTML = "";
-        emptyNote.textContent = "No archived exam schedules matching the selected filter(s).";
+        emptyNote.textContent = examArchiveReports.length === 0
+            ? "No archived examination schedules found."
+            : "No archived examination schedules matching the selected filter(s).";
         emptyNote.hidden = false;
         if (pagination) pagination.style.display = "none";
         return;
@@ -480,12 +179,26 @@ function renderExamArchive() {
 
     tbody.innerHTML = pageItems.map(report => `
         <tr>
+            <td>
+                <strong>${escapeHtml(report.section || report.title || "Exam Schedule")}</strong>
+                ${report.yearLevel ? `<div style="font-size:12px; color:#666;">${escapeHtml(report.yearLevel)}</div>` : ""}
+            </td>
             <td>${escapeHtml(report.academicYear ? `A.Y. ${report.academicYear}` : "—")}</td>
             <td>${escapeHtml(report.semester || "—")}</td>
-            <td>${escapeHtml(report.examType || "—")}</td>
-            <td>${escapeHtml(formatDate(report.createdAt))}</td>
-            <td>
-                <button type="button" class="archive-view-pdf" data-view-exam-id="${escapeHtml(report.id)}">View PDF</button>
+            <td><span style="background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:700;">${escapeHtml(report.examType || "Preliminary")}</span></td>
+            <td style="font-size:12px; color:#555;">${escapeHtml(formatDate(report.createdAt))}</td>
+            <td style="text-align:center;">
+                <div style="display:inline-flex; gap:6px; align-items:center; justify-content:center; flex-wrap:wrap;">
+                    <button type="button" class="archive-view-pdf" data-view-exam-id="${escapeHtml(report.id)}" style="padding:6px 12px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-size:12px; font-weight:bold; cursor:pointer;">
+                        📄 PDF
+                    </button>
+                    <button type="button" class="archive-view-cal" data-view-cal-id="${escapeHtml(report.id)}" style="padding:6px 12px; border:1px solid #2e7d32; border-radius:6px; background:#fff; color:#2e7d32; font-size:12px; font-weight:bold; cursor:pointer;">
+                        📅 Timetable
+                    </button>
+                    <button type="button" class="archive-delete-btn" data-delete-id="${escapeHtml(report.id)}" style="padding:6px 10px; border:1px solid #ffcdd2; border-radius:6px; background:#ffebee; color:#c62828; font-size:12px; font-weight:bold; cursor:pointer;">
+                        🗑️
+                    </button>
+                </div>
             </td>
         </tr>
     `).join("");
@@ -515,6 +228,7 @@ function renderExamArchive() {
                         type="button"
                         class="archive-page-number${page === examCurrentPage ? " active" : ""}"
                         data-exam-page="${page}"
+                        style="padding:5px 10px; border:1px solid #ccc; border-radius:4px; background:${page === examCurrentPage ? '#2e7d32' : '#fff'}; color:${page === examCurrentPage ? '#fff' : '#333'}; font-weight:bold; cursor:pointer;"
                     >${page}</button>
                 `);
             }
@@ -523,37 +237,242 @@ function renderExamArchive() {
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  PDF Generation                                                    */
+/* ------------------------------------------------------------------ */
+
+function generateExamPdfHtml(report) {
+    if (report.html) return report.html;
+
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
+    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+
+    const examType = report.examType || "Preliminary";
+    const examTypeUpper = examType.toUpperCase();
+    const sectionName = escapeHtml(report.section || report.title || "Section Schedule");
+    const exams = Array.isArray(report.exams) ? report.exams : [];
+
+    const dateLabel = rawDate => {
+        if (!rawDate || rawDate === "TBA") return "Date to be announced";
+        const date = new Date(`${rawDate}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return String(rawDate);
+        return date.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            weekday: "long"
+        });
+    };
+
+    const groupedExams = new Map();
+    exams.forEach(exam => {
+        const key = exam.date || "TBA";
+        if (!groupedExams.has(key)) groupedExams.set(key, []);
+        groupedExams.get(key).push(exam);
+    });
+
+    const dateKeys = [...groupedExams.keys()].sort((a, b) => {
+        if (a === "TBA") return 1;
+        if (b === "TBA") return -1;
+        return String(a).localeCompare(String(b));
+    });
+
+    const scheduleSections = dateKeys.length
+        ? dateKeys.map(date => `
+            <section class="exam-day">
+                <div class="exam-date">${escapeHtml(dateLabel(date))}</div>
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th style="width:18%;">TIME</th>
+                            <th style="width:42%;">SUBJECT</th>
+                            <th style="width:20%;">PROCTOR</th>
+                            <th style="width:20%;">ROOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groupedExams.get(date).map(e => `
+                            <tr>
+                                <td>${escapeHtml(e.time || "—")}</td>
+                                <td>${escapeHtml([e.code || e.subjectCode, e.name || e.subjectName].filter(Boolean).join(" — ") || "—")}</td>
+                                <td>${escapeHtml(e.proctor || e.facultyName || "TBA")}</td>
+                                <td>${escapeHtml(e.room || "—")}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </section>
+        `).join("")
+        : `<div class="empty-schedule">No examination entries recorded.</div>`;
+
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>${sectionName} - ${escapeHtml(examType)} Examination Schedule</title>
+        <style>
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 10px; }
+            .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+            .logo-img { width: 65px; height: 65px; }
+            .header-text { text-align: center; flex-grow: 1; }
+            .uni-name { font-size: 15px; font-weight: bold; color: #000000; }
+            .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
+            .city-name { font-size: 11px; color: #555; }
+            .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
+            .title-section { text-align: center; font-size: 14px; font-weight: bold; color: #000000; margin-bottom: 10px; text-decoration: underline; }
+            .section-row { text-align: center; font-size: 12px; font-weight: bold; color: #555; padding: 4px 10px 10px; }
+            .exam-day { page-break-inside: avoid; margin-bottom: 14px; }
+            .exam-date { text-align: center; color: #030303; font-size: 11px; font-weight: bold; margin: 8px 0 3px; }
+            .schedule-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 2px; }
+            .schedule-table th, .schedule-table td { border: 1px solid #888888; padding: 4px 6px; text-align: left; }
+            .schedule-table th { background: #a7c7a3; color: #1b5e20; font-weight: bold; text-align: center; }
+            .schedule-table td { vertical-align: middle; }
+            .schedule-table tbody tr:nth-child(even) { background: #f7f7f7; }
+            .empty-schedule { text-align: center; padding: 16px; border: 1px solid #888; }
+        </style>
+    </head>
+    <body>
+        <div class="header-section">
+            <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
+            <div class="header-text">
+                <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
+                <div class="dtlc-name">Dual Training and Livelihood Center</div>
+                <div class="campus-name">LUCENA CAMPUS</div>
+                <div class="city-name">Lucena City</div>
+            </div>
+            <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="title-section">SCHEDULES OF ${escapeHtml(examTypeUpper)} EXAMINATIONS</div>
+        <div class="section-row">${sectionName}</div>
+        ${scheduleSections}
+    </body>
+    </html>`;
+}
+
 function viewExamSchedulePdf(reportId) {
     const report = examArchiveReports.find(r => r.id === reportId);
-    if (!report || !report.html) {
+    if (!report) {
         showToast("Could not find the archived exam report document.");
         return;
     }
-    openPrintWindow(report.html);
+    const html = generateExamPdfHtml(report);
+    openPrintWindow(html);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Calendar Modal                                                    */
+/* ------------------------------------------------------------------ */
+
+function viewExamScheduleCalendar(reportId) {
+    const report = examArchiveReports.find(r => r.id === reportId);
+    if (!report) {
+        showToast("Could not find the examination schedule.");
+        return;
+    }
+
+    const modal = document.getElementById("examCalendarModal");
+    const titleEl = document.getElementById("calModalTitle");
+    const subtitleEl = document.getElementById("calModalSubtitle");
+    const bodyEl = document.getElementById("calModalBody");
+
+    if (!modal || !bodyEl) return;
+
+    if (titleEl) titleEl.textContent = `${report.section || report.title || "Exam Schedule"} - Timetable`;
+    if (subtitleEl) {
+        subtitleEl.textContent = [
+            report.academicYear ? `A.Y. ${report.academicYear}` : "",
+            report.semester || "",
+            report.examType ? `${report.examType} Exam` : ""
+        ].filter(Boolean).join(" • ");
+    }
+
+    bodyEl.innerHTML = renderExamCalendar(report);
+    modal.style.display = "flex";
+}
+
+function closeCalendarModal() {
+    const modal = document.getElementById("examCalendarModal");
+    if (modal) modal.style.display = "none";
+}
+
+document.getElementById("calModalClose")?.addEventListener("click", closeCalendarModal);
+
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeCalendarModal();
+});
+
+/* ------------------------------------------------------------------ */
+/*  Data Loading & Normalization                                      */
+/* ------------------------------------------------------------------ */
 
 async function loadExamArchiveData() {
     try {
-        const allReports = await loadReportsFromFirestore();
-        const examReports = allReports.filter(r => r.category === "Exam Schedule");
+        const [firestoreReports, examSchedulesSnap] = await Promise.all([
+            loadReportsFromFirestore(),
+            getDocs(collection(db, "examSchedules"))
+        ]);
 
-        // Deduplicate exam reports by title/examType + academicYear + semester (keeping newest)
+        const rawList = [];
+
+        // 1. Reports collection
+        firestoreReports.forEach(r => {
+            rawList.push({
+                id: r.id,
+                source: "reports",
+                title: r.title || r.section || "Exam Schedule",
+                section: r.section || r.title || "Exam Schedule",
+                academicYear: r.academicYear || "",
+                semester: r.semester || "",
+                yearLevel: r.yearLevel || "",
+                examType: r.examType || "Preliminary",
+                exams: r.entries || r.exams || [],
+                html: r.html || "",
+                createdAt: r.createdAt || new Date().toISOString()
+            });
+        });
+
+        // 2. examSchedules collection
+        examSchedulesSnap.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            rawList.push({
+                id: docSnap.id,
+                source: "examSchedules",
+                title: data.section || data.name || "Exam Schedule",
+                section: data.section || data.name || "Exam Schedule",
+                academicYear: data.academicYear || "",
+                semester: data.semester || "",
+                yearLevel: data.yearLevel || "",
+                examType: data.examType || "Preliminary",
+                exams: data.exams || [],
+                status: data.status || "draft",
+                html: "",
+                createdAt: data.publishedAt || data.updatedAt || data.createdAt || new Date().toISOString()
+            });
+        });
+
+        // Deduplicate by section + academicYear + semester + examType
         const dedupedMap = new Map();
-        examReports.forEach(item => {
+        rawList.forEach(item => {
             const key = [
-                normalise(item.title || item.filename || "Exam Schedule"),
-                normalise(item.examType),
+                normalise(item.section),
                 normalise(item.academicYear),
-                normalise(item.semester)
+                normalise(item.semester),
+                normalise(item.examType)
             ].join("::");
 
             const existing = dedupedMap.get(key);
             if (!existing) {
                 dedupedMap.set(key, item);
             } else {
-                const existingTime = new Date(existing.createdAt || 0).getTime();
+                const itemHasExams = (item.exams || []).length > 0;
+                const existingHasExams = (existing.exams || []).length > 0;
                 const itemTime = new Date(item.createdAt || 0).getTime();
-                if (itemTime > existingTime) {
+                const existingTime = new Date(existing.createdAt || 0).getTime();
+
+                if ((!existingHasExams && itemHasExams) || (itemTime > existingTime && itemHasExams)) {
                     dedupedMap.set(key, item);
                 }
             }
@@ -563,30 +482,13 @@ async function loadExamArchiveData() {
         renderExamArchive();
     } catch (error) {
         console.error("Could not load exam archive data:", error);
+        showToast("Error loading archived examination schedules.");
     }
 }
 
 /* ------------------------------------------------------------------ */
-/*  EVENT LISTENERS                                                    */
+/*  Event Listeners                                                   */
 /* ------------------------------------------------------------------ */
-
-document.getElementById("classArchiveAcademicYear")?.addEventListener("change", event => {
-    classFilterYear = event.target.value;
-    classCurrentPage = 1;
-    renderClassArchive();
-});
-
-document.getElementById("classArchiveSemester")?.addEventListener("change", event => {
-    classFilterSemester = event.target.value;
-    classCurrentPage = 1;
-    renderClassArchive();
-});
-
-document.getElementById("classArchiveSearch")?.addEventListener("input", event => {
-    classFilterSearch = event.target.value;
-    classCurrentPage = 1;
-    renderClassArchive();
-});
 
 document.getElementById("examArchiveAcademicYear")?.addEventListener("change", event => {
     examFilterYear = event.target.value;
@@ -612,55 +514,18 @@ document.getElementById("examArchiveSearch")?.addEventListener("input", event =>
     renderExamArchive();
 });
 
-document.getElementById("deleteAllClassArchiveBtn")?.addEventListener("click", async () => {
-    const confirmed = confirm("Are you sure you want to delete all archived class schedules?");
+// Delete All Archive
+document.getElementById("deleteAllExamArchiveBtn")?.addEventListener("click", async () => {
+    const confirmed = confirm("Are you sure you want to delete all archived examination schedules?");
     if (!confirmed) return;
 
     try {
         await Promise.all([
-            deleteReportsByCategoryFromFirestore("Class Schedule"),
-            deleteArchivedClassSchedulesFromFirestore()
+            deleteReportsByCategoryFromFirestore("Exam Schedule"),
+            deleteArchivedExamSchedulesFromFirestore()
         ]);
 
-        /* Also remove archived entries from localStorage so the table doesn't
-           repopulate from the local cache on the next loadClassArchiveData() call */
-        try {
-            const SAVED_KEY = "chairpersonSavedSchedules";
-            const local = JSON.parse(localStorage.getItem(SAVED_KEY)) || [];
-            const remaining = local.filter(s => (s.status || "") !== "archived");
-            localStorage.setItem(SAVED_KEY, JSON.stringify(remaining));
-        } catch (_) { /* ignore localStorage errors */ }
-
-        /* Reset in-memory archive list so the table clears immediately */
-        classArchiveRecords = [];
-
-        classFilterYear = "";
-        classFilterSemester = "";
-        classFilterSearch = "";
-        classCurrentPage = 1;
-
-        const yearSelect = document.getElementById("classArchiveAcademicYear");
-        const semSelect = document.getElementById("classArchiveSemester");
-        const searchInput = document.getElementById("classArchiveSearch");
-        if (yearSelect) yearSelect.value = "";
-        if (semSelect) semSelect.value = "";
-        if (searchInput) searchInput.value = "";
-
-        await loadClassArchiveData();
-        showToast("All archived class schedules have been deleted.");
-    } catch (error) {
-        console.error("Could not delete all archived class schedules:", error);
-        showToast("Error deleting archived class schedules.");
-    }
-});
-
-document.getElementById("deleteAllExamArchiveBtn")?.addEventListener("click", async () => {
-    const confirmed = confirm("Are you sure you want to delete all archived exam schedules?");
-    if (!confirmed) return;
-
-    try {
-        await deleteReportsByCategoryFromFirestore("Exam Schedule");
-
+        examArchiveReports = [];
         examFilterYear = "";
         examFilterSemester = "";
         examFilterExamType = "";
@@ -677,41 +542,56 @@ document.getElementById("deleteAllExamArchiveBtn")?.addEventListener("click", as
         if (searchInput) searchInput.value = "";
 
         await loadExamArchiveData();
-        showToast("All archived exam schedules have been deleted.");
+        showToast("All archived examination schedules have been deleted.");
     } catch (error) {
         console.error("Could not delete all archived exam schedules:", error);
-        showToast("Error deleting archived exam schedules.");
+        showToast("Error deleting archived examination schedules.");
     }
 });
 
-document.addEventListener("click", event => {
-    /* Class Archive – View Schedule (calendar modal) */
-    if (event.target.classList.contains("archive-view-schedule")) {
-        const classReportId = event.target.dataset?.viewClassId;
-        if (classReportId) viewClassScheduleCalendar(classReportId);
+// Table click delegation (PDF, Timetable, Delete single)
+document.addEventListener("click", async event => {
+    // View PDF
+    const pdfBtn = event.target.closest(".archive-view-pdf");
+    if (pdfBtn) {
+        const reportId = pdfBtn.dataset.viewExamId;
+        if (reportId) viewExamSchedulePdf(reportId);
         return;
     }
 
-    if (event.target.id === "classArchivePrevPage") {
-        classCurrentPage -= 1;
-        renderClassArchive();
-    }
-    if (event.target.id === "classArchiveNextPage") {
-        classCurrentPage += 1;
-        renderClassArchive();
-    }
-    const classPageNum = event.target.dataset?.classPage;
-    if (classPageNum) {
-        classCurrentPage = Number(classPageNum);
-        renderClassArchive();
+    // View Calendar Timetable
+    const calBtn = event.target.closest(".archive-view-cal");
+    if (calBtn) {
+        const calId = calBtn.dataset.viewCalId;
+        if (calId) viewExamScheduleCalendar(calId);
+        return;
     }
 
-    /* Exam Archive view PDF & pagination */
-    const examReportId = event.target.dataset?.viewExamId;
-    if (examReportId) {
-        viewExamSchedulePdf(examReportId);
+    // Delete single
+    const delBtn = event.target.closest(".archive-delete-btn");
+    if (delBtn) {
+        const delId = delBtn.dataset.deleteId;
+        if (!delId) return;
+        const confirmed = confirm("Are you sure you want to delete this archived examination schedule?");
+        if (!confirmed) return;
+
+        try {
+            const item = examArchiveReports.find(r => r.id === delId);
+            if (item?.source === "reports") {
+                await deleteReportFromFirestore(delId);
+            } else {
+                await deleteDoc(doc(db, "examSchedules", delId));
+            }
+            showToast("Archived schedule deleted.");
+            await loadExamArchiveData();
+        } catch (err) {
+            console.error("Delete error:", err);
+            showToast(`Could not delete: ${err.message}`);
+        }
+        return;
     }
 
+    // Pagination
     if (event.target.id === "examArchivePrevPage") {
         examCurrentPage -= 1;
         renderExamArchive();
@@ -726,96 +606,13 @@ document.addEventListener("click", event => {
         renderExamArchive();
     }
 
-    /* Close calendar modal when clicking the backdrop */
-    if (event.target.id === "classCalendarModal") {
+    // Close calendar modal on backdrop click
+    if (event.target.id === "examCalendarModal") {
         closeCalendarModal();
     }
 });
 
-/* Calendar modal – open */
-async function viewClassScheduleCalendar(id) {
-    let item = classArchiveRecords.find(r => r.id === id);
-    if (!item) {
-        showToast("Could not find the archived class schedule record.");
-        return;
-    }
-
-    // If entries is still missing, attempt direct fetch from classSchedules Firestore doc or localStorage
-    if (!item.entries || item.entries.length === 0) {
-        try {
-            const schedDoc = await getDoc(doc(db, "classSchedules", item.id));
-            if (schedDoc.exists()) {
-                const data = schedDoc.data();
-                item.entries = data.entries || [];
-                item.rawEntries = data.rawEntries || [];
-            }
-        } catch (e) {
-            console.warn("Could not fetch schedule doc for calendar:", e);
-        }
-
-        if (!item.entries || item.entries.length === 0) {
-            try {
-                const localSchedules = JSON.parse(localStorage.getItem("chairpersonSavedSchedules")) || [];
-                const localMatch = localSchedules.find(s =>
-                    s.id === item.id ||
-                    ((s.name === item.title || s.section === item.section) &&
-                     (s.academicYear || "") === (item.academicYear || "") &&
-                     (s.semester || "") === (item.semester || ""))
-                );
-                if (localMatch) {
-                    item.entries = localMatch.entries || [];
-                    item.rawEntries = localMatch.rawEntries || [];
-                }
-            } catch (e) {
-                console.warn("Could not parse local schedules for calendar:", e);
-            }
-        }
-    }
-
-    const modal = document.getElementById("classCalendarModal");
-    const titleEl = document.getElementById("calModalTitle");
-    const subtitleEl = document.getElementById("calModalSubtitle");
-    const bodyEl = document.getElementById("calModalBody");
-
-    if (!modal || !bodyEl) return;
-
-    if (titleEl) titleEl.textContent = item.title || item.section || item.name || "Class Schedule";
-    if (subtitleEl) {
-        subtitleEl.textContent = [
-            item.academicYear ? `A.Y. ${item.academicYear}` : "",
-            item.semester,
-            item.yearLevel
-        ].filter(Boolean).join(" • ");
-    }
-
-    bodyEl.innerHTML = renderClassCalendar(item);
-    modal.style.display = "flex";
-}
-
-/* Calendar modal – close */
-function closeCalendarModal() {
-    const modal = document.getElementById("classCalendarModal");
-    if (modal) modal.style.display = "none";
-}
-
-document.getElementById("calModalClose")?.addEventListener("click", closeCalendarModal);
-
-document.addEventListener("keydown", event => {
-    if (event.key === "Escape") closeCalendarModal();
-});
-
-/* ------------------------------------------------------------------ */
-/*  INITIALISATION                                                    */
-/* ------------------------------------------------------------------ */
-
-async function init() {
-    await Promise.all([
-        loadClassArchiveData(),
-        loadExamArchiveData()
-    ]);
-}
-
-init();
+loadExamArchiveData();
 
 document.getElementById("logoutLink")?.addEventListener("click", async event => {
     event.preventDefault();

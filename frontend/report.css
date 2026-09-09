@@ -344,19 +344,6 @@ nav ul li a.active{
     overflow-x:auto;
 }
 
-#classArchiveSection .table-container{
-    max-height:480px;
-    overflow-y:auto;
-    overflow-x:auto;
-}
-
-#classArchiveSection table th{
-    position:sticky;
-    top:0;
-    z-index:1;
-    background:#d8e0ce;
-}
-
 table{
     width:100%;
     border-collapse:collapse;
@@ -532,6 +519,7 @@ tr:hover{
         grid-template-columns:1fr;
     }
 }
+
 
 /* =========================
    CLASS CALENDAR MODAL

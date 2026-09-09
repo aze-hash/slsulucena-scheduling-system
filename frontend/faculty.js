@@ -16,7 +16,7 @@ import {
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import { renderExamCalendar } from "./js/schedule-calendar.js";
+import { renderExamCalendar, renderWeeklyExamCalendar } from "./js/schedule-calendar.js";
 
 const examScheduleContainer = document.getElementById("examScheduleContainer");
 const navFacultyName = document.getElementById("navFacultyName");
@@ -152,7 +152,25 @@ function renderExamSchedules(schedules) {
         return;
     }
 
-    examScheduleContainer.innerHTML = schedules.map(schedule => {
+    // Flatten ONLY the exam subject entries assigned to this faculty member so
+    // they can be shown together in one weekly calendar (same style as the
+    // admin Proctoring dashboard's per-faculty calendar cards).
+    const myExamSubjects = [];
+    schedules.forEach(schedule => {
+        const section = schedule.section || "Section Schedule";
+        const examType = schedule.examType || "Exam";
+        (Array.isArray(schedule.exams) ? schedule.exams : []).forEach(exam => {
+            myExamSubjects.push({
+                ...exam,
+                section,
+                examType,
+                academicYear: schedule.academicYear || "",
+                semester: schedule.semester || ""
+            });
+        });
+    });
+
+    const scheduleCardsHtml = schedules.map(schedule => {
         const proctor          = schedule.proctor || "";
         const examTypeTitle    = getExamTypeTitle(schedule);
         const academicSubtext  = formatExamAcademicInfo(schedule);
@@ -177,6 +195,20 @@ function renderExamSchedules(schedules) {
             </article>
         `;
     }).join("");
+
+    const weeklyCalendarHtml = renderWeeklyExamCalendar(myExamSubjects);
+
+    examScheduleContainer.innerHTML = `
+        <div class="weekly-subject-summary" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+            <h4 style="margin:0; font-size:15px; color:#1b5e20; font-weight:700;">My Assigned Exam Subjects</h4>
+            <span style="font-size:12px; color:#666; font-weight:600;">${myExamSubjects.length} subject${myExamSubjects.length !== 1 ? "s" : ""} assigned to you</span>
+        </div>
+        ${weeklyCalendarHtml}
+        <div class="section-schedules-heading" style="margin:22px 0 6px 0; padding-bottom:8px; border-bottom:2px solid #e8f5e9;">
+            <h4 style="margin:0; font-size:15px; color:#1b5e20; font-weight:700;">Detailed Section Schedules</h4>
+        </div>
+        ${scheduleCardsHtml}
+    `;
 }
 
 function showRequestStatus(message, type = "success") {
@@ -699,6 +731,218 @@ function watchAssignedExamSchedules(user, fullName) {
             console.error("Could not watch assigned exam schedules:", error);
             if (examScheduleContainer) {
                 examScheduleContainer.innerHTML = '<div class="empty-state">Unable to load assigned exam schedules right now.</div>';
+            }
+        }
+    );
+}
+
+function parseSlotDurationHours(timeRange) {
+    if (!timeRange) return 1.5;
+    const parts = timeRange.split("-");
+    if (parts.length !== 2) return 1.5;
+
+    const parseMinutes = (str) => {
+        str = str.trim().toLowerCase();
+        const isPM = str.includes("pm");
+        const isAM = str.includes("am");
+        const clean = str.replace(/[ap]m/g, "").trim();
+        const [hStr, mStr] = clean.split(":");
+        let h = parseInt(hStr, 10);
+        let m = parseInt(mStr || "0", 10);
+        if (isNaN(h)) return null;
+        if (isNaN(m)) m = 0;
+        if (isPM && h < 12) h += 12;
+        if (isAM && h === 12) h = 0;
+        return h * 60 + m;
+    };
+
+    const startMin = parseMinutes(parts[0]);
+    const endMin = parseMinutes(parts[1]);
+    if (startMin === null || endMin === null || endMin <= startMin) return 1.5;
+    return (endMin - startMin) / 60;
+}
+
+function calculateWeeklyHours(dayStr, timeStr) {
+    if (!timeStr) return 0;
+    const days = String(dayStr || "").split(" / ").map(d => d.trim()).filter(Boolean);
+    const times = String(timeStr || "").split(" / ").map(t => t.trim()).filter(Boolean);
+    const count = Math.max(days.length, times.length, 1);
+
+    let total = 0;
+    for (let i = 0; i < count; i++) {
+        const t = times[i] || times[0] || timeStr;
+        total += parseSlotDurationHours(t);
+    }
+    return Math.round(total * 10) / 10;
+}
+
+function isClassEntryAssignedToFaculty(entry, userUid, fullName) {
+    if (!entry) return false;
+    if (userUid && entry.facultyId && String(entry.facultyId).trim() === String(userUid).trim()) {
+        return true;
+    }
+    if (fullName && entry.facultyName) {
+        const normEntry = normalize(entry.facultyName);
+        const normUser = normalize(fullName);
+        if (normEntry && normUser && (normEntry === normUser || normEntry.includes(normUser) || normUser.includes(normEntry))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function renderClassTeachingSchedules(assignedClasses) {
+    if (!classTeachingScheduleContainer) return;
+
+    if (!assignedClasses.length) {
+        if (facultyWorkloadSummaryBadge) {
+            facultyWorkloadSummaryBadge.innerHTML = `
+                <span style="background:#e0e0e0; color:#555; font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px;">
+                    0 Units Assigned
+                </span>
+            `;
+        }
+        classTeachingScheduleContainer.innerHTML = `
+            <div class="empty-state" style="padding:28px 16px; text-align:center; color:#666;">
+                <div style="font-size:24px; margin-bottom:8px;">📚</div>
+                <p style="margin:0; font-size:14px; font-weight:600; color:#333;">No class teaching assignments published yet.</p>
+                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When exam schedules are published by your department Chairperson, your weekly classes will be displayed here.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Calculate metrics
+    let totalUnits = 0;
+    let totalWeeklyHours = 0;
+    const distinctSections = new Set();
+
+    assignedClasses.forEach(item => {
+        totalUnits += Number(item.units) || 0;
+        totalWeeklyHours += calculateWeeklyHours(item.day, item.time);
+        if (item.section) distinctSections.add(item.section);
+    });
+
+    totalWeeklyHours = Math.round(totalWeeklyHours * 10) / 10;
+
+    // Load badge
+    let loadBadgeStyle = "";
+    let loadLabel = "";
+    if (totalUnits <= 18) {
+        loadBadgeStyle = "background:#e8f5e9; color:#1b5e20; border:1px solid #c8e6c9;";
+        loadLabel = "✓ Normal Load";
+    } else if (totalUnits <= 21) {
+        loadBadgeStyle = "background:#fff3e0; color:#e65100; border:1px solid #ffe0b2;";
+        loadLabel = "⚡ Overload";
+    } else {
+        loadBadgeStyle = "background:#ffebee; color:#c62828; border:1px solid #ffcdd2;";
+        loadLabel = "⚠️ Over Capacity";
+    }
+
+    if (facultyWorkloadSummaryBadge) {
+        facultyWorkloadSummaryBadge.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span style="${loadBadgeStyle} padding:4px 12px; border-radius:999px; font-weight:700; font-size:12px;">
+                    ${loadLabel} (${totalUnits} Units)
+                </span>
+                <span style="background:#f1f8e9; color:#33691e; border:1px solid #dcedc8; padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px;">
+                    🕒 ${totalWeeklyHours} hrs/wk
+                </span>
+                <span style="background:#e8eaf6; color:#283593; border:1px solid #c5cae9; padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px;">
+                    👥 ${distinctSections.size} Section${distinctSections.size === 1 ? "" : "s"}
+                </span>
+            </div>
+        `;
+    }
+
+    classTeachingScheduleContainer.innerHTML = `
+        <div class="table-container" style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; margin-top:8px;">
+                <thead>
+                    <tr style="background:#f0f4ec; text-align:left;">
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Subject Code</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Subject Description</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6; text-align:center;">Units</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Section</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Day</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Time</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Room</th>
+                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6; text-align:center;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${assignedClasses.map(item => `
+                        <tr style="border-bottom:1px solid #eee;">
+                            <td style="padding:10px 12px; font-weight:bold; color:#1b5e20;">${safe(item.code)}</td>
+                            <td style="padding:10px 12px;">${safe(item.name)}</td>
+                            <td style="padding:10px 12px; text-align:center; font-weight:600;">${safe(item.units)}</td>
+                            <td style="padding:10px 12px;"><span style="background:#f5f5f5; border:1px solid #ddd; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600;">${safe(item.section)}</span></td>
+                            <td style="padding:10px 12px;">${safe(item.day)}</td>
+                            <td style="padding:10px 12px;">${safe(item.time)}</td>
+                            <td style="padding:10px 12px; font-weight:600;">${safe(item.room)}</td>
+                            <td style="padding:10px 12px; text-align:center;">
+                                ${item.status === "published"
+                                    ? `<span style="background:#e8f5e9; color:#1b5e20; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">✓ Published</span>`
+                                    : `<span style="background:#fff3e0; color:#e65100; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">Draft</span>`
+                                }
+                            </td>
+                        </tr>
+                    `).join("")}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+// Retained only for backward-compatible data recovery; the examination-only
+// faculty dashboard never starts this legacy class-teaching listener.
+function watchArchivedClassTeachingSchedules(user, fullName) {
+    if (!classTeachingScheduleContainer) return;
+
+    onSnapshot(
+        collection(db, "examSchedules"),
+        snapshot => {
+            const assignedClasses = [];
+
+            snapshot.docs.forEach(docSnap => {
+                const schedule = { id: docSnap.id, ...docSnap.data() };
+                const status = normalize(schedule.status || "draft");
+                if (status === "archived") return;
+
+                const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
+                entries.forEach(entry => {
+                    if (isClassEntryAssignedToFaculty(entry, user.uid, fullName)) {
+                        assignedClasses.push({
+                            ...entry,
+                            scheduleId: schedule.id,
+                            scheduleName: schedule.name || schedule.section || "Exam Schedule",
+                            section: schedule.section || schedule.name || "",
+                            academicYear: schedule.academicYear || "",
+                            semester: schedule.semester || "",
+                            yearLevel: schedule.yearLevel || "",
+                            status: schedule.status || "draft"
+                        });
+                    }
+                });
+            });
+
+            // Sort classes: Day, then Time, then Section
+            const dayOrder = { "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4, "friday": 5, "saturday": 6 };
+            assignedClasses.sort((a, b) => {
+                const firstDayA = String(a.day || "").split("/")[0].trim().toLowerCase();
+                const firstDayB = String(b.day || "").split("/")[0].trim().toLowerCase();
+                const orderA = dayOrder[firstDayA] || 99;
+                const orderB = dayOrder[firstDayB] || 99;
+                if (orderA !== orderB) return orderA - orderB;
+                return String(a.time || "").localeCompare(String(b.time || ""));
+            });
+
+            renderClassTeachingSchedules(assignedClasses);
+        },
+        error => {
+            console.error("Could not watch assigned exam schedules:", error);
+            if (classTeachingScheduleContainer) {
+                classTeachingScheduleContainer.innerHTML = '<div class="empty-state">Unable to load exam schedules right now.</div>';
             }
         }
     );
