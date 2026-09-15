@@ -1,11 +1,19 @@
 import { auth, db } from "../firebase.js";
+import { API_BASE_URL } from "./apiConfig.js";
 
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import {
+    onAuthStateChanged,
+    signOut,
+    verifyBeforeUpdateEmail,
+    EmailAuthProvider,
+    reauthenticateWithCredential
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 import {
     collection,
     getDoc,
     getDocs,
+    updateDoc,
     doc,
     addDoc,
     query,
@@ -39,13 +47,29 @@ const markAllNotificationsReadBtn = document.getElementById("markAllNotification
 const notificationBadge = document.getElementById("notificationBadge");
 const recentExamsBadge = document.getElementById("recentExamsBadge");
 
-/* Faculty Profile modal (VIEW-ONLY) */
+/* Faculty Profile modal */
 const navProfileBtn = document.getElementById("navProfileBtn");
 const facultyProfileModal = document.getElementById("facultyProfileModal");
 const closeProfileModalBtn = document.getElementById("closeProfileModalBtn");
 const profileViewName = document.getElementById("profileViewName");
 const profileViewFacultyId = document.getElementById("profileViewFacultyId");
 const profileViewEmail = document.getElementById("profileViewEmail");
+
+const profileEmailViewMode = document.getElementById("profileEmailViewMode");
+const profileEditEmailBtn = document.getElementById("profileEditEmailBtn");
+const profileEmailEditMode = document.getElementById("profileEmailEditMode");
+const profileEditEmailInput = document.getElementById("profileEditEmailInput");
+const profileReauthBox = document.getElementById("profileReauthBox");
+const profilePasswordInput = document.getElementById("profilePasswordInput");
+const profileSaveEmailBtn = document.getElementById("profileSaveEmailBtn");
+const profileCancelEmailBtn = document.getElementById("profileCancelEmailBtn");
+
+const profilePendingNotice = document.getElementById("profilePendingNotice");
+const profilePendingEmailVal = document.getElementById("profilePendingEmailVal");
+const profileCheckVerificationBtn = document.getElementById("profileCheckVerificationBtn");
+const profileResendVerificationBtn = document.getElementById("profileResendVerificationBtn");
+const profileCancelPendingBtn = document.getElementById("profileCancelPendingBtn");
+const profileEmailMessage = document.getElementById("profileEmailMessage");
 
 let currentFacultyName = "";
 let currentFacultyUid = "";
@@ -975,6 +999,17 @@ async function initializeFacultyDashboard() {
                 return;
             }
 
+            // Keep email synchronized if user verified their new email via action link
+            if (user.email && profile.email && user.email.toLowerCase() !== profile.email.toLowerCase()) {
+                try {
+                    await updateDoc(doc(db, "users", user.uid), { email: user.email.toLowerCase() });
+                    profile.email = user.email.toLowerCase();
+                    localStorage.removeItem(`pending_email_change_${user.uid}`);
+                } catch (syncError) {
+                    console.error("Auto-syncing verified email to Firestore failed:", syncError);
+                }
+            }
+
             const fullName = profile.fullName || "Faculty";
             currentFacultyName = fullName;
             currentFacultyUid = user.uid;
@@ -1012,8 +1047,103 @@ function closeNotificationsModal() {
 }
 
 /* =========================
-   FACULTY PROFILE MODAL (VIEW-ONLY)
+   FACULTY PROFILE MODAL (EDITABLE EMAIL)
 ========================= */
+
+function showProfileMessage(message, type = "info") {
+    if (!profileEmailMessage) return;
+    profileEmailMessage.textContent = message;
+    profileEmailMessage.className = `profile-message ${type}`;
+    profileEmailMessage.hidden = false;
+}
+
+function hideProfileMessage() {
+    if (!profileEmailMessage) return;
+    profileEmailMessage.textContent = "";
+    profileEmailMessage.className = "profile-message";
+    profileEmailMessage.hidden = true;
+}
+
+function setProfileSaveLoading(loading) {
+    if (!profileSaveEmailBtn) return;
+    profileSaveEmailBtn.disabled = loading;
+    if (profileCancelEmailBtn) profileCancelEmailBtn.disabled = loading;
+    if (profileEditEmailInput) profileEditEmailInput.disabled = loading;
+    if (profilePasswordInput) profilePasswordInput.disabled = loading;
+    const isLoading = Boolean(loading);
+    profileSaveEmailBtn.disabled = isLoading;
+    if (profileCancelEmailBtn) profileCancelEmailBtn.disabled = isLoading;
+    if (profileEditEmailInput) profileEditEmailInput.disabled = isLoading;
+    if (profilePasswordInput) profilePasswordInput.disabled = isLoading;
+
+    profileSaveEmailBtn.classList.toggle("loading", isLoading);
+    const btnText = profileSaveEmailBtn.querySelector(".btn-text");
+    const btnSpinner = profileSaveEmailBtn.querySelector(".btn-spinner");
+    if (btnText) btnText.textContent = loading ? "Saving..." : "Save";
+    if (btnSpinner) btnSpinner.hidden = !loading;
+    if (btnText) btnText.textContent = isLoading ? "Saving..." : "Save";
+    if (btnSpinner) {
+        btnSpinner.hidden = !isLoading;
+        btnSpinner.style.display = isLoading ? "inline-block" : "none";
+    }
+}
+
+function getPendingEmailChangeKey(uid) {
+    return `pending_email_change_${uid}`;
+}
+
+function getPendingEmailChange(uid) {
+    if (!uid) return null;
+    try {
+        const raw = localStorage.getItem(getPendingEmailChangeKey(uid));
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function setPendingEmailChange(uid, email) {
+    if (!uid) return;
+    try {
+        localStorage.setItem(
+            getPendingEmailChangeKey(uid),
+            JSON.stringify({ pendingEmail: email, timestamp: Date.now() })
+        );
+    } catch (e) {
+        console.warn("Could not save pending email change to localStorage:", e);
+    }
+}
+
+function clearPendingEmailChange(uid) {
+    if (!uid) return;
+    try {
+        localStorage.removeItem(getPendingEmailChangeKey(uid));
+    } catch (e) {
+        console.warn("Could not clear pending email change:", e);
+    }
+}
+
+function enterEmailEditMode() {
+    hideProfileMessage();
+    if (profileEmailViewMode) profileEmailViewMode.hidden = true;
+    if (profileEmailEditMode) profileEmailEditMode.hidden = false;
+    if (profileEditEmailInput) {
+        profileEditEmailInput.value = currentFacultyEmail || "";
+        profileEditEmailInput.focus();
+        profileEditEmailInput.select();
+    }
+    if (profileReauthBox) profileReauthBox.hidden = true;
+    if (profilePasswordInput) profilePasswordInput.value = "";
+}
+
+function exitEmailEditMode() {
+    hideProfileMessage();
+    if (profileEmailEditMode) profileEmailEditMode.hidden = true;
+    if (profileEmailViewMode) profileEmailViewMode.hidden = false;
+    if (profileReauthBox) profileReauthBox.hidden = true;
+    if (profilePasswordInput) profilePasswordInput.value = "";
+    setProfileSaveLoading(false);
+}
 
 function renderProfileView(name, facultyId, email) {
     if (profileViewName) profileViewName.textContent = name || "—";
@@ -1021,12 +1151,232 @@ function renderProfileView(name, facultyId, email) {
     if (profileViewEmail) profileViewEmail.textContent = email || "—";
 }
 
+async function checkAndSyncVerificationStatus(silent = false) {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const pending = getPendingEmailChange(user.uid);
+    const pendingEmail = pending?.pendingEmail;
+
+    if (!pendingEmail) {
+        if (profilePendingNotice) profilePendingNotice.hidden = true;
+        return;
+    }
+
+    if (profilePendingNotice) {
+        profilePendingNotice.hidden = false;
+        if (profilePendingEmailVal) profilePendingEmailVal.textContent = pendingEmail;
+    }
+
+    if (profileCheckVerificationBtn) {
+        profileCheckVerificationBtn.disabled = true;
+        profileCheckVerificationBtn.textContent = "Checking...";
+    }
+
+    try {
+        // Reload Firebase Auth to fetch the latest email state
+        await user.reload();
+
+        const latestEmail = (user.email || "").toLowerCase();
+        const targetEmail = pendingEmail.toLowerCase();
+
+        if (latestEmail === targetEmail) {
+            // Firebase Auth email update finalized after verification link click!
+            // Synchronize Firestore users/{uid} document
+            try {
+                await updateDoc(doc(db, "users", user.uid), {
+                    email: latestEmail
+                });
+
+                currentFacultyEmail = latestEmail;
+                renderProfileView(currentFacultyName, currentFacultyId, currentFacultyEmail);
+                clearPendingEmailChange(user.uid);
+                if (profilePendingNotice) profilePendingNotice.hidden = true;
+                showProfileMessage("Email address successfully updated and synchronized!", "success");
+            } catch (firestoreError) {
+                console.error("Firestore sync failed:", firestoreError);
+                // Safe and explicit error handling if Auth succeeded but Firestore failed
+                showProfileMessage(
+                    `Your email was verified in Authentication (${latestEmail}), but updating your profile in the database failed: ${firestoreError.message}. Please click 'I Have Verified' again to retry syncing.`,
+                    "error"
+                );
+            }
+        } else {
+            if (!silent) {
+                showProfileMessage(
+                    `Your email has not been verified yet. Please check your inbox at ${pendingEmail} and click the verification link.`,
+                    "info"
+                );
+            }
+        }
+    } catch (reloadError) {
+        console.error("Error reloading user auth status:", reloadError);
+        if (!silent) {
+            showProfileMessage("Could not check verification status: " + reloadError.message, "error");
+        }
+    } finally {
+        if (profileCheckVerificationBtn) {
+            profileCheckVerificationBtn.disabled = false;
+            profileCheckVerificationBtn.textContent = "I Have Verified";
+        }
+    }
+}
+
+async function handleSaveEmailChange() {
+    const user = auth.currentUser;
+    if (!user) {
+        showProfileMessage("You must be logged in to update your email.", "error");
+        return;
+    }
+
+    const newEmail = (profileEditEmailInput?.value || "").trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Validation 1: Not empty
+    if (!newEmail) {
+        showProfileMessage("Email address cannot be empty.", "error");
+        profileEditEmailInput?.focus();
+        return;
+    }
+
+    // Validation 2: Valid email format
+    if (!emailRegex.test(newEmail)) {
+        showProfileMessage("Please enter a valid email address.", "error");
+        profileEditEmailInput?.focus();
+        return;
+    }
+
+    // Validation 3: Different from current email
+    const currentEmail = (currentFacultyEmail || user.email || "").toLowerCase();
+    if (newEmail === currentEmail) {
+        showProfileMessage("New email must be different from your current email.", "error");
+        profileEditEmailInput?.focus();
+        return;
+    }
+
+    setProfileSaveLoading(true);
+    hideProfileMessage();
+
+    // Validation 4: Pre-check if email already belongs to another user in Firestore
+    try {
+        const usersCol = collection(db, "users");
+        const dupSnap = await getDocs(query(usersCol, where("email", "==", newEmail)));
+        const dupFound = dupSnap.docs.some(d => d.id !== user.uid);
+        if (dupFound) {
+            showProfileMessage("This email is already associated with another account.", "error");
+            setProfileSaveLoading(false);
+            return;
+        }
+    } catch (checkErr) {
+        console.warn("Firestore pre-check query error:", checkErr);
+    }
+
+    // Validation 4b: Check via server endpoint if available
+    try {
+        const serverCheck = await fetch(`${API_BASE_URL}/api/auth/check-email`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: newEmail, currentUid: user.uid })
+        });
+        if (serverCheck.ok) {
+            const checkData = await serverCheck.json();
+            if (checkData.inUse) {
+                showProfileMessage("This email is already associated with another account.", "error");
+                setProfileSaveLoading(false);
+                return;
+            }
+        }
+    } catch {
+        // Backend check optional if server not running or offline
+    }
+
+    // If password box is visible and user typed a password, reauthenticate first
+    if (profileReauthBox && !profileReauthBox.hidden && profilePasswordInput?.value) {
+        try {
+            const credential = EmailAuthProvider.credential(user.email, profilePasswordInput.value);
+            await reauthenticateWithCredential(user, credential);
+        } catch (reauthErr) {
+            setProfileSaveLoading(false);
+            if (reauthErr.code === "auth/wrong-password" || reauthErr.code === "auth/invalid-credential") {
+                showProfileMessage("Incorrect password. Please enter your correct password.", "error");
+            } else {
+                showProfileMessage(reauthErr.message || "Re-authentication failed.", "error");
+            }
+            profilePasswordInput?.focus();
+            return;
+        }
+    }
+
+    // Send verification email via Firebase Web SDK
+    try {
+        await verifyBeforeUpdateEmail(user, newEmail);
+
+        // Verification email dispatched successfully
+        setPendingEmailChange(user.uid, newEmail);
+        exitEmailEditMode();
+
+        if (profilePendingNotice) {
+            profilePendingNotice.hidden = false;
+            if (profilePendingEmailVal) profilePendingEmailVal.textContent = newEmail;
+        }
+
+        showProfileMessage(
+            `A verification link has been sent to ${newEmail}. Please check your inbox and verify your email to finalize this change.`,
+            "success"
+        );
+    } catch (authError) {
+        console.error("verifyBeforeUpdateEmail error:", authError.code, authError.message);
+        setProfileSaveLoading(false);
+
+        if (authError.code === "auth/requires-recent-login") {
+            // Prompt for current password to reauthenticate smoothly
+            if (profileReauthBox) profileReauthBox.hidden = false;
+            showProfileMessage("For security, please enter your current password to proceed.", "info");
+            profilePasswordInput?.focus();
+        } else if (authError.code === "auth/email-already-in-use") {
+            showProfileMessage("This email is already associated with another account.", "error");
+        } else if (authError.code === "auth/invalid-email") {
+            showProfileMessage("Please enter a valid email address.", "error");
+        } else if (authError.code === "auth/too-many-requests") {
+            showProfileMessage("Too many requests. Please wait a moment before trying again.", "error");
+        } else {
+            showProfileMessage(authError.message || "Failed to update email. Please try again.", "error");
+        }
+    }
+}
+
+async function handleResendVerification() {
+    const user = auth.currentUser;
+    if (!user) return;
+    const pending = getPendingEmailChange(user.uid);
+    if (!pending?.pendingEmail) return;
+
+    try {
+        if (profileResendVerificationBtn) profileResendVerificationBtn.disabled = true;
+        await verifyBeforeUpdateEmail(user, pending.pendingEmail);
+        showProfileMessage(`A new verification email was sent to ${pending.pendingEmail}.`, "success");
+    } catch (err) {
+        showProfileMessage(err.message || "Failed to resend verification email.", "error");
+    } finally {
+        if (profileResendVerificationBtn) profileResendVerificationBtn.disabled = false;
+    }
+}
+
+function handleCancelPendingVerification() {
+    const user = auth.currentUser;
+    if (user) {
+        clearPendingEmailChange(user.uid);
+    }
+    if (profilePendingNotice) profilePendingNotice.hidden = true;
+    showProfileMessage("Pending email change request cancelled.", "info");
+}
+
 function openProfileModal() {
     if (!facultyProfileModal) return;
 
-    /* Immediately show the already-loaded profile data as a fallback,
-       then refresh from Firestore (READ-ONLY - nothing is ever written). */
+    /* Immediately show the already-loaded profile data as a fallback */
     renderProfileView(currentFacultyName, currentFacultyId, currentFacultyEmail);
+    exitEmailEditMode();
 
     facultyProfileModal.hidden = false;
     document.body.style.overflow = "hidden";
@@ -1034,13 +1384,15 @@ function openProfileModal() {
     const user = auth.currentUser;
     if (!user) return;
 
+    // Check if there is a pending verification or if already verified
+    checkAndSyncVerificationStatus(true);
+
     getDoc(doc(db, "users", user.uid))
         .then(profileDoc => {
             if (!profileDoc.exists()) return;
             const profile = profileDoc.data();
 
-            /* Keep the cached values in sync so the rest of the dashboard
-               (proctoring schedule matching, notifications, etc.) is unaffected. */
+            /* Keep the cached values in sync */
             currentFacultyName = profile.fullName || currentFacultyName || "Faculty";
             currentFacultyEmail = profile.email || user.email || currentFacultyEmail || "";
             currentFacultyId = profile.employeeId || profile.facultyId || currentFacultyId || "";
@@ -1049,12 +1401,12 @@ function openProfileModal() {
         })
         .catch(error => {
             console.error("Could not load faculty profile:", error && error.code, error && error.message);
-            /* The cached values remain displayed - the modal is still usable. */
         });
 }
 
 function closeProfileModal() {
     if (!facultyProfileModal || facultyProfileModal.hidden) return;
+    exitEmailEditMode();
     facultyProfileModal.hidden = true;
     document.body.style.overflow = "";
 }
@@ -1081,10 +1433,28 @@ notificationsModal.addEventListener("click", event => {
     }
 });
 
-/* Faculty Profile modal events (VIEW-ONLY) */
+/* Faculty Profile modal events */
 navProfileBtn?.addEventListener("click", openProfileModal);
 
 closeProfileModalBtn?.addEventListener("click", closeProfileModal);
+
+profileEditEmailBtn?.addEventListener("click", enterEmailEditMode);
+
+profileCancelEmailBtn?.addEventListener("click", exitEmailEditMode);
+
+profileSaveEmailBtn?.addEventListener("click", handleSaveEmailChange);
+
+profileCheckVerificationBtn?.addEventListener("click", () => checkAndSyncVerificationStatus(false));
+
+profileResendVerificationBtn?.addEventListener("click", handleResendVerification);
+
+profileCancelPendingBtn?.addEventListener("click", handleCancelPendingVerification);
+
+window.addEventListener("focus", () => {
+    if (facultyProfileModal && !facultyProfileModal.hidden) {
+        checkAndSyncVerificationStatus(true);
+    }
+});
 
 facultyProfileModal?.addEventListener("click", event => {
     if (event.target === facultyProfileModal) {
@@ -1132,4 +1502,5 @@ examSelect?.addEventListener("change", handleExamChange);
 
 rescheduleForm.addEventListener("submit", handleRescheduleSubmit);
 
+exitEmailEditMode();
 initializeFacultyDashboard();

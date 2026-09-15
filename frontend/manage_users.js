@@ -16,23 +16,13 @@ import {
     serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
+import { API_BASE_URL, isLocalHost } from "./apiConfig.js";
+
 /* =========================
    API
 ========================= */
 
-const isLocalHost = (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1" ||
-    window.location.hostname === "[::1]" ||
-    window.location.protocol === "file:" ||
-    window.location.hostname.startsWith("192.168.") ||
-    window.location.hostname.startsWith("10.") ||
-    !window.location.hostname
-);
-
-const API_URL = isLocalHost
-    ? "http://localhost:3000"
-    : "https://slsulucena-scheduling-system.onrender.com";
+const API_URL = API_BASE_URL;
 
 /* =========================
    STATE

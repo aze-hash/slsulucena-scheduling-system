@@ -1,6 +1,7 @@
 import { db, auth } from "../firebase.js";
 import { saveReportToFirestore } from "./reportStorage.js";
 import { renderExamCalendar } from "./js/schedule-calendar.js";
+import { API_BASE_URL } from "./apiConfig.js";
 
 import {
     collection,
@@ -1694,26 +1695,51 @@ async function persistGeneratedSchedules({ publish = false } = {}) {
     const count = currentGeneratedSchedules.length;
     const targetLabel = count === 1 ? "Examination schedule" : `${count} examination schedules`;
 
-    for (const schedule of currentGeneratedSchedules) {
-        schedule.status = publish ? "published" : "draft";
-        if (publish) {
-            schedule.publishedAt = new Date().toISOString();
-        }
-        await saveExamScheduleToFirestore(schedule);
+    let totalStudents = 0;
+    let totalFaculty = 0;
+    let totalFailedNotifications = 0;
+    let anyPublishFailed = false;
+    let lastError = "";
 
+    for (const schedule of currentGeneratedSchedules) {
         if (publish) {
-            await publishExamScheduleApi(schedule);
+            const result = await publishExamScheduleApi(schedule);
+            if (result?.published || result?.success) {
+                schedule.status = "published";
+                schedule.publishedAt = result.publishedAt || new Date().toISOString();
+                const notifs = result.notifications || {};
+                totalStudents += result.studentSentCount ?? notifs.studentsSent ?? 0;
+                totalFaculty += result.facultySentCount ?? notifs.facultySent ?? 0;
+                totalFailedNotifications += result.failedCount ?? notifs.failed ?? 0;
+            } else {
+                anyPublishFailed = true;
+                lastError = result?.message || "The server endpoint could not be reached.";
+            }
+        } else {
+            schedule.status = "draft";
+            await saveExamScheduleToFirestore(schedule);
         }
     }
 
-    showSuccessOverlay(
-        publish
-            ? `${targetLabel} published and notifications sent.`
-            : `${targetLabel} saved as draft.`
-    );
+    let successMsg;
+    if (publish) {
+        if (anyPublishFailed) {
+            showToast(`Unable to publish ${targetLabel.toLowerCase()}: ${lastError}`);
+            return;
+        } else if (totalFailedNotifications > 0) {
+            successMsg = `${targetLabel} published successfully, but ${totalFailedNotifications} notification email(s) could not be sent.`;
+        } else {
+            successMsg = `${targetLabel} published successfully. Student notifications sent: ${totalStudents}. Faculty notifications sent: ${totalFaculty}.`;
+        }
+    } else {
+        successMsg = `${targetLabel} saved as draft.`;
+    }
+
+    showSuccessOverlay(successMsg);
     examModal.style.display = "none";
     await refreshSavedExamSchedules();
 }
+
 
 // Save as Draft
 saveExamBtn?.addEventListener("click", async () => {
@@ -1780,8 +1806,12 @@ async function deleteExamScheduleFromFirestore(docId) {
 }
 
 async function publishExamScheduleApi(schedule) {
+    const endpoint = `${API_BASE_URL}/api/publish/exam-schedule`;
     try {
-        const res = await fetch("/api/publish/exam-schedule", {
+        const docId = schedule.id || `${schedule.academicYear}_${schedule.semester}_${schedule.examType}_${schedule.section}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+        schedule.id = docId;
+
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1791,10 +1821,64 @@ async function publishExamScheduleApi(schedule) {
                 publishedBy: auth.currentUser?.email || "Admin"
             })
         });
-        return await res.json();
+
+        // Safe response parsing: inspect content-type before attempting json()
+        const contentType = res.headers.get("content-type") || "";
+        let data = null;
+
+        if (contentType.includes("application/json")) {
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                console.warn("[Publish API] JSON parsing failed:", parseErr.message);
+                data = null;
+            }
+        } else {
+            try {
+                const text = await res.text();
+                console.warn(`[Publish API] Non-JSON response (status ${res.status}):`, text.slice(0, 150));
+            } catch {
+                // Ignore text read error
+            }
+        }
+
+        if (!res.ok) {
+            let errorMsg = data?.message || data?.error;
+            if (!errorMsg) {
+                if (res.status === 405) {
+                    errorMsg = "Unable to publish examination schedule. HTTP 405 Method Not Allowed.";
+                } else if (res.status === 404) {
+                    errorMsg = "Unable to publish examination schedule. The server endpoint could not be found (404).";
+                } else if (res.status >= 500) {
+                    errorMsg = `Unable to publish examination schedule. Server error (${res.status}).`;
+                } else {
+                    errorMsg = `Unable to publish examination schedule (HTTP ${res.status}).`;
+                }
+            }
+            console.error("[Publish API Error]", res.status, errorMsg);
+            return {
+                success: false,
+                status: res.status,
+                message: errorMsg
+            };
+        }
+
+        if (!data) {
+            return {
+                success: false,
+                status: res.status,
+                message: "Unable to publish examination schedule. The server endpoint returned an empty or invalid response."
+            };
+        }
+
+        return data;
     } catch (err) {
-        console.warn("Publish API call notice:", err.message);
-        return { success: true };
+        console.error("[Publish API Network Error]", err);
+        return {
+            success: false,
+            networkError: true,
+            message: "Unable to publish examination schedule. The server endpoint could not be reached."
+        };
     }
 }
 
@@ -1904,16 +1988,31 @@ async function publishSingleSchedule(schedule) {
     if (!ok) return;
 
     try {
-        schedule.status = "published";
-        schedule.publishedAt = new Date().toISOString();
-        await saveExamScheduleToFirestore(schedule);
-        await publishExamScheduleApi(schedule);
-        showToast(`Published exam schedule for ${schedule.section}.`);
+        const result = await publishExamScheduleApi(schedule);
+        if (result?.published || result?.success) {
+            schedule.status = "published";
+            schedule.publishedAt = result.publishedAt || new Date().toISOString();
+
+            const notifs = result.notifications || {};
+            const students = result.studentSentCount ?? notifs.studentsSent ?? 0;
+            const faculty = result.facultySentCount ?? notifs.facultySent ?? 0;
+            const failed = result.failedCount ?? notifs.failed ?? 0;
+
+            if (failed > 0) {
+                showToast(`Examination schedule published successfully, but ${failed} notification email(s) could not be sent.`);
+            } else {
+                showToast(`Published ${schedule.examType} schedule for ${schedule.section}. Students notified: ${students}. Faculty notified: ${faculty}.`);
+            }
+        } else {
+            const detail = result?.message || "Unable to publish examination schedule. The server endpoint could not be reached.";
+            showToast(`Publish error: ${detail}`);
+        }
         await refreshSavedExamSchedules();
     } catch (err) {
         showToast(`Publish error: ${err.message}`);
     }
 }
+
 
 // Delete single schedule
 async function deleteSingleSchedule(docId) {
@@ -1942,13 +2041,32 @@ publishAllExamBtn?.addEventListener("click", async () => {
     publishAllExamBtn.textContent = "Publishing...";
 
     try {
+        let totalStudents = 0;
+        let totalFaculty = 0;
+        let totalFailed = 0;
+        let anyFailed = false;
+        let lastError = "";
         for (const s of savedExamSchedules) {
-            s.status = "published";
-            s.publishedAt = new Date().toISOString();
-            await saveExamScheduleToFirestore(s);
-            await publishExamScheduleApi(s);
+            const result = await publishExamScheduleApi(s);
+            if (result?.published || result?.success) {
+                s.status = "published";
+                s.publishedAt = result.publishedAt || new Date().toISOString();
+                const notifs = result.notifications || {};
+                totalStudents += result.studentSentCount ?? notifs.studentsSent ?? 0;
+                totalFaculty += result.facultySentCount ?? notifs.facultySent ?? 0;
+                totalFailed += result.failedCount ?? notifs.failed ?? 0;
+            } else {
+                anyFailed = true;
+                lastError = result?.message || "";
+            }
         }
-        showToast("All examination schedules published successfully.");
+        if (anyFailed) {
+            showToast(`Some examination schedules could not be published: ${lastError || "Check server connection."}`);
+        } else if (totalFailed > 0) {
+            showToast(`All examination schedules published successfully, but ${totalFailed} notification email(s) could not be sent.`);
+        } else {
+            showToast(`All examination schedules published successfully. Student notifications sent: ${totalStudents}. Faculty notifications sent: ${totalFaculty}.`);
+        }
         await refreshSavedExamSchedules();
     } catch (err) {
         showToast(`Error publishing all: ${err.message}`);
@@ -1957,6 +2075,7 @@ publishAllExamBtn?.addEventListener("click", async () => {
         publishAllExamBtn.textContent = "Publish All";
     }
 });
+
 
 deleteAllExamBtn?.addEventListener("click", async () => {
     if (savedExamSchedules.length === 0) {

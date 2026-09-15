@@ -21,33 +21,7 @@ export function normalizeExamType(rawType) {
     if (norm.includes("prelim")) return "Preliminary";
     if (norm.includes("midterm")) return "Midterm";
     if (norm.includes("final")) return "Final";
-    // Capitalize first letter if unknown
     return rawType ? rawType.charAt(0).toUpperCase() + rawType.slice(1) : "Examination";
-}
-
-/**
- * Creates and returns the nodemailer transporter using environment variables.
- */
-export function getEmailTransporter() {
-    const host = process.env.EMAIL_HOST;
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASSWORD;
-    const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
-    const secure = process.env.EMAIL_SECURE === "true" || port === 465;
-
-    if (!host || !user || !pass) {
-        return null;
-    }
-
-    return nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: {
-            user,
-            pass
-        }
-    });
 }
 
 /**
@@ -58,16 +32,81 @@ export function getAppBaseUrl() {
     return raw.replace(/\/+$/, "");
 }
 
-
+/**
+ * Safe startup check that reports whether required SMTP variables are present
+ * Never prints the actual password.
+ */
+export function checkSmtpConfig() {
+    const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD;
+    const isConfigured = Boolean(
+        host &&
+        user &&
+        pass &&
+        !String(user).includes("your-email@gmail.com") &&
+        !String(pass).includes("your-app-password")
+    );
+    console.log(`[EmailService] SMTP configuration loaded: ${isConfigured}`);
+    return isConfigured;
+}
 
 /**
- * Sends Examination Schedule Released email notification
+ * Creates and returns the nodemailer transporter using environment variables.
+ * Supports both SMTP_* and EMAIL_* naming conventions.
+ */
+export function getEmailTransporter() {
+    const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const rawPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD;
+    const port = parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
+    const secure = (process.env.SMTP_SECURE || process.env.EMAIL_SECURE) === "true" || port === 465;
+
+    if (!host || !user || !rawPass) {
+        return null;
+    }
+
+    const trimmedUser = String(user).trim();
+    if (trimmedUser === "your-email@gmail.com") {
+        return null;
+    }
+
+    // Gmail App Passwords are 16 chars, often formatted with spaces: 'xxxx xxxx xxxx xxxx'
+    const trimmedPass = String(rawPass).trim();
+    const cleanPass = (trimmedPass.includes(" ") && trimmedPass.replace(/\s+/g, "").length === 16)
+        ? trimmedPass.replace(/\s+/g, "")
+        : trimmedPass;
+
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+            user: trimmedUser,
+            pass: cleanPass
+        }
+    });
+}
+
+/**
+ * Sends Examination Schedule notification email.
+ * Per spec:
+ * - Must NOT contain the actual examination schedule (no subject, section, room, date, time, proctor).
+ * - Contains only the notification that the selected exam type is now available and the system link.
+ * 
+ * @param {object} params
+ * @param {string} params.recipientEmail - Recipient email address
+ * @param {string} [params.recipientName] - Recipient display name
+ * @param {object} [params.scheduleInfo] - Schedule data (not included in email body)
+ * @param {string} [params.examType] - Exam type label (e.g. "Preliminary", "Midterm", "Final")
+ * @param {"student"|"faculty"} [params.recipientType] - Role of the recipient
  */
 export async function sendExamScheduleNotification({
     recipientEmail,
     recipientName = "Student",
     scheduleInfo = {},
-    examType = "Preliminary"
+    examType = "Preliminary",
+    recipientType = "student"
 }) {
     if (!recipientEmail || typeof recipientEmail !== "string" || !recipientEmail.includes("@")) {
         return {
@@ -78,22 +117,35 @@ export async function sendExamScheduleNotification({
 
     const appUrl = getAppBaseUrl();
     const formattedExamType = normalizeExamType(examType || scheduleInfo.examType);
-    const safeName = escapeHtml(recipientName || "Student / Faculty");
-    const safeSection = escapeHtml(scheduleInfo.section || "");
-    const safeAy = escapeHtml(scheduleInfo.academicYear ? `A.Y. ${scheduleInfo.academicYear}` : "");
-    const safeSem = escapeHtml(scheduleInfo.semester || "");
+    const isFaculty = String(recipientType).trim().toLowerCase() === "faculty";
+    const destinationUrl = appUrl;
 
-    const subject = `${formattedExamType} Examination Schedule Released`;
+    const subject = `[Exam Schedule] ${formattedExamType} Examination Schedule Available`;
 
-    const textContent = `Dear ${recipientName},\n\nThe ${formattedExamType} Examination Schedule is now available.\n\nPlease click the link below to view your examination schedule:\n${appUrl}\n\nThank you.\nSLSU Lucena Scheduling System`;
+    const bodyInstruction = isFaculty
+        ? "Please log in to the Examination Scheduling System to view your assigned examination schedule."
+        : "Please log in to the Examination Scheduling System to view your schedule.";
 
-    const htmlContent = `
-<!DOCTYPE html>
+    const textContent = [
+        "Hello,",
+        "",
+        `The ${formattedExamType} Examination Schedule is now available.`,
+        "",
+        bodyInstruction,
+        "",
+        "CLICK HERE TO VIEW SCHEDULE:",
+        destinationUrl,
+        "",
+        "Thank you.",
+        "Examination Scheduling System"
+    ].join("\n");
+
+    const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${subject}</title>
+<title>${escapeHtml(subject)}</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f1e6; color: #1a1a1a; margin: 0; padding: 0; }
   .wrapper { width: 100%; max-width: 580px; margin: 30px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e0dbce; }
@@ -101,9 +153,8 @@ export async function sendExamScheduleNotification({
   .header h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
   .body { padding: 32px 28px; line-height: 1.6; font-size: 15px; color: #2d3748; }
   .body p { margin: 0 0 16px; }
-  .info-box { background: #f0f7f0; border-left: 4px solid #2e7d32; padding: 12px 16px; border-radius: 6px; margin: 20px 0; font-size: 14px; }
   .btn-container { text-align: center; margin: 28px 0; }
-  .btn { display: inline-block; background: #2e7d32; color: #ffffff !important; text-decoration: none; padding: 13px 32px; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 3px 8px rgba(46, 125, 50, 0.35); }
+  .btn { display: inline-block; background: #2e7d32; color: #ffffff !important; text-decoration: none; padding: 13px 32px; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 3px 8px rgba(46, 125, 50, 0.35); text-transform: uppercase; letter-spacing: 0.5px; }
   .footer { background: #faf8f2; padding: 18px 24px; text-align: center; font-size: 12px; color: #718096; border-top: 1px solid #e6e2d8; }
 </style>
 </head>
@@ -113,38 +164,31 @@ export async function sendExamScheduleNotification({
       <h1>Southern Luzon State University - Lucena</h1>
     </div>
     <div class="body">
-      <p>Dear ${safeName},</p>
-      <p>The ${formattedExamType} Examination Schedule is now available.</p>
-      ${(safeSection || safeAy || safeSem) ? `
-      <div class="info-box">
-        <strong>Examination:</strong> ${formattedExamType} Examinations<br>
-        ${safeSection ? `<strong>Section:</strong> ${safeSection}<br>` : ''}
-        ${safeAy ? `<strong>Academic Year:</strong> ${safeAy}<br>` : ''}
-        ${safeSem ? `<strong>Semester:</strong> ${safeSem}` : ''}
-      </div>` : ''}
-      <p>Please click the button below to view your examination schedule.</p>
+      <p>Hello,</p>
+      <p>The ${escapeHtml(formattedExamType)} Examination Schedule is now available.</p>
+      <p>${escapeHtml(bodyInstruction)}</p>
       <div class="btn-container">
-        <a href="${appUrl}" class="btn" target="_blank">View My Examination Schedule</a>
+        <a href="${destinationUrl}" class="btn" target="_blank">CLICK HERE TO VIEW SCHEDULE</a>
       </div>
-      <p>Thank you.</p>
+      <p>Thank you.<br>Examination Scheduling System</p>
     </div>
     <div class="footer">
-      This is an automated notification from the SLSU Lucena Scheduling System. Please do not reply directly to this email.
+      This is an automated notification from the Examination Scheduling System. Please do not reply directly to this email.
     </div>
   </div>
 </body>
-</html>
-`;
+</html>`;
 
-    const fromAddress = process.env.EMAIL_FROM || `"SLSU Lucena Scheduling System" <${process.env.EMAIL_USER || 'no-reply@slsulucena.edu.ph'}>`;
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const fromAddress = process.env.MAIL_FROM || process.env.EMAIL_FROM || `"SLSU Lucena Scheduling System" <${user || 'no-reply@slsulucena.edu.ph'}>`;
     const transporter = getEmailTransporter();
 
     if (!transporter) {
-        console.warn(`[EmailService] Transporter not configured. Skipping live delivery for ${recipientEmail}. [Subject: ${subject}]`);
+        console.warn(`[EmailService] SMTP not configured. Skipping live email delivery for ${recipientEmail}. [Subject: ${subject}]`);
         return {
             success: true,
             simulated: true,
-            message: "SMTP not configured. Notification simulated successfully."
+            message: "SMTP not configured. Notification skipped without error."
         };
     }
 
