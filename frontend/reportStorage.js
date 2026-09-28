@@ -153,4 +153,17 @@ export async function deleteArchivedExamSchedulesFromFirestore() {
     }
 }
 
+export async function deleteArchivedClassSchedulesFromFirestore() {
+    try {
+        const snapshot = await getDocs(collection(db, "classSchedules"));
+        const archivedDocs = snapshot.docs.filter(d => d.data()?.status === "archived");
+        const deletePromises = archivedDocs.map(d => deleteDoc(doc(db, "classSchedules", d.id)));
+        await Promise.all(deletePromises);
+        return archivedDocs.length;
+    } catch (error) {
+        console.error("Could not delete archived class schedules from Firestore:", error);
+        throw error;
+    }
+}
+
 

@@ -146,6 +146,65 @@ nav ul li a.active{
 }
 
 /* =========================
+   SCHEDULE TYPE TOGGLE
+========================= */
+
+.ra-schedule-type-container{
+    margin-bottom:18px;
+    padding-bottom:16px;
+    border-bottom:1px solid #eae5d9;
+}
+
+.ra-section-label{
+    display:block;
+    font-size:12px;
+    font-weight:700;
+    color:#333;
+    margin-bottom:8px;
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+}
+
+.ra-schedule-type-toggle{
+    display:inline-flex;
+    background:#e8ece5;
+    padding:4px;
+    border-radius:10px;
+    border:1px solid #c9c1b0;
+    gap:4px;
+}
+
+.ra-type-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:9px 18px;
+    border-radius:7px;
+    border:none;
+    background:transparent;
+    color:#333;
+    font-weight:700;
+    font-size:13px;
+    cursor:pointer;
+    transition:all 0.2s ease;
+}
+
+.ra-type-btn:hover{
+    color:var(--primary);
+    background:rgba(255,255,255,0.6);
+}
+
+.ra-type-btn.active{
+    background:var(--primary);
+    color:white;
+    box-shadow:0 2px 6px rgba(46,125,50,0.25);
+}
+
+.ra-filter-header-row{
+    margin-bottom:4px;
+}
+
+/* =========================
    FILTERS
 ========================= */
 

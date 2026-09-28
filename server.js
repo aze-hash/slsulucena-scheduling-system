@@ -7,6 +7,7 @@ dotenv.config();
 import { db, auth } from "./firebase-admin.js";
 import {
   sendExamScheduleNotification,
+  sendClassScheduleNotification,
   normalizeExamType,
   checkSmtpConfig
 } from "./emailService.js";
@@ -25,6 +26,7 @@ app.use(express.json());
 const prospectusRef = db.collection("prospectus");
 const usersRef = db.collection("users");
 const examSchedulesRef = db.collection("examSchedules");
+const classSchedulesRef = db.collection("classSchedules");
 const emailNotificationsRef = db.collection("emailNotifications");
 
 // ======================================
@@ -345,6 +347,111 @@ app.put("/users/:uid", async (req, res) => {
 });
 
 // ======================================
+// 🧑‍🏫 CREATE FACULTY ACCOUNT
+// POST /api/faculty/create
+// Body: { fullName, employeeId, email, department, password }
+// ======================================
+app.post("/api/faculty/create", async (req, res) => {
+    try {
+        const { fullName, employeeId, email, department, password } = req.body;
+
+        // Validate required fields
+        if (!fullName || !employeeId || !email) {
+            return res.status(400).json({
+                success: false,
+                message: "Full name, employee ID, and email are required.",
+            });
+        }
+
+        if (!password || password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be at least 6 characters long.",
+            });
+        }
+
+        console.log(`Creating faculty account for: ${email}`);
+
+        // 1. Create Firebase Auth user
+        let userRecord;
+        try {
+            userRecord = await auth.createUser({
+                email,
+                password,
+                displayName: fullName,
+            });
+        } catch (authError) {
+            console.error("Firebase Auth error:", authError.message);
+
+            // Friendly error messages
+            if (authError.code === "auth/email-already-exists") {
+                return res.status(409).json({
+                    success: false,
+                    message: "An account with this email already exists.",
+                });
+            }
+            if (authError.code === "auth/invalid-email") {
+                return res.status(400).json({
+                    success: false,
+                    message: "The email address is invalid.",
+                });
+            }
+            if (authError.code === "auth/weak-password") {
+                return res.status(400).json({
+                    success: false,
+                    message: "Password is too weak. It must be at least 6 characters.",
+                });
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: authError.message,
+            });
+        }
+
+        const uid = userRecord.uid;
+        const createdAt = new Date();
+
+        // 2. Write Firestore user document
+        const userData = {
+            fullName,
+            employeeId,
+            email,
+            department: department || "",
+            role: "Faculty",
+            createdAt,
+        };
+
+        await usersRef.doc(uid).set(userData);
+
+        console.log(`Faculty account created: ${uid} (${email})`);
+
+        return res.status(201).json({
+            success: true,
+            user: {
+                uid,
+                id: uid,
+                fullName,
+                employeeId,
+                email,
+                department: department || "",
+                role: "Faculty",
+                createdAt: createdAt.toISOString(),
+            },
+        });
+
+    } catch (error) {
+        console.error("Error creating faculty account:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to create faculty account.",
+            error: error.message,
+        });
+    }
+});
+
+// ======================================
 // 📢 PUBLISH EXAM SCHEDULE INTERNAL
 // ======================================
 export async function publishExamScheduleInternal({
@@ -600,6 +707,235 @@ app.post("/api/publish/exam-schedule", async (req, res) => {
     return res.status(status).json({
       success: false,
       message: error.message || "Failed to publish exam schedule.",
+      error: error.message
+    });
+  }
+});
+
+// ======================================
+// 📢 INTERNAL LOGIC: PUBLISH CLASS SCHEDULE
+// ======================================
+export async function publishClassScheduleInternal({
+  scheduleId,
+  scheduleData,
+  publishedBy
+}) {
+  const docId = scheduleId || scheduleData?.id;
+  if (!docId) {
+    const err = new Error("scheduleId or scheduleData.id is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const scheduleDocRef = classSchedulesRef.doc(docId);
+  const existingDoc = await scheduleDocRef.get();
+
+  let schedule = existingDoc.exists ? existingDoc.data() : null;
+
+  if (scheduleData && typeof scheduleData === "object") {
+    schedule = {
+      ...(schedule || {}),
+      ...scheduleData
+    };
+  }
+
+  if (!schedule) {
+    const err = new Error(`Class schedule "${docId}" not found in Firestore.`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const publishedAt = new Date();
+
+  // 1. Mark class schedule as published in Firestore
+  await scheduleDocRef.set({
+    ...schedule,
+    id: docId,
+    status: "published",
+    publishedAt,
+    publishedBy: publishedBy || null,
+    updatedAt: publishedAt
+  }, { merge: true });
+
+  console.log(`[ClassPublish] Schedule ${docId} (${schedule.section || schedule.name || ""}) marked as published.`);
+
+  // 2. Resolve recipients: Students matching section/program + Faculty assigned
+  let recipients = [];
+  let sentCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+
+  try {
+    const allUsersSnap = await usersRef.get();
+    const allUsers = allUsersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const targetSection = String(schedule.section || schedule.name || "").trim().toLowerCase();
+    const targetProgram = String(schedule.program || "").trim().toLowerCase();
+    const targetMajor = String(schedule.major || "").trim().toLowerCase();
+
+    const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
+    const assignedFacultyNames = new Set(
+      entries.map(e => String(e.faculty || "").trim().toLowerCase()).filter(n => n && n !== "unassigned" && n !== "tba")
+    );
+    const assignedFacultyUids = new Set(
+      entries.map(e => String(e.facultyUid || e.facultyId || "").trim()).filter(Boolean)
+    );
+
+    const seenEmails = new Set();
+
+    for (const u of allUsers) {
+      if (!u.email || seenEmails.has(u.email.toLowerCase())) continue;
+      const role = String(u.role || "").trim().toLowerCase();
+
+      if (role === "student") {
+        const userSec = String(u.section || "").trim().toLowerCase();
+        const userProg = String(u.program || "").trim().toLowerCase();
+        const userMaj = String(u.major || "").trim().toLowerCase();
+
+        const secMatches = targetSection && userSec && (targetSection === userSec || targetSection.includes(userSec) || userSec.includes(targetSection));
+        const progMatches = !targetProgram || userProg === targetProgram;
+        const majMatches = !targetMajor || userMaj === targetMajor;
+
+        if (secMatches || (progMatches && majMatches && !userSec)) {
+          seenEmails.add(u.email.toLowerCase());
+          recipients.push({ ...u, recipientType: "student" });
+        }
+      } else if (role === "faculty") {
+        const userUid = u.id || u.uid;
+        const userName = String(u.fullName || "").trim().toLowerCase();
+        const userEmpId = String(u.employeeId || "").trim();
+
+        const matchesFaculty = assignedFacultyUids.has(userUid) ||
+                               (userEmpId && assignedFacultyUids.has(userEmpId)) ||
+                               assignedFacultyNames.has(userName);
+
+        if (matchesFaculty) {
+          seenEmails.add(u.email.toLowerCase());
+          recipients.push({ ...u, recipientType: "faculty" });
+        }
+      }
+    }
+
+    // 3. Dispatch notification emails
+    const releaseId = `${docId}_${publishedAt.getTime()}`;
+
+    for (const recipient of recipients) {
+      const notifDocId = `class_${docId}_${recipient.id}`;
+
+      const existingNotif = await emailNotificationsRef.doc(notifDocId).get();
+      if (existingNotif.exists && existingNotif.data().status === "sent") {
+        skippedCount++;
+        continue;
+      }
+
+      const emailResult = await sendClassScheduleNotification({
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName || "Student / Faculty",
+        scheduleInfo: schedule
+      });
+
+      const notifRecord = {
+        recipientUserId: recipient.id,
+        recipientEmail: recipient.email,
+        recipientName: recipient.fullName || "Student / Faculty",
+        notificationType: "class",
+        scheduleType: "class",
+        scheduleId: docId,
+        releaseId,
+        status: emailResult.success ? "sent" : "failed",
+        sentAt: new Date(),
+        error: emailResult.error || null,
+        section: schedule.section || schedule.name || ""
+      };
+
+      await emailNotificationsRef.doc(notifDocId).set(notifRecord, { merge: true });
+
+      if (emailResult.success) {
+        sentCount++;
+      } else {
+        failedCount++;
+      }
+    }
+  } catch (err) {
+    console.error("[ClassPublish] Error processing notifications:", err);
+  }
+
+  return {
+    success: true,
+    published: true,
+    scheduleId: docId,
+    scheduleType: "class",
+    recipientsCount: recipients.length,
+    sentCount,
+    failedCount,
+    skippedCount,
+    message: `Class schedule published. ${sentCount} email notifications sent, ${failedCount} failed.`
+  };
+}
+
+// ======================================
+// 📢 PUBLISH CLASS SCHEDULE & SEND NOTIFICATIONS
+// POST /api/publish/class-schedule
+// ======================================
+app.post("/api/publish/class-schedule", async (req, res) => {
+  try {
+    const result = await publishClassScheduleInternal(req.body || {});
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error publishing class schedule:", error);
+    const status = error.statusCode || (String(error.message || "").includes("required") ? 400 : 500);
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to publish class schedule.",
+      error: error.message
+    });
+  }
+});
+
+// ======================================
+// 📢 UNIFIED PUBLISH SCHEDULE API
+// POST /api/publish-schedule
+// ======================================
+app.post("/api/publish-schedule", async (req, res) => {
+  try {
+    const { scheduleId, scheduleType, scheduleData, publishedBy, examType } = req.body || {};
+
+    if (!scheduleId && (!scheduleData || !scheduleData.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "scheduleId is required."
+      });
+    }
+
+    const type = String(scheduleType || (scheduleData?.exams ? "exam" : "class")).trim().toLowerCase();
+
+    if (type === "exam") {
+      const result = await publishExamScheduleInternal({
+        scheduleId,
+        scheduleData,
+        examType,
+        publishedBy
+      });
+      return res.status(200).json(result);
+    } else if (type === "class") {
+      const result = await publishClassScheduleInternal({
+        scheduleId,
+        scheduleData,
+        publishedBy
+      });
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid scheduleType "${scheduleType}". Must be "exam" or "class".`
+      });
+    }
+  } catch (error) {
+    console.error("Error in /api/publish-schedule:", error);
+    const status = error.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to publish schedule.",
       error: error.message
     });
   }

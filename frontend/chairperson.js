@@ -42,6 +42,7 @@ onAuthStateChanged(auth, async user => {
 
     watchStudents();
     watchFaculty();
+    watchClassSchedules();
     watchExamSchedules();
     watchRescheduleRequests();
 
@@ -49,6 +50,17 @@ onAuthStateChanged(auth, async user => {
     initRoomAssignmentChart();
     initScheduleOverviewChart();
 });
+
+function watchClassSchedules() {
+    onSnapshot(
+        collection(db, "classSchedules"),
+        snapshot => {
+            const countEl = document.getElementById("classScheduleCount");
+            if (countEl) countEl.textContent = snapshot.size;
+        },
+        error => console.error("watchClassSchedules error:", error)
+    );
+}
 
 function watchStudents() {
     onSnapshot(

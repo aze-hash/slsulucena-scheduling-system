@@ -1,8 +1,10 @@
 /* ==========================================================================
-   ROOM ALLOCATION DASHBOARD
-   Read-only monitoring page. Reads existing Firestore data only:
-     - `rooms` collection -> lecture-room tabs (roomName, roomType)
-     - `examSchedules` collection -> generated exam entries
+   ROOM ASSIGNMENT DASHBOARD
+   Read-only monitoring page. Reads existing Firestore data:
+     - `rooms` collection -> lecture rooms, laboratories, and facilities
+     - `classSchedules` collection & localStorage -> class schedule entries
+     - `examSchedules` collection -> examination entries
+   Supports switching between Class Schedule and Exam Schedule room allocations.
    Never writes, duplicates, or modifies schedules.
    ========================================================================== */
 
@@ -23,23 +25,38 @@ import {
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-const CAL_START_MINUTES = 7 * 60;   // 7:00 AM
-const CAL_END_MINUTES = 18 * 60;    // 6:00 PM
+const CAL_START_MINUTES = 7 * 60;       // 7:00 AM
+const CAL_END_MINUTES = 19 * 60;        // 7:00 PM (covers 4:00-6:30 PM & 5:00-6:30 PM slots)
 const CAL_TOTAL_MINUTES = CAL_END_MINUTES - CAL_START_MINUTES;
-const HOUR_PX = 64;                 // pixel height per hour
+const HOUR_PX = 64;                     // pixel height per hour
 const TOTAL_CALENDAR_COLORS = 16;
 const EXPANDED_CARD_MIN_HEIGHT = 170;
 
 /* ---------------- State ---------------- */
 
-let lectureRooms = [];
-let allSchedules = [];
+let currentScheduleType = "class"; // "class" or "exam"
+
+let allRooms = [];
+let allClassSchedules = [];
+let allClassEntries = [];
+let allExamSchedules = [];
 let allExamEntries = [];
+
 let selectedRoom = "";
 
-const filters = { academicYear: "", semester: "", examType: "", program: "", section: "", room: "" };
+const filters = {
+    scheduleType: "class",
+    academicYear: "",
+    semester: "",
+    examType: "",
+    classStatus: "",
+    program: "",
+    section: "",
+    roomType: "",
+    room: ""
+};
 
-/* ---------------- DOM ---------------- */
+/* ---------------- DOM Helpers ---------------- */
 
 const $ = id => document.getElementById(id);
 const tabsEl = () => $("raRoomTabs");
@@ -50,14 +67,23 @@ const summaryEl = () => $("raRoomSummary");
 const conflictBannerEl = () => $("raConflictBanner");
 const calendarTitleEl = () => $("raCalendarTitle");
 const calendarSubtitleEl = () => $("raCalendarSubtitle");
+
+const typeBtnClass = () => $("raTypeBtnClass");
+const typeBtnExam = () => $("raTypeBtnExam");
+
 const aySelect = () => $("raAcademicYear");
 const semSelect = () => $("raSemester");
 const examTypeSelect = () => $("raExamType");
+const examTypeControl = () => $("raExamTypeControl");
+const classStatusSelect = () => $("raClassStatus");
+const classStatusControl = () => $("raClassStatusControl");
 const programSelect = () => $("raProgram");
 const sectionSelect = () => $("raSection");
+const roomTypeSelect = () => $("raRoomType");
 const roomSelect = () => $("raRoom");
+const legendEl = () => $("raLegend");
 
-/* ---------------- Helpers ---------------- */
+/* ---------------- Text & Format Helpers ---------------- */
 
 function escapeHtml(value) {
     const div = document.createElement("div");
@@ -73,13 +99,30 @@ function normaliseRoom(value) {
     return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normaliseSemester(value) {
+    const s = String(value || "").trim().toLowerCase();
+    if (!s) return "";
+    if (s === "1" || s.includes("1st") || s.includes("first")) return "1st Semester";
+    if (s === "2" || s.includes("2nd") || s.includes("second")) return "2nd Semester";
+    return String(value).trim();
+}
+
+function formatExamType(examType) {
+    const t = String(examType || "").trim();
+    if (!t) return "—";
+    if (/prelim/i.test(t)) return "Preliminary Examination";
+    if (/midterm|mid-term/i.test(t)) return "Midterm Examination";
+    if (/final/i.test(t)) return "Final Examination";
+    return t;
+}
+
 function parseTime(val) {
     if (val === null || val === undefined) return NaN;
     const parts = String(val).trim().split(":").map(Number);
     if (!parts.length || Number.isNaN(parts[0])) return NaN;
     let hour = parts[0] || 0;
     const minute = parts[1] || 0;
-    if (hour >= 1 && hour <= 6) hour += 12; // 1-6 are PM (matches exam.js)
+    if (hour >= 1 && hour <= 6) hour += 12; // 1-6 are PM
     return hour * 60 + minute;
 }
 
@@ -118,23 +161,6 @@ function formatDateDisplay(dateStr) {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function formatExamType(examType) {
-    const t = String(examType || "").trim();
-    if (!t) return "—";
-    if (/prelim/i.test(t)) return "Preliminary Examination";
-    if (/midterm|mid-term/i.test(t)) return "Midterm Examination";
-    if (/final/i.test(t)) return "Final Examination";
-    return t;
-}
-
-function normaliseSemester(value) {
-    const s = String(value || "").trim().toLowerCase();
-    if (!s) return "";
-    if (s === "1" || s.includes("1st") || s.includes("first")) return "1st Semester";
-    if (s === "2" || s.includes("2nd") || s.includes("second")) return "2nd Semester";
-    return String(value).trim();
-}
-
 function showToast(message) {
     const toast = $("customToast");
     const msgEl = $("customToastMessage");
@@ -147,85 +173,244 @@ function naturalRoomSort(a, b) {
     return String(a.roomName || "").localeCompare(String(b.roomName || ""), "en", { numeric: true, sensitivity: "base" });
 }
 
-/* ---------------- Data loading (read-only) ---------------- */
+function getRoomCategory(roomType) {
+    const t = normalise(roomType);
+    if (!t) return "Other";
+    if (t.includes("lecture")) return "Lecture Room";
+    if (t.includes("lab")) return "Laboratory";
+    if (t.includes("gym") || t.includes("court")) return "Gymnasium";
+    return "Other";
+}
 
-async function loadLectureRooms() {
-    const snap = await getDocs(collection(db, "rooms"));
-    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Only "Lecture Room". Exclude laboratories of any kind + Gymnasium.
-    const filtered = all
-        .filter(r => {
-            const type = normalise(r.roomType);
-            if (!type) return false;
-            if (type === "lecture room") return true;
-            if (type.includes("lab")) return false;
-            if (type.includes("gym")) return false;
-            return false;
-        })
-        .filter(r => String(r.roomName || r.roomCode || "").trim() !== "")
-        .map(r => ({
-            id: r.id,
-            roomName: String(r.roomName || r.roomCode).trim(),
-            roomCode: r.roomCode || "",
-            roomType: r.roomType || "",
-            building: r.building || ""
-        }))
-        .sort(naturalRoomSort);
-    const seen = new Set();
-    lectureRooms = filtered.filter(r => {
-        const key = normaliseRoom(r.roomName);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+function entryMatchesRoom(entryRoom, targetRoom) {
+    if (!entryRoom || !targetRoom) return false;
+    const normEntry = normaliseRoom(entryRoom);
+    const normTargetName = normaliseRoom(targetRoom.roomName);
+    const normTargetCode = normaliseRoom(targetRoom.roomCode);
+
+    return normEntry === normTargetName || (normTargetCode && normEntry === normTargetCode);
+}
+
+function timesOverlap(time1, time2) {
+    const r1 = parseTimeToMinutes(time1);
+    const r2 = parseTimeToMinutes(time2);
+    if (!r1 || !r2) return false;
+    return r1.start < r2.end && r2.start < r1.end;
+}
+
+/* ---------------- Data Loading ---------------- */
+
+async function loadRooms() {
+    try {
+        const snap = await getDocs(collection(db, "rooms"));
+        const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        const processed = raw
+            .filter(r => String(r.roomName || r.roomCode || "").trim() !== "")
+            .map(r => {
+                const name = String(r.roomName || r.roomCode).trim();
+                const code = String(r.roomCode || "").trim();
+                const type = String(r.roomType || "Lecture Room").trim();
+                return {
+                    id: r.id,
+                    roomName: name,
+                    roomCode: code,
+                    roomType: type,
+                    category: getRoomCategory(type),
+                    building: r.building || "",
+                    capacity: r.capacity || 40
+                };
+            })
+            .sort(naturalRoomSort);
+
+        const seen = new Set();
+        allRooms = processed.filter(r => {
+            const key = normaliseRoom(r.roomName);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        if (!allRooms.length) {
+            allRooms = [
+                { id: "A101", roomName: "Room A101", roomCode: "A101", roomType: "Lecture Room", category: "Lecture Room" },
+                { id: "A102", roomName: "Room A102", roomCode: "A102", roomType: "Lecture Room", category: "Lecture Room" },
+                { id: "B101", roomName: "Room B101", roomCode: "B101", roomType: "Lecture Room", category: "Lecture Room" },
+                { id: "FSML01", roomName: "FSM Laboratory", roomCode: "FSML01", roomType: "FSM Laboratory", category: "Laboratory" },
+                { id: "ATL01", roomName: "AT Laboratory", roomCode: "ATL01", roomType: "AT Laboratory", category: "Laboratory" }
+            ];
+        }
+    } catch (err) {
+        console.warn("Could not load rooms from Firestore:", err);
+    }
+}
+
+function getLocalClassSchedules() {
+    try {
+        return JSON.parse(localStorage.getItem("chairpersonSavedSchedules")) || [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Expands a class schedule into discrete, single-day and single-time meeting units.
+ */
+function expandClassSchedule(schedule) {
+    const discrete = [];
+    if (!schedule) return discrete;
+    if (String(schedule.status || "").toLowerCase() === "archived") return discrete;
+
+    const sourceEntries = Array.isArray(schedule.rawEntries) && schedule.rawEntries.length > 0
+        ? schedule.rawEntries
+        : (schedule.entries || []);
+
+    const scheduleSection = schedule.section || schedule.name || "";
+    const scheduleStatus = (schedule.status || "draft").toLowerCase();
+
+    sourceEntries.forEach((entry, entryIdx) => {
+        if (!entry) return;
+        if (entry.code === "SIP01" || entry.code === "SIP02" || entry.code === "OJT01" || entry.code === "OJT02" ||
+            entry.room === "TBA" || String(entry.day || "").toUpperCase() === "TBA" || String(entry.time || "").toUpperCase() === "TBA") {
+            return;
+        }
+
+        const days = String(entry.day || "").split("/").map(s => s.trim()).filter(Boolean);
+        const times = String(entry.time || "").split("/").map(s => s.trim()).filter(Boolean);
+        const rooms = String(entry.room || "").split("/").map(s => s.trim()).filter(Boolean);
+
+        const count = Math.max(days.length, 1);
+        for (let i = 0; i < count; i++) {
+            const day = days[i] || days[0] || "";
+            const time = times[i] || times[0] || "";
+            const room = rooms[i] || rooms[0] || "";
+
+            if (day && time) {
+                discrete.push({
+                    scheduleId: schedule.id || null,
+                    academicYear: String(schedule.academicYear || "").trim(),
+                    semester: String(schedule.semester || "").trim(),
+                    semesterNorm: normaliseSemester(schedule.semester),
+                    program: String(schedule.program || "").trim(),
+                    major: String(schedule.major || "").trim(),
+                    section: String(entry.section || scheduleSection).trim(),
+                    status: scheduleStatus,
+                    code: String(entry.code || "").trim(),
+                    name: String(entry.name || "").trim(),
+                    units: entry.units || 0,
+                    day: day.trim(),
+                    time: time.trim(),
+                    room: room.trim(),
+                    faculty: String(entry.faculty || "Unassigned").trim(),
+                    facultyUid: entry.facultyUid || "",
+                    facultyId: entry.facultyId || "",
+                    _idx: entryIdx
+                });
+            }
+        }
+    });
+
+    return discrete;
+}
+
+async function loadClassSchedules() {
+    let firestoreSchedules = [];
+    try {
+        const snap = await getDocs(collection(db, "classSchedules"));
+        firestoreSchedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+        console.warn("Could not load classSchedules from Firestore:", err);
+    }
+
+    const localSchedules = getLocalClassSchedules();
+    const scheduleMap = new Map();
+
+    firestoreSchedules.forEach(s => {
+        const key = s.id || `${s.section}_${s.academicYear}_${s.semester}`;
+        scheduleMap.set(key, s);
+    });
+
+    localSchedules.forEach(s => {
+        const key = s.id || `${s.section}_${s.academicYear}_${s.semester}`;
+        if (!scheduleMap.has(key)) {
+            scheduleMap.set(key, s);
+        }
+    });
+
+    allClassSchedules = Array.from(scheduleMap.values()).filter(s =>
+        String(s.status || "").toLowerCase() !== "archived"
+    );
+
+    allClassEntries = [];
+    allClassSchedules.forEach(sched => {
+        const entries = expandClassSchedule(sched);
+        allClassEntries.push(...entries);
     });
 }
 
 async function loadExamSchedules() {
-    const snap = await getDocs(collection(db, "examSchedules"));
-    allSchedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allExamEntries = [];
-    allSchedules.forEach(sched => {
-        const exams = Array.isArray(sched.exams) ? sched.exams : [];
-        exams.forEach((exam, idx) => {
-            const date = String(exam.date || "").trim();
-            let day = String(exam.day || "").trim();
-            if (!day && date && date.toUpperCase() !== "TBA") day = getDayName(date);
-            allExamEntries.push({
-                scheduleId: sched.id,
-                academicYear: String(sched.academicYear || "").trim(),
-                semester: String(sched.semester || "").trim(),
-                semesterNorm: normaliseSemester(sched.semester),
-                program: String(sched.program || "").trim(),
-                section: String(sched.section || "").trim(),
-                examType: String(exam.examType || sched.examType || "Preliminary").trim(),
-                code: String(exam.code || exam.subjectCode || "").trim(),
-                name: String(exam.name || exam.subjectName || "").trim(),
-                date,
-                day,
-                time: String(exam.time || "").trim(),
-                room: String(exam.room || "").trim(),
-                proctor: String(exam.proctor || sched.proctor || "").trim(),
-                _idx: idx
+    try {
+        const snap = await getDocs(collection(db, "examSchedules"));
+        allExamSchedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        allExamEntries = [];
+
+        allExamSchedules.forEach(sched => {
+            const exams = Array.isArray(sched.exams) ? sched.exams : [];
+            exams.forEach((exam, idx) => {
+                const date = String(exam.date || "").trim();
+                let day = String(exam.day || "").trim();
+                if (!day && date && date.toUpperCase() !== "TBA") day = getDayName(date);
+
+                allExamEntries.push({
+                    scheduleId: sched.id,
+                    academicYear: String(sched.academicYear || "").trim(),
+                    semester: String(sched.semester || "").trim(),
+                    semesterNorm: normaliseSemester(sched.semester),
+                    program: String(sched.program || "").trim(),
+                    section: String(sched.section || "").trim(),
+                    examType: String(exam.examType || sched.examType || "Preliminary").trim(),
+                    code: String(exam.code || exam.subjectCode || "").trim(),
+                    name: String(exam.name || exam.subjectName || "").trim(),
+                    date,
+                    day,
+                    time: String(exam.time || "").trim(),
+                    room: String(exam.room || "").trim(),
+                    proctor: String(exam.proctor || sched.proctor || "TBA").trim(),
+                    _idx: idx
+                });
             });
         });
-    });
+    } catch (err) {
+        console.warn("Could not load examSchedules from Firestore:", err);
+    }
 }
-/* ---------------- Filters ---------------- */
+
+/* ---------------- Filter & Tab Logic ---------------- */
+
+function getVisibleRooms() {
+    if (!filters.roomType) return allRooms;
+    return allRooms.filter(r => r.category === filters.roomType);
+}
 
 function populateFilterOptions() {
-    const years = [...new Set(allSchedules.map(s => String(s.academicYear || "").trim()).filter(Boolean))]
+    const isClass = currentScheduleType === "class";
+    const sourceSchedules = isClass ? allClassSchedules : allExamSchedules;
+
+    // Academic Years
+    const years = [...new Set(sourceSchedules.map(s => String(s.academicYear || "").trim()).filter(Boolean))]
         .sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
-    const programs = [...new Set(allSchedules.map(s => String(s.program || "").trim()).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b));
-    const sections = [...new Set(allSchedules.map(s => String(s.section || "").trim()).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
     const ay = aySelect();
     if (ay) {
         const cur = ay.value;
         ay.innerHTML = `<option value="">All Academic Years</option>` +
             years.map(y => `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`).join("");
         if (cur && years.includes(cur)) ay.value = cur;
+        else if (!cur && years.length) ay.value = years[0];
     }
+
+    // Programs
+    const programs = [...new Set(sourceSchedules.map(s => String(s.program || "").trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
     const pr = programSelect();
     if (pr) {
         const cur = pr.value;
@@ -233,6 +418,10 @@ function populateFilterOptions() {
             programs.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
         if (cur && programs.includes(cur)) pr.value = cur;
     }
+
+    // Sections
+    const sections = [...new Set(sourceSchedules.map(s => String(s.section || "").trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
     const sc = sectionSelect();
     if (sc) {
         const cur = sc.value;
@@ -240,21 +429,40 @@ function populateFilterOptions() {
             sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
         if (cur && sections.includes(cur)) sc.value = cur;
     }
+
+    // Room select
+    populateRoomDropdown();
+}
+
+function populateRoomDropdown() {
     const rm = roomSelect();
-    if (rm) {
-        const cur = rm.value || selectedRoom;
-        rm.innerHTML = `<option value="">Select Room</option>` +
-            lectureRooms.map(r => `<option value="${escapeHtml(r.roomName)}">${escapeHtml(r.roomName)}</option>`).join("");
-        if (cur && lectureRooms.some(r => r.roomName === cur)) rm.value = cur;
+    if (!rm) return;
+    const visibleRooms = getVisibleRooms();
+    const cur = rm.value || selectedRoom;
+
+    rm.innerHTML = `<option value="">Select Room</option>` +
+        visibleRooms.map(r => `<option value="${escapeHtml(r.roomName)}">${escapeHtml(r.roomName)}${r.category !== 'Lecture Room' ? ` (${r.category})` : ''}</option>`).join("");
+
+    if (cur && visibleRooms.some(r => r.roomName === cur)) {
+        rm.value = cur;
+        selectedRoom = cur;
+    } else if (visibleRooms.length) {
+        rm.value = visibleRooms[0].roomName;
+        selectedRoom = visibleRooms[0].roomName;
+    } else {
+        selectedRoom = "";
     }
 }
 
 function readFiltersFromUI() {
+    filters.scheduleType = currentScheduleType;
     filters.academicYear = aySelect() ? aySelect().value : "";
     filters.semester = semSelect() ? semSelect().value : "";
     filters.examType = examTypeSelect() ? examTypeSelect().value : "";
+    filters.classStatus = classStatusSelect() ? classStatusSelect().value : "";
     filters.program = programSelect() ? programSelect().value : "";
     filters.section = sectionSelect() ? sectionSelect().value : "";
+    filters.roomType = roomTypeSelect() ? roomTypeSelect().value : "";
     filters.room = roomSelect() ? roomSelect().value : "";
     if (filters.room) selectedRoom = filters.room;
 }
@@ -262,21 +470,36 @@ function readFiltersFromUI() {
 function entryMatchesFilters(entry) {
     if (filters.academicYear && entry.academicYear !== filters.academicYear) return false;
     if (filters.semester && entry.semesterNorm !== filters.semester) return false;
-    if (filters.examType && !normalise(entry.examType).includes(normalise(filters.examType))) return false;
     if (filters.program && entry.program !== filters.program) return false;
     if (filters.section && entry.section !== filters.section) return false;
+
+    if (currentScheduleType === "class") {
+        if (filters.classStatus && entry.status !== filters.classStatus) return false;
+    } else {
+        if (filters.examType && !normalise(entry.examType).includes(normalise(filters.examType))) return false;
+    }
+
     return true;
 }
 
-/* ---------------- Room tabs (dynamic roomName) ---------------- */
+/* ---------------- Room Counts & Tabs ---------------- */
 
-function countExamsForRoom(roomName) {
-    const key = normaliseRoom(roomName);
-    return allExamEntries.filter(e =>
-        normaliseRoom(e.room) === key &&
-        String(e.time || "").toUpperCase() !== "TBA" &&
-        entryMatchesFilters(e)
-    ).length;
+function countEntriesForRoom(roomName) {
+    const targetRoom = allRooms.find(r => r.roomName === roomName) || { roomName };
+
+    if (currentScheduleType === "class") {
+        return allClassEntries.filter(e =>
+            entryMatchesRoom(e.room, targetRoom) &&
+            String(e.time || "").toUpperCase() !== "TBA" &&
+            entryMatchesFilters(e)
+        ).length;
+    } else {
+        return allExamEntries.filter(e =>
+            entryMatchesRoom(e.room, targetRoom) &&
+            String(e.time || "").toUpperCase() !== "TBA" &&
+            entryMatchesFilters(e)
+        ).length;
+    }
 }
 
 function renderRoomTabs() {
@@ -284,30 +507,39 @@ function renderRoomTabs() {
     if (!tabs) return;
     tabs.innerHTML = "";
     const counter = counterEl();
-    if (!lectureRooms.length) {
-        tabs.innerHTML = `<p class="ra-muted">No lecture rooms found.</p>`;
+    const visibleRooms = getVisibleRooms();
+
+    if (!visibleRooms.length) {
+        tabs.innerHTML = `<p class="ra-muted">No rooms match the selected room type filter.</p>`;
         if (counter) counter.textContent = "0 rooms";
         return;
     }
-    if (counter) counter.textContent = `${lectureRooms.length} rooms`;
-    if (!lectureRooms.some(r => r.roomName === selectedRoom)) {
-        selectedRoom = lectureRooms[0].roomName;
+
+    if (counter) counter.textContent = `${visibleRooms.length} rooms`;
+
+    if (!visibleRooms.some(r => r.roomName === selectedRoom)) {
+        selectedRoom = visibleRooms[0].roomName;
         const rm = roomSelect();
         if (rm) rm.value = selectedRoom;
         filters.room = selectedRoom;
     }
-    lectureRooms.forEach(room => {
+
+    visibleRooms.forEach(room => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "ra-room-tab" + (room.roomName === selectedRoom ? " active" : "");
         btn.dataset.room = room.roomName;
+
         const label = document.createElement("span");
         label.textContent = room.roomName;
+
         const badge = document.createElement("span");
         badge.className = "ra-tab-count";
-        badge.textContent = countExamsForRoom(room.roomName);
+        badge.textContent = countEntriesForRoom(room.roomName);
+
         btn.appendChild(label);
         btn.appendChild(badge);
+
         btn.addEventListener("click", () => {
             selectedRoom = room.roomName;
             filters.room = room.roomName;
@@ -316,28 +548,88 @@ function renderRoomTabs() {
             renderRoomTabs();
             renderCalendar();
         });
+
         tabs.appendChild(btn);
     });
 }
 
-function examsForSelectedRoom() {
-    const key = normaliseRoom(selectedRoom);
-    return allExamEntries.filter(e =>
-        normaliseRoom(e.room) === key &&
-        String(e.time || "").toUpperCase() !== "TBA" &&
-        String(e.date || "").toUpperCase() !== "TBA" &&
-        entryMatchesFilters(e)
-    );
+/* ---------------- Conflict Detection ---------------- */
+
+function entriesForSelectedRoom() {
+    const targetRoom = allRooms.find(r => r.roomName === selectedRoom) || { roomName: selectedRoom };
+
+    if (currentScheduleType === "class") {
+        return allClassEntries.filter(e =>
+            entryMatchesRoom(e.room, targetRoom) &&
+            String(e.time || "").toUpperCase() !== "TBA" &&
+            entryMatchesFilters(e)
+        );
+    } else {
+        return allExamEntries.filter(e =>
+            entryMatchesRoom(e.room, targetRoom) &&
+            String(e.time || "").toUpperCase() !== "TBA" &&
+            String(e.date || "").toUpperCase() !== "TBA" &&
+            entryMatchesFilters(e)
+        );
+    }
 }
 
-function conflictGroupKey(exam) {
+function detectClassConflicts(classes) {
+    const conflictKeys = new Set();
+    const conflictList = [];
+
+    const byDay = new Map();
+    classes.forEach(c => {
+        const d = String(c.day || "").trim();
+        if (!byDay.has(d)) byDay.set(d, []);
+        byDay.get(d).push(c);
+    });
+
+    byDay.forEach((dayEntries, day) => {
+        for (let i = 0; i < dayEntries.length; i++) {
+            for (let j = i + 1; j < dayEntries.length; j++) {
+                const a = dayEntries[i];
+                const b = dayEntries[j];
+
+                // Skip identical entry or duplicates of exact same schedule/subject/section
+                if (a.scheduleId === b.scheduleId && a.code === b.code && a.section === b.section && a.time === b.time) {
+                    continue;
+                }
+
+                if (timesOverlap(a.time, b.time)) {
+                    // Check gymnasium capacity (gymnasium allows up to 2 sections)
+                    const isGym = normaliseRoom(a.room).includes("gym") || normaliseRoom(b.room).includes("gym");
+                    if (isGym) {
+                        continue;
+                    }
+
+                    const keyA = `${a.scheduleId}::${a.code}::${a.day}::${a.time}::${a.section}`;
+                    const keyB = `${b.scheduleId}::${b.code}::${b.day}::${b.time}::${b.section}`;
+                    conflictKeys.add(keyA);
+                    conflictKeys.add(keyB);
+
+                    conflictList.push({
+                        day,
+                        time: a.time,
+                        classA: a,
+                        classB: b
+                    });
+                }
+            }
+        }
+    });
+
+    return { conflictKeys, conflictList };
+}
+
+function examConflictGroupKey(exam) {
     return `${String(exam.date || "").trim()}___${normalise(exam.time).replace(/\s+/g, "")}`;
 }
 
-function detectConflicts(exams) {
+function detectExamConflicts(exams) {
     const groups = new Map();
     exams.forEach(exam => {
-        const gkey = conflictGroupKey(exam);
+        const gkey = examConflictGroupKey(exam);
         if (!groups.has(gkey)) groups.set(gkey, []);
         groups.get(gkey).push(exam);
     });
@@ -353,10 +645,7 @@ function detectConflicts(exams) {
     return { conflictKeys, conflictList };
 }
 
-/* ---------------- Time-grid calendar helpers ----------------
-   Same structure/behaviour as the Faculty Assignment calendar
-   (proctoring.js): vertical time axis, hourly grid lines and
-   exam blocks positioned by their actual start/end times. */
+/* ---------------- Calendar Layout Helpers ---------------- */
 
 function buildSubjectColorMap(entries) {
     const map = new Map();
@@ -412,15 +701,79 @@ function buildTimeLabels() {
 }
 
 /**
- * Build the absolutely-positioned exam blocks for one weekday column.
- * Blocks are placed by their real start/end minutes (e.g. 7:30-10:00 spans
- * the correct portion of the hourly grid); overlapping exams are laid out
- * side-by-side exactly like the Faculty Assignment calendar.
+ * Builds positioned blocks for Class Schedule in a day column.
  */
-function buildDayBlocks(exams, day, colorMap, conflictKeys) {
+function buildClassDayBlocks(classes, day, colorMap, conflictKeys) {
+    const dayBlocks = [];
+    classes.forEach(c => {
+        if (String(c.day || "").trim().toLowerCase() !== day.toLowerCase()) return;
+        const parsed = parseTimeToMinutes(c.time);
+        if (!parsed) return;
+        dayBlocks.push({ ...c, start: parsed.start, end: parsed.end });
+    });
+
+    if (!dayBlocks.length) return { html: "", count: 0 };
+
+    dayBlocks.sort((a, b) =>
+        a.start - b.start ||
+        String(a.section).localeCompare(String(b.section))
+    );
+
+    const clusters = groupOverlaps(dayBlocks);
+    let html = "";
+    let count = 0;
+
+    for (const cluster of clusters) {
+        const colCount = cluster.length;
+        cluster.forEach((block, colIndex) => {
+            const clampedStart = Math.max(block.start, CAL_START_MINUTES);
+            const clampedEnd = Math.min(block.end, CAL_END_MINUTES);
+            if (clampedEnd <= clampedStart) return;
+            count++;
+
+            const top = ((clampedStart - CAL_START_MINUTES) / 60) * HOUR_PX;
+            const height = Math.max(((clampedEnd - clampedStart) / 60) * HOUR_PX, 32);
+            const widthPct = 100 / colCount;
+            const leftPct = widthPct * colIndex;
+
+            const blockKey = `${block.scheduleId}::${block.code}::${block.day}::${block.time}::${block.section}`;
+            const isConflict = conflictKeys.has(blockKey);
+            const subjectKey = String(block.code || block.name || "").trim().toUpperCase();
+            const colorClass = colorMap.get(subjectKey) || `cal-block-color-${(colIndex % TOTAL_CALENDAR_COLORS) + 1}`;
+
+            const facultyLabel = escapeHtml(block.faculty || "Unassigned");
+            const statusLabel = block.status === "published" ? "✓ Published" : "Draft";
+
+            const calendarHeightPx = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
+            const growDelta = Math.max(EXPANDED_CARD_MIN_HEIGHT - height, 0);
+            const expandUp = growDelta > 0 && (top + EXPANDED_CARD_MIN_HEIGHT > calendarHeightPx) && top >= growDelta;
+
+            html += `
+<div class="cal-block${isConflict ? " ra-conflict-card" : ""}${expandUp ? " ra-expand-up" : ""} ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);--ra-grow:${growDelta.toFixed(1)}px;" title="${escapeHtml(block.code)} — ${escapeHtml(block.name)}&#10;Section: ${escapeHtml(block.section)} | ${escapeHtml(block.day)} | ${formatTimeDisplay(block.time)} | Room: ${escapeHtml(block.room)} | Faculty: ${facultyLabel}">
+  ${isConflict ? `<span class="ra-conflict-chip">Room conflict</span>` : ""}
+  <div class="ra-card-section">${escapeHtml(block.section || "—")}</div>
+  <div class="ra-card-subject">${escapeHtml(block.name || block.code || "—")}${block.code ? ` <span class="ra-card-code">(${escapeHtml(block.code)})</span>` : ""}</div>
+  <span class="ra-examtype-badge" style="${block.status === 'published' ? 'background:#e8f5e9;color:#1b5e20;' : 'background:#eceff1;color:#455a64;'}">${escapeHtml(statusLabel)}</span>
+  <div class="ra-card-meta">
+    <div><span class="ra-meta-label">Day:</span><span>${escapeHtml(block.day)}</span></div>
+    <div><span class="ra-meta-label">Time:</span><span>${formatTimeDisplay(block.time)}</span></div>
+    <div><span class="ra-meta-label">Room:</span><span>${escapeHtml(block.room)}</span></div>
+    <div><span class="ra-meta-label">Faculty:</span><span>${facultyLabel}</span></div>
+  </div>
+</div>`;
+        });
+    }
+
+    return { html, count };
+}
+
+/**
+ * Builds positioned blocks for Exam Schedule in a day column.
+ */
+function buildExamDayBlocks(exams, day, colorMap, conflictKeys) {
     const dayBlocks = [];
     exams.forEach(exam => {
-        if (String(exam.day || "").trim() !== day) return;
+        if (String(exam.day || "").trim().toLowerCase() !== day.toLowerCase()) return;
         const parsed = parseTimeToMinutes(exam.time);
         if (!parsed) return;
         dayBlocks.push({ ...exam, start: parsed.start, end: parsed.end });
@@ -451,7 +804,7 @@ function buildDayBlocks(exams, day, colorMap, conflictKeys) {
             const widthPct = 100 / colCount;
             const leftPct = widthPct * colIndex;
 
-            const isConflict = conflictKeys.has(conflictGroupKey(block));
+            const isConflict = conflictKeys.has(examConflictGroupKey(block));
             const subjectKey = String(block.code || block.name || "").trim().toUpperCase();
             const colorClass = colorMap.get(subjectKey) || `cal-block-color-${(colIndex % TOTAL_CALENDAR_COLORS) + 1}`;
 
@@ -459,9 +812,6 @@ function buildDayBlocks(exams, day, colorMap, conflictKeys) {
             const dayLabel = block.day ? ` - ${escapeHtml(block.day)}` : "";
             const proctorLabel = escapeHtml(block.proctor || "TBA");
 
-            /* Hover expansion: cards too close to the bottom of the day column
-               grow upward (--ra-grow + ra-expand-up) so the expanded card is
-               never clipped by the calendar scroll container. */
             const calendarHeightPx = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
             const growDelta = Math.max(EXPANDED_CARD_MIN_HEIGHT - height, 0);
             const expandUp = growDelta > 0 && (top + EXPANDED_CARD_MIN_HEIGHT > calendarHeightPx) && top >= growDelta;
@@ -485,42 +835,78 @@ function buildDayBlocks(exams, day, colorMap, conflictKeys) {
     return { html, count };
 }
 
+/* ---------------- Render Calendar ---------------- */
+
 function renderCalendar() {
     const cal = calendarEl();
     if (!cal) return;
     readFiltersFromUI();
+
     const summary = summaryEl();
     const banner = conflictBannerEl();
     const title = calendarTitleEl();
     const subtitle = calendarSubtitleEl();
-    if (!lectureRooms.length) {
-        cal.innerHTML = `<p class="ra-empty">No lecture rooms available.</p>`;
+    const legend = legendEl();
+    const visibleRooms = getVisibleRooms();
+
+    if (!visibleRooms.length || !selectedRoom) {
+        cal.innerHTML = `<p class="ra-empty">No rooms available for the selected filters.</p>`;
         if (summary) summary.innerHTML = "";
         if (banner) banner.style.display = "none";
-        if (title) title.textContent = "Weekly Examination Room Usage";
+        if (title) title.textContent = "Weekly Room Usage";
         return;
     }
-    const exams = examsForSelectedRoom();
-    const found = detectConflicts(exams);
-    if (title) title.textContent = `Weekly Examination Room Usage — ${selectedRoom}`;
+
+    const isClass = currentScheduleType === "class";
+    const entries = entriesForSelectedRoom();
+
+    if (title) {
+        title.textContent = isClass
+            ? `Weekly Class Schedule Room Usage — ${selectedRoom}`
+            : `Weekly Examination Room Usage — ${selectedRoom}`;
+    }
+
     if (subtitle) {
         const parts = [];
         if (filters.academicYear) parts.push(`A.Y. ${filters.academicYear}`);
         if (filters.semester) parts.push(filters.semester);
-        if (filters.examType) parts.push(formatExamType(filters.examType));
+        if (isClass) {
+            if (filters.classStatus) parts.push(filters.classStatus === "published" ? "Published" : "Draft");
+        } else {
+            if (filters.examType) parts.push(formatExamType(filters.examType));
+        }
         if (filters.program) parts.push(filters.program);
         if (filters.section) parts.push(filters.section);
         subtitle.textContent = parts.length
-            ? `Monitoring room allocation - ${parts.join(" - ")}`
-            : "Monitoring room allocation for the selected lecture room.";
+            ? `Monitoring ${isClass ? 'class' : 'exam'} room assignment — ${parts.join(" • ")}`
+            : `Monitoring room assignment for ${selectedRoom}.`;
     }
+
+    if (legend) {
+        legend.innerHTML = `
+            <span class="ra-legend-item"><span class="ra-legend-swatch occupied"></span> Occupied — ${isClass ? 'class scheduled' : 'examination assigned'}</span>
+            <span class="ra-legend-item"><span class="ra-legend-swatch conflict"></span> Room conflict — two or more ${isClass ? 'classes' : 'exams'} in the same room &amp; time</span>
+        `;
+    }
+
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
-    const colorMap = buildSubjectColorMap(exams);
+    const colorMap = buildSubjectColorMap(entries);
     let placedCount = 0;
 
+    let foundConflicts = { conflictKeys: new Set(), conflictList: [] };
+    if (isClass) {
+        foundConflicts = detectClassConflicts(entries);
+    } else {
+        foundConflicts = detectExamConflicts(entries);
+    }
+
     const dayColumnsHtml = WEEKDAYS.map(day => {
-        const blocks = buildDayBlocks(exams, day, colorMap, found.conflictKeys);
+        const blocks = isClass
+            ? buildClassDayBlocks(entries, day, colorMap, foundConflicts.conflictKeys)
+            : buildExamDayBlocks(entries, day, colorMap, foundConflicts.conflictKeys);
+
         placedCount += blocks.count;
+
         return `
 <div class="cal-day-col">
   <div class="cal-day-header"><span class="cal-day-name">${escapeHtml(day)}</span></div>
@@ -543,47 +929,97 @@ function renderCalendar() {
     ${dayColumnsHtml}
   </div>
 </div>`;
+
     const empty = emptyEl();
     if (empty) empty.style.display = "none";
-    const outOfGrid = exams.filter(e => !WEEKDAYS.includes(String(e.day || "").trim())).length;
+
+    const outOfGrid = entries.filter(e => !WEEKDAYS.includes(String(e.day || "").trim())).length;
     if (summary) {
+        const itemLabel = isClass ? "classes" : "exams";
         summary.innerHTML =
-            `<span class="ra-summary-chip ra-chip-total"><b>${exams.length}</b>&nbsp;exams</span>` +
+            `<span class="ra-summary-chip ra-chip-total"><b>${entries.length}</b>&nbsp;${itemLabel}</span>` +
             `<span class="ra-summary-chip ra-chip-occupied"><b>${placedCount}</b>&nbsp;occupied</span>` +
-            `<span class="ra-summary-chip ra-chip-conflict"><b>${found.conflictList.length}</b>&nbsp;conflicts</span>` +
+            `<span class="ra-summary-chip ra-chip-conflict"><b>${foundConflicts.conflictList.length}</b>&nbsp;conflicts</span>` +
             (outOfGrid ? `<span class="ra-summary-chip"><b>${outOfGrid}</b>&nbsp;outside Mon-Fri</span>` : "");
     }
+
     if (banner) {
-        if (found.conflictList.length) {
+        if (foundConflicts.conflictList.length) {
             let items = "";
-            found.conflictList.slice(0, 8).forEach(c => {
-                const sections = [...new Set(c.exams.map(e => e.section))].map(escapeHtml).join(", ");
-                const codes = [...new Set(c.exams.map(e => e.code))].map(escapeHtml).join(", ");
-                items += `<li><strong>${escapeHtml(formatDateDisplay(c.date))}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — ${sections} (${codes})</li>`;
-            });
-            if (found.conflictList.length > 8) items += `<li>...and ${found.conflictList.length - 8} more.</li>`;
-            banner.innerHTML = `<span class="ra-cb-icon">!</span><div><div class="ra-cb-title">Room conflict in ${escapeHtml(selectedRoom)} — resolve on Exam Schedule page.</div><ul class="ra-cb-list">${items}</ul></div>`;
+            if (isClass) {
+                foundConflicts.conflictList.slice(0, 8).forEach(c => {
+                    items += `<li><strong>${escapeHtml(c.day)}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — ${escapeHtml(c.classA.section)} (${escapeHtml(c.classA.code)}) clashes with ${escapeHtml(c.classB.section)} (${escapeHtml(c.classB.code)})</li>`;
+                });
+                if (foundConflicts.conflictList.length > 8) items += `<li>...and ${foundConflicts.conflictList.length - 8} more.</li>`;
+                banner.innerHTML = `<span class="ra-cb-icon">!</span><div><div class="ra-cb-title">Room conflict in ${escapeHtml(selectedRoom)} — resolve on <a href="class.html" style="color:#b71c1c; text-decoration:underline; font-weight:bold;">Class Scheduling</a> page.</div><ul class="ra-cb-list">${items}</ul></div>`;
+            } else {
+                foundConflicts.conflictList.slice(0, 8).forEach(c => {
+                    const sections = [...new Set(c.exams.map(e => e.section))].map(escapeHtml).join(", ");
+                    const codes = [...new Set(c.exams.map(e => e.code))].map(escapeHtml).join(", ");
+                    items += `<li><strong>${escapeHtml(formatDateDisplay(c.date))}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — ${sections} (${codes})</li>`;
+                });
+                if (foundConflicts.conflictList.length > 8) items += `<li>...and ${foundConflicts.conflictList.length - 8} more.</li>`;
+                banner.innerHTML = `<span class="ra-cb-icon">!</span><div><div class="ra-cb-title">Room conflict in ${escapeHtml(selectedRoom)} — resolve on <a href="exam.html" style="color:#b71c1c; text-decoration:underline; font-weight:bold;">Exam Schedule</a> page.</div><ul class="ra-cb-list">${items}</ul></div>`;
+            }
             banner.style.display = "flex";
         } else {
             banner.style.display = "none";
             banner.innerHTML = "";
         }
     }
+
     const tabs = tabsEl();
     if (tabs) {
         tabs.querySelectorAll(".ra-room-tab").forEach(btn => {
             const badge = btn.querySelector(".ra-tab-count");
-            if (badge) badge.textContent = countExamsForRoom(btn.dataset.room);
+            if (badge) badge.textContent = countEntriesForRoom(btn.dataset.room);
         });
     }
 }
 
-/* ---------------- Events + init ---------------- */
+/* ---------------- Schedule Type Switching ---------------- */
+
+function setScheduleType(type) {
+    if (currentScheduleType === type) return;
+    currentScheduleType = type;
+
+    if (type === "class") {
+        typeBtnClass()?.classList.add("active");
+        typeBtnExam()?.classList.remove("active");
+        if (examTypeControl()) examTypeControl().style.display = "none";
+        if (classStatusControl()) classStatusControl().style.display = "flex";
+    } else {
+        typeBtnExam()?.classList.add("active");
+        typeBtnClass()?.classList.remove("active");
+        if (examTypeControl()) examTypeControl().style.display = "flex";
+        if (classStatusControl()) classStatusControl().style.display = "none";
+    }
+
+    populateFilterOptions();
+    renderRoomTabs();
+    renderCalendar();
+}
+
+/* ---------------- Event Listeners & Init ---------------- */
 
 function bindFilterEvents() {
-    [aySelect(), semSelect(), examTypeSelect(), programSelect(), sectionSelect()].forEach(sel => {
-        sel?.addEventListener("change", () => { renderRoomTabs(); renderCalendar(); });
+    typeBtnClass()?.addEventListener("click", () => setScheduleType("class"));
+    typeBtnExam()?.addEventListener("click", () => setScheduleType("exam"));
+
+    [aySelect(), semSelect(), examTypeSelect(), classStatusSelect(), programSelect(), sectionSelect()].forEach(sel => {
+        sel?.addEventListener("change", () => {
+            renderRoomTabs();
+            renderCalendar();
+        });
     });
+
+    roomTypeSelect()?.addEventListener("change", () => {
+        filters.roomType = roomTypeSelect()?.value || "";
+        populateRoomDropdown();
+        renderRoomTabs();
+        renderCalendar();
+    });
+
     roomSelect()?.addEventListener("change", () => {
         const rm = roomSelect();
         if (rm && rm.value) {
@@ -610,15 +1046,21 @@ $("logoutLink")?.addEventListener("click", async event => {
 
 async function init() {
     try {
-        await loadLectureRooms();
-        await loadExamSchedules();
+        await Promise.all([
+            loadRooms(),
+            loadClassSchedules(),
+            loadExamSchedules()
+        ]);
+
         populateFilterOptions();
-        if (lectureRooms.length) {
-            selectedRoom = lectureRooms[0].roomName;
+
+        if (allRooms.length) {
+            selectedRoom = allRooms[0].roomName;
             filters.room = selectedRoom;
             const rm = roomSelect();
             if (rm) rm.value = selectedRoom;
         }
+
         bindFilterEvents();
         renderRoomTabs();
         renderCalendar();
@@ -637,5 +1079,3 @@ onAuthStateChanged(auth, user => {
         init();
     }
 });
-
-

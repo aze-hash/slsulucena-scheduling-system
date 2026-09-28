@@ -12,18 +12,23 @@ import {
     doc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import { renderExamCalendar } from "./js/schedule-calendar.js";
+import { renderExamCalendar, renderClassCalendar } from "./js/schedule-calendar.js";
 
 const examScheduleContainer = document.getElementById("examScheduleContainer");
 const examSearchInput = document.getElementById("examSearchInput");
+const classScheduleContainer = document.getElementById("classScheduleContainer");
+const classSearchInput = document.getElementById("classSearchInput");
 const navStudentName = document.getElementById("navStudentName");
 const navStudentProgramMajor = document.getElementById("navStudentProgramMajor");
 const logoutBtn = document.getElementById("logoutBtn");
 
 const PINNED_EXAM_KEY = "studentPinnedExamScheduleId";
+const PINNED_CLASS_KEY = "studentPinnedClassScheduleId";
 
 let allExamSchedules = [];
 let examSearchTerm = "";
+let allClassSchedules = [];
+let classSearchTerm = "";
 
 function safe(value) {
     return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -123,6 +128,81 @@ function renderExamSchedules() {
     });
 }
 
+function getPinnedClassId() {
+    return localStorage.getItem(PINNED_CLASS_KEY) || "";
+}
+
+function setPinnedClassId(id) {
+    if (id) {
+        localStorage.setItem(PINNED_CLASS_KEY, id);
+    } else {
+        localStorage.removeItem(PINNED_CLASS_KEY);
+    }
+}
+
+function renderClassSchedules() {
+    if (!classScheduleContainer) return;
+
+    if (!allClassSchedules.length) {
+        classScheduleContainer.innerHTML = '<div class="empty-state">No class schedule has been published yet for your section.</div>';
+        return;
+    }
+
+    let filtered = allClassSchedules;
+
+    if (classSearchTerm) {
+        filtered = filtered.filter(schedule => {
+            const sectionName = normalize(schedule.section || schedule.name || "");
+            const hasSub = (schedule.entries || []).some(e =>
+                normalize(e.code || "").includes(classSearchTerm) ||
+                normalize(e.name || "").includes(classSearchTerm)
+            );
+            return sectionName.includes(classSearchTerm) || hasSub;
+        });
+    }
+
+    if (!filtered.length) {
+        classScheduleContainer.innerHTML = '<div class="empty-state">No class schedules match your search.</div>';
+        return;
+    }
+
+    const pinnedId = getPinnedClassId();
+    const hasPinnedMatch = pinnedId && filtered.some(s => s.id === pinnedId);
+    const displayList = hasPinnedMatch ? filtered.filter(s => s.id === pinnedId) : filtered;
+
+    const pinnedBanner = hasPinnedMatch
+        ? `<div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:8px; padding:8px 14px; font-size:13px; color:#1b5e20;">
+               <span>📌 Showing your pinned class schedule.</span>
+               <button type="button" id="unpinShowAllClassBtn" style="background:none; border:none; color:#1565c0; font-weight:bold; cursor:pointer; text-decoration:underline;">Show all ${filtered.length} schedules</button>
+           </div>`
+        : "";
+
+    classScheduleContainer.innerHTML = pinnedBanner + displayList.map(schedule => {
+        const isPinned = schedule.id === pinnedId;
+        const calendarHtml = renderClassCalendar(schedule);
+
+        return `
+            <article class="schedule-card" data-id="${safe(schedule.id)}">
+                <div class="schedule-header">
+                    <div class="schedule-header-title">
+                        <h4>${safe(schedule.section || schedule.name || "Class Schedule")}</h4>
+                        <small>${safe(formatAcademicInfo(schedule))}</small>
+                    </div>
+                    <button type="button" class="pin-class-btn pin-btn ${isPinned ? "pinned" : ""}" data-id="${safe(schedule.id)}">
+                        ${isPinned ? "📌 Pinned" : "📌 Pin"}
+                    </button>
+                </div>
+                ${calendarHtml}
+            </article>
+        `;
+    }).join("");
+
+    document.getElementById("unpinShowAllClassBtn")?.addEventListener("click", () => {
+        setPinnedClassId("");
+        renderClassSchedules();
+    });
+}
+
 function handlePinToggle(event) {
     const btn = event.target.closest(".pin-btn");
     if (!btn) return;
@@ -130,13 +210,23 @@ function handlePinToggle(event) {
     const id = btn.dataset.id;
     if (!id) return;
 
-    const currentPinned = getPinnedExamId();
-    if (currentPinned === id) {
-        setPinnedExamId("");
+    if (btn.classList.contains("pin-class-btn")) {
+        const currentPinned = getPinnedClassId();
+        if (currentPinned === id) {
+            setPinnedClassId("");
+        } else {
+            setPinnedClassId(id);
+        }
+        renderClassSchedules();
     } else {
-        setPinnedExamId(id);
+        const currentPinned = getPinnedExamId();
+        if (currentPinned === id) {
+            setPinnedExamId("");
+        } else {
+            setPinnedExamId(id);
+        }
+        renderExamSchedules();
     }
-    renderExamSchedules();
 }
 
 async function initializeStudentDashboard() {
@@ -167,6 +257,37 @@ async function initializeStudentDashboard() {
             if (navStudentName) navStudentName.textContent = fullName;
             if (navStudentProgramMajor) navStudentProgramMajor.textContent = `${profile.program || "Program"} • ${profile.major || "Major"}`;
 
+            // Load Class Schedules
+            try {
+                const classSnapshot = await getDocs(collection(db, "classSchedules"));
+                allClassSchedules = classSnapshot.docs
+                    .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+                    .filter(schedule => {
+                        const status = normalize(schedule.status || "published");
+                        if (status === "ARCHIVED") return false;
+
+                        const schedProg = normalize(schedule.program || "");
+                        const schedMaj = normalize(schedule.major || "");
+                        const schedSec = normalize(schedule.section || schedule.name || "");
+                        const studentSec = normalize(profile.section || "");
+
+                        if (studentSec && (schedSec === studentSec || schedSec.includes(studentSec))) return true;
+
+                        const progMatches = !program || schedProg === program || schedSec.includes(program);
+                        if (!progMatches) return false;
+
+                        const majMatches = !major || !schedMaj || schedMaj === major || schedSec.includes(major);
+                        return majMatches;
+                    });
+                renderClassSchedules();
+            } catch (classErr) {
+                console.error("Could not load class schedules:", classErr);
+                if (classScheduleContainer) {
+                    classScheduleContainer.innerHTML = '<div class="empty-state">Unable to load class schedules at this time.</div>';
+                }
+            }
+
+            // Load Exam Schedules
             const examSnapshot = await getDocs(collection(db, "examSchedules"));
 
             allExamSchedules = examSnapshot.docs
@@ -188,9 +309,6 @@ async function initializeStudentDashboard() {
                 });
 
             console.log(`[Student Dashboard] User: ${fullName}, Program: "${program}", Major: "${major}"`);
-            console.log(`[Student Dashboard] Total exam schedules in DB: ${examSnapshot.docs.length}`);
-            console.log(`[Student Dashboard] Matched exam schedules: ${allExamSchedules.length}`, allExamSchedules);
-
             renderExamSchedules();
         } catch (error) {
             console.error("Could not load student dashboard:", error);
@@ -199,6 +317,17 @@ async function initializeStudentDashboard() {
             }
         }
     });
+}
+
+if (classSearchInput) {
+    classSearchInput.addEventListener("input", () => {
+        classSearchTerm = normalize(classSearchInput.value);
+        renderClassSchedules();
+    });
+}
+
+if (classScheduleContainer) {
+    classScheduleContainer.addEventListener("click", handlePinToggle);
 }
 
 if (examSearchInput) {

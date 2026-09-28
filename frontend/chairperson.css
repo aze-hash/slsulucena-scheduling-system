@@ -790,3 +790,213 @@ a{
     }
 
 }
+
+/* =========================
+   CUSTOM CONFIRM & ACTION MODALS
+========================= */
+.custom-confirm-modal{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100vw;
+    height:100vh;
+    background:rgba(0,0,0,.55);
+    backdrop-filter:blur(4px);
+    -webkit-backdrop-filter:blur(4px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:99999;
+    padding:16px;
+    box-sizing:border-box;
+}
+
+.custom-confirm-content{
+    background:#fff;
+    border-radius:14px;
+    max-width:520px;
+    width:95%;
+    box-shadow:0 20px 50px rgba(0,0,0,.35);
+    overflow:hidden;
+    position:relative;
+    max-height:90vh;
+    display:flex;
+    flex-direction:column;
+    animation:customModalFadeIn .22s cubic-bezier(0.16,1,0.3,1);
+}
+
+@keyframes customModalFadeIn{
+    from{
+        opacity:0;
+        transform:scale(0.94) translateY(-8px);
+    }
+    to{
+        opacity:1;
+        transform:scale(1) translateY(0);
+    }
+}
+
+.custom-confirm-header{
+    background:var(--dark,#1b5e20);
+    color:white;
+    padding:16px 22px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-shrink:0;
+}
+
+.custom-confirm-header h3{
+    margin:0;
+    font-size:18px;
+    font-weight:700;
+    color:white;
+}
+
+.custom-confirm-header .close-modal,
+.close-modal{
+    color:white;
+    font-size:24px;
+    line-height:1;
+    cursor:pointer;
+    background:none;
+    border:none;
+    padding:0 4px;
+    transition:transform .15s ease,opacity .15s ease;
+    user-select:none;
+}
+
+.custom-confirm-header .close-modal:hover,
+.close-modal:hover{
+    opacity:.8;
+    transform:scale(1.15);
+}
+
+.custom-confirm-body{
+    padding:20px 24px;
+    font-size:14px;
+    color:#1a1a1a;
+    line-height:1.6;
+    overflow-y:auto;
+    flex:1;
+}
+
+.custom-confirm-body p{
+    margin:0;
+}
+
+.custom-confirm-footer{
+    display:flex;
+    gap:10px;
+    padding:14px 24px;
+    justify-content:flex-end;
+    border-top:1px solid #e0dbd0;
+    background:#faf8f3;
+    flex-shrink:0;
+}
+
+.custom-confirm-btn{
+    padding:9px 22px;
+    border:none;
+    border-radius:8px;
+    font-size:13px;
+    font-weight:700;
+    cursor:pointer;
+    transition:all .2s ease;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.custom-confirm-btn.cancel{
+    background:#e0dbd0;
+    color:#333;
+}
+
+.custom-confirm-btn.cancel:hover{
+    background:#c9c1b0;
+}
+
+.custom-confirm-btn.ok{
+    background:var(--primary,#2e7d32);
+    color:white;
+}
+
+.custom-confirm-btn.ok:hover{
+    background:var(--dark,#1b5e20);
+}
+
+/* Modal Table Styling */
+.custom-confirm-modal table{
+    width:100%;
+    border-collapse:collapse;
+    background:#fff;
+}
+
+.custom-confirm-modal th{
+    background:#eef5ee;
+    color:#1b5e20;
+    font-weight:700;
+    font-size:13px;
+    padding:10px 12px;
+    border-bottom:2px solid #c8e6c9;
+    text-align:left;
+}
+
+.custom-confirm-modal td{
+    padding:10px 12px;
+    font-size:13px;
+    border-bottom:1px solid #e8e4dc;
+    color:#333;
+    text-align:left;
+}
+
+.custom-confirm-modal tbody tr:hover{
+    background:#f7faf7;
+}
+
+/* Custom Toast Notification */
+.custom-toast{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100vw;
+    height:100vh;
+    background:rgba(0,0,0,.45);
+    backdrop-filter:blur(2px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:100000;
+}
+
+.custom-toast-content{
+    background:#fff;
+    border-radius:12px;
+    padding:24px 36px;
+    max-width:440px;
+    width:90%;
+    box-shadow:0 15px 35px rgba(0,0,0,.25);
+    text-align:center;
+    position:relative;
+    font-size:15px;
+    color:#1a1a1a;
+    line-height:1.5;
+}
+
+.custom-toast-close{
+    position:absolute;
+    top:6px;
+    right:12px;
+    font-size:24px;
+    font-weight:bold;
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:#888;
+    transition:.2s;
+}
+
+.custom-toast-close:hover{
+    color:#b71c1c;
+}

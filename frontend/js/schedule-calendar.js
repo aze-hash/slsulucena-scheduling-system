@@ -13,11 +13,11 @@
 /** Calendar starts at 7:00 AM (420 minutes from midnight) */
 const CAL_START_MINUTES = 7 * 60; // 420
 
-/** Calendar ends at 6:00 PM (1080 minutes from midnight) */
-const CAL_END_MINUTES = 18 * 60; // 1080
+/** Calendar ends at 7:00 PM (1140 minutes from midnight) */
+const CAL_END_MINUTES = 19 * 60; // 1140
 
 /** Total visible minutes in the calendar */
-const CAL_TOTAL_MINUTES = CAL_END_MINUTES - CAL_START_MINUTES; // 660
+const CAL_TOTAL_MINUTES = CAL_END_MINUTES - CAL_START_MINUTES; // 720
 
 /** Pixel height per 60-minute hour slot in the calendar */
 const HOUR_PX = 64;
@@ -389,7 +389,7 @@ function formatExamDateHeader(dateStr) {
  * @param {Object} schedule  - A examSchedules document (with .entries[] or .rawEntries[])
  * @returns {string} HTML string for the timetable and details table (to be injected into a container)
  */
-function renderArchivedScheduleCalendar(schedule) {
+export function renderClassCalendar(schedule) {
     let entries = Array.isArray(schedule.entries) && schedule.entries.length > 0
         ? schedule.entries
         : (Array.isArray(schedule.rawEntries) ? schedule.rawEntries : []);
@@ -430,7 +430,10 @@ function renderArchivedScheduleCalendar(schedule) {
                     code: entry.subjectCode || entry.code || "",
                     name: entry.subjectName || entry.name || "",
                     section: entry.section || "",
-                    room
+                    room,
+                    scheduleId: entry.scheduleId || "",
+                    entryIndex: entry.entryIndex !== undefined ? entry.entryIndex : null,
+                    facultyUid: entry.facultyUid || ""
                 });
             });
         }
@@ -461,32 +464,61 @@ function renderArchivedScheduleCalendar(schedule) {
                 const day = cp.b1.day;
                 const time1 = minutesToDisplay(cp.b1.start) + " – " + minutesToDisplay(cp.b1.end);
                 const time2 = minutesToDisplay(cp.b2.start) + " – " + minutesToDisplay(cp.b2.end);
+
+                const b1Btn = cp.b1.scheduleId && cp.b1.entryIndex !== null ? `
+                    <button type="button" class="cal-unassign-clash-btn" data-sched-id="${esc(cp.b1.scheduleId)}" data-entry-idx="${cp.b1.entryIndex}" title="Mark ${esc(cp.b1.code)} in ${esc(cp.b1.section)} as Unassigned" style="background:#fff; color:#b71c1c; border:1px solid #d32f2f; border-radius:5px; font-size:11px; font-weight:700; padding:2px 8px; cursor:pointer; margin-left:6px; flex-shrink:0;">
+                        Unassign
+                    </button>
+                ` : "";
+
+                const b2Btn = cp.b2.scheduleId && cp.b2.entryIndex !== null ? `
+                    <button type="button" class="cal-unassign-clash-btn" data-sched-id="${esc(cp.b2.scheduleId)}" data-entry-idx="${cp.b2.entryIndex}" title="Mark ${esc(cp.b2.code)} in ${esc(cp.b2.section)} as Unassigned" style="background:#fff; color:#b71c1c; border:1px solid #d32f2f; border-radius:5px; font-size:11px; font-weight:700; padding:2px 8px; cursor:pointer; margin-left:6px; flex-shrink:0;">
+                        Unassign
+                    </button>
+                ` : "";
+
                 return `
-                    <div style="display:flex; align-items:flex-start; gap:8px; padding:6px 10px; background:#fff; border-radius:6px; border:1px solid #ffcdd2;">
-                        <span style="font-weight:700; color:#d32f2f; font-size:12px; min-width:85px;">${esc(day)}:</span>
+                    <div style="display:flex; align-items:flex-start; gap:8px; padding:8px 12px; background:#fff; border-radius:8px; border:1px solid #ffcdd2;">
+                        <span style="font-weight:700; color:#d32f2f; font-size:12px; min-width:85px; margin-top:2px;">${esc(day)}:</span>
                         <div style="font-size:12px; color:#333; flex-grow:1;">
-                            <div><strong style="color:#b71c1c;">${esc(cp.b1.code)}</strong> in <strong>${esc(cp.b1.section || 'Section')}</strong> (${esc(cp.b1.room || 'Room TBA')}) at ${esc(time1)}</div>
-                            <div style="color:#d32f2f; font-weight:700; font-size:11px; margin:2px 0;">⚡ CLASHES WITH</div>
-                            <div><strong style="color:#b71c1c;">${esc(cp.b2.code)}</strong> in <strong>${esc(cp.b2.section || 'Section')}</strong> (${esc(cp.b2.room || 'Room TBA')}) at ${esc(time2)}</div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                <div><strong style="color:#b71c1c;">${esc(cp.b1.code)}</strong> in <strong>${esc(cp.b1.section || 'Section')}</strong> (${esc(cp.b1.room || 'Room TBA')}) at ${esc(time1)}</div>
+                                ${b1Btn}
+                            </div>
+                            <div style="color:#d32f2f; font-weight:700; font-size:11px; margin:4px 0;">⚡ CLASHES WITH</div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                <div><strong style="color:#b71c1c;">${esc(cp.b2.code)}</strong> in <strong>${esc(cp.b2.section || 'Section')}</strong> (${esc(cp.b2.room || 'Room TBA')}) at ${esc(time2)}</div>
+                                ${b2Btn}
+                            </div>
                         </div>
                     </div>
                 `;
             }).join("");
 
+            const conflictingEntriesJson = JSON.stringify(clashPairs.map(cp => ({
+                b1: { schedId: cp.b1.scheduleId, entryIdx: cp.b1.entryIndex, code: cp.b1.code, section: cp.b1.section },
+                b2: { schedId: cp.b2.scheduleId, entryIdx: cp.b2.entryIndex, code: cp.b2.code, section: cp.b2.section }
+            }))).replace(/"/g, '&quot;');
+
             conflictBannerHtml = `
-                <div class="faculty-conflict-alert" style="margin-bottom:14px; padding:12px 16px; background:#ffebee; border:2px solid #ef5350; border-radius:10px; box-shadow:0 3px 10px rgba(211,47,47,0.12);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <div class="faculty-conflict-alert" style="margin-bottom:14px; padding:14px 18px; background:#ffebee; border:2px solid #ef5350; border-radius:10px; box-shadow:0 3px 10px rgba(211,47,47,0.12);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
                         <div style="font-size:14px; font-weight:bold; color:#b71c1c; display:flex; align-items:center; gap:6px;">
                             <span style="font-size:18px;">⚠️</span> FACULTY SCHEDULE CONFLICT DETECTED
                         </div>
-                        <span style="background:#d32f2f; color:#fff; font-size:11px; font-weight:bold; padding:3px 10px; border-radius:999px;">
-                            ${clashPairs.length} Overlapping Slot Clash${clashPairs.length > 1 ? 'es' : ''}
-                        </span>
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <span style="background:#d32f2f; color:#fff; font-size:11px; font-weight:bold; padding:3px 10px; border-radius:999px;">
+                                ${clashPairs.length} Overlapping Slot Clash${clashPairs.length > 1 ? 'es' : ''}
+                            </span>
+                            <button type="button" class="cal-unassign-all-conflicts-btn" data-conflicts="${conflictingEntriesJson}" style="background:#b71c1c; color:#fff; border:none; border-radius:6px; font-size:11.5px; font-weight:700; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 1px 4px rgba(0,0,0,0.2); transition:background 0.2s;">
+                                ✕ Mark Conflicting Subjects as Unassigned
+                            </button>
+                        </div>
                     </div>
-                    <div style="font-size:12.5px; color:#5c0000; margin-bottom:8px; line-height:1.4;">
-                        This instructor has been assigned multiple simultaneous classes in different rooms. An instructor cannot teach more than one section at the same time.
+                    <div style="font-size:12.5px; color:#5c0000; margin-bottom:10px; line-height:1.4;">
+                        This instructor has been assigned multiple simultaneous classes in different rooms. Click <strong>Unassign</strong> or <strong>Mark Conflicting Subjects as Unassigned</strong> to clear the conflict.
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:6px;">
+                    <div style="display:flex; flex-direction:column; gap:8px;">
                         ${listHtml}
                     </div>
                 </div>
@@ -497,8 +529,11 @@ function renderArchivedScheduleCalendar(schedule) {
     const calendarHeight = (CAL_TOTAL_MINUTES / 60) * HOUR_PX;
     const subjectColorMap = buildSubjectColorMap(entries);
 
-    // Build day columns
-    const dayColumnsHtml = EXAM_DAYS.map(day => {
+    // Build day columns (include Saturday if any entries fall on Saturday)
+    const hasSaturday = entries.some(e => String(e.day || "").toLowerCase().includes("sat"));
+    const activeDays = hasSaturday ? [...EXAM_DAYS, "Saturday"] : EXAM_DAYS;
+
+    const dayColumnsHtml = activeDays.map(day => {
         const blocks = buildArchivedScheduleDayBlocks(entries, day, subjectColorMap, isFac);
         return `
 <div class="cal-day-col">
@@ -582,6 +617,7 @@ ${conflictBannerHtml}
 </div>
 ${detailsTableHtml}`;
 }
+export const renderArchivedScheduleCalendar = renderClassCalendar;
 
 // ─── Public API: Render Exam Calendar ─────────────────────────────────────────
 

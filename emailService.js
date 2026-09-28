@@ -212,3 +212,112 @@ export async function sendExamScheduleNotification({
         };
     }
 }
+
+/**
+ * Sends Class Schedule notification email.
+ */
+export async function sendClassScheduleNotification({
+    recipientEmail,
+    recipientName = "Student",
+    scheduleInfo = {}
+}) {
+    if (!recipientEmail || typeof recipientEmail !== "string" || !recipientEmail.includes("@")) {
+        return {
+            success: false,
+            error: "Invalid or missing recipient email address."
+        };
+    }
+
+    const appUrl = getAppBaseUrl();
+    const destinationUrl = appUrl;
+    const sectionName = scheduleInfo.section || scheduleInfo.name || "your section";
+    const subject = `[Class Schedule] Class Schedule Available for ${sectionName}`;
+
+    const bodyInstruction = "Please log in to the Scheduling System to view your published class schedule.";
+
+    const textContent = [
+        "Hello,",
+        "",
+        `The Class Schedule for ${sectionName} is now available.`,
+        "",
+        bodyInstruction,
+        "",
+        "CLICK HERE TO VIEW SCHEDULE:",
+        destinationUrl,
+        "",
+        "Thank you.",
+        "Scheduling System"
+    ].join("\n");
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(subject)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f1e6; color: #1a1a1a; margin: 0; padding: 0; }
+  .wrapper { width: 100%; max-width: 580px; margin: 30px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e0dbce; }
+  .header { background: #1b5e20; padding: 24px; text-align: center; color: #ffffff; }
+  .header h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+  .body { padding: 32px 28px; line-height: 1.6; font-size: 15px; color: #2d3748; }
+  .body p { margin: 0 0 16px; }
+  .btn-container { text-align: center; margin: 28px 0; }
+  .btn { display: inline-block; background: #2e7d32; color: #ffffff !important; text-decoration: none; padding: 13px 32px; border-radius: 8px; font-weight: bold; font-size: 15px; box-shadow: 0 3px 8px rgba(46, 125, 50, 0.35); text-transform: uppercase; letter-spacing: 0.5px; }
+  .footer { background: #faf8f2; padding: 18px 24px; text-align: center; font-size: 12px; color: #718096; border-top: 1px solid #e6e2d8; }
+</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>Southern Luzon State University - Lucena</h1>
+    </div>
+    <div class="body">
+      <p>Hello,</p>
+      <p>The Class Schedule for <strong>${escapeHtml(sectionName)}</strong> is now available.</p>
+      <p>${escapeHtml(bodyInstruction)}</p>
+      <div class="btn-container">
+        <a href="${destinationUrl}" class="btn" target="_blank">CLICK HERE TO VIEW SCHEDULE</a>
+      </div>
+      <p>Thank you.<br>Scheduling System</p>
+    </div>
+    <div class="footer">
+      This is an automated notification from the Scheduling System. Please do not reply directly to this email.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const fromAddress = process.env.MAIL_FROM || process.env.EMAIL_FROM || `"SLSU Lucena Scheduling System" <${user || 'no-reply@slsulucena.edu.ph'}>`;
+    const transporter = getEmailTransporter();
+
+    if (!transporter) {
+        console.warn(`[EmailService] SMTP not configured. Skipping live email delivery for ${recipientEmail}. [Subject: ${subject}]`);
+        return {
+            success: true,
+            simulated: true,
+            message: "SMTP not configured. Notification skipped without error."
+        };
+    }
+
+    try {
+        const info = await transporter.sendMail({
+            from: fromAddress,
+            to: recipientEmail,
+            subject,
+            text: textContent,
+            html: htmlContent
+        });
+        return {
+            success: true,
+            messageId: info.messageId
+        };
+    } catch (err) {
+        console.error(`[EmailService] Failed to send class schedule email to ${recipientEmail}:`, err.message);
+        return {
+            success: false,
+            error: err.message
+        };
+    }
+}

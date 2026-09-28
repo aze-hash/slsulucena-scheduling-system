@@ -939,8 +939,68 @@ async function loadLectureRooms() {
 //      (any role value containing "faculty", trimmed & case-insensitive).
 //   2. "faculty" collection — legacy faculty profiles managed by the
 //      chairperson, so no registered faculty is ever excluded.
+let facultySubjectAssignmentsMap = new Map();
+
+async function loadFacultySubjectAssignments() {
+    const map = new Map();
+    try {
+        const snap = await getDocs(collection(db, "facultySubjectAssignments"));
+        snap.docs.forEach(d => {
+            const data = d.data();
+            const handled = Array.isArray(data.handledSubjects)
+                ? [...new Set(data.handledSubjects.flatMap(s => {
+                    if (typeof s === "object" && s) {
+                        return [s.code || s.subjectCode || ""];
+                    }
+                    const str = String(s || "").trim();
+                    if (str.includes("_")) {
+                        const parts = str.split("_");
+                        return [str, parts[parts.length - 1].trim()];
+                    }
+                    return [str];
+                }).map(c => c.trim().toLowerCase()).filter(Boolean))]
+                : [];
+            map.set(d.id, handled);
+            if (data.facultyId) map.set(String(data.facultyId).trim(), handled);
+            if (data.facultyName) map.set(normalizeFacultyName(data.facultyName), handled);
+        });
+    } catch (err) {
+        console.warn("Could not load facultySubjectAssignments:", err);
+    }
+
+    try {
+        const classSnap = await getDocs(collection(db, "classSchedules"));
+        classSnap.docs.forEach(d => {
+            const sched = d.data();
+            if (sched.status === "archived") return;
+            (sched.entries || []).forEach(e => {
+                const subCode = String(e.code || "").trim().toLowerCase();
+                if (!subCode) return;
+                const pushToKey = key => {
+                    if (!key) return;
+                    const existing = map.get(key) || [];
+                    if (!existing.includes(subCode)) {
+                        existing.push(subCode);
+                        map.set(key, existing);
+                    }
+                };
+                if (e.facultyUid) pushToKey(e.facultyUid);
+                if (e.facultyId) pushToKey(String(e.facultyId).trim());
+                if (e.faculty) pushToKey(normalizeFacultyName(e.faculty));
+            });
+        });
+    } catch (err) {
+        console.warn("Could not load classSchedules for handled subjects:", err);
+    }
+
+    facultySubjectAssignmentsMap = map;
+    return map;
+}
+
 // Results are de-duplicated by name so a person is never offered twice.
 async function loadFacultyMembers() {
+    await loadFacultySubjectAssignments();
+
     const seen = new Set();
     const merged = [];
 
@@ -1269,6 +1329,20 @@ generateExamBtn?.addEventListener("click", async () => {
                         const eligibleFaculty = faculty.filter(f => {
                             const pName = getFacultyName(f);
                             if (!pName) return false;
+
+                            // Rule: A faculty member handling a subject must NOT proctor it
+                            const pNameNorm = normalizeFacultyName(pName);
+                            const fUid = f.uid || f.id || "";
+                            const fId = String(f.employeeId || f.facultyId || "").trim();
+                            const handledCodes = [
+                                ...(facultySubjectAssignmentsMap.get(fUid) || []),
+                                ...(facultySubjectAssignmentsMap.get(fId) || []),
+                                ...(facultySubjectAssignmentsMap.get(pNameNorm) || [])
+                            ];
+                            const currSubjectCodeNorm = String(code || "").trim().toLowerCase();
+                            if (currSubjectCodeNorm && handledCodes.includes(currSubjectCodeNorm)) {
+                                return false;
+                            }
 
                             const isProctorBusy = existingBookings.some(b =>
                                 b.date === dateStr && sameFaculty(b.proctor, pName) && timesOverlap(b.time, slot)

@@ -16,6 +16,8 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Scheduling</a></li>
+        <li><a href="faculty-loading.html"><span class="nav-icon">👥</span> Faculty Loading</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
         <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html" class="active"><span class="nav-icon">💾</span> Schedule Archive</a></li>
@@ -28,14 +30,58 @@
 <div class="container">
 
     <div class="header">
-        <h1>Examination Schedule Archive</h1>
-        <p>Access, view, and print archived examination schedule reports and timetables.</p>
+        <h1>Schedule Archive &amp; Reports</h1>
+        <p>Access, view, and print archived class schedules, examination schedules, and faculty loading reports.</p>
+    </div>
+
+    <!-- Class Schedule Archive Card -->
+    <div class="card" id="classArchiveSection" style="margin-bottom: 24px;">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <h3 style="margin:0;">Class Schedule Archive</h3>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Archived and published section class timetables.</p>
+            </div>
+            <button type="button" class="delete-all-card-btn" id="deleteAllClassArchiveBtn">Delete All</button>
+        </div>
+
+        <div class="archive-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:16px 0;">
+            <select id="classArchiveAcademicYear">
+                <option value="">All Academic Years</option>
+            </select>
+            <select id="classArchiveSemester">
+                <option value="">All Semesters</option>
+                <option value="1st Semester">1st Semester</option>
+                <option value="2nd Semester">2nd Semester</option>
+            </select>
+            <input type="text" id="classArchiveSearch" placeholder="Search section or subject code...">
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="min-width:180px;">Section / Schedule</th>
+                        <th style="min-width:140px;">Academic Year</th>
+                        <th style="min-width:130px;">Semester</th>
+                        <th style="min-width:110px; text-align:center;">Subjects</th>
+                        <th style="min-width:130px;">Archived Date</th>
+                        <th style="min-width:180px; text-align:center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="classArchiveTableBody"></tbody>
+            </table>
+        </div>
+
+        <p id="emptyClassArchive" class="empty-note" style="text-align:center; padding:20px; color:#777;">Loading archived class schedules...</p>
     </div>
 
     <!-- Exam Schedule Archive Card -->
-    <div class="card" id="examArchiveSection">
+    <div class="card" id="examArchiveSection" style="margin-bottom: 24px;">
         <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <h3 style="margin:0;">Archived Examination Schedules</h3>
+            <div>
+                <h3 style="margin:0;">Archived Examination Schedules</h3>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Archived examination timetables and reports.</p>
+            </div>
             <button type="button" class="delete-all-card-btn" id="deleteAllExamArchiveBtn">Delete All Archive</button>
         </div>
 
@@ -85,6 +131,56 @@
         </div>
     </div>
 
+    <!-- Faculty Loading Report Card -->
+    <div class="card" id="facultyLoadingReportSection">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <h3 style="margin:0;">Faculty Loading Reports</h3>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Comprehensive summary of teaching assignments, contact hours, and faculty workloads.</p>
+            </div>
+            <button type="button" class="action-btn" id="printAllFacultyLoadingBtn" style="background:#2e7d32; color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:600; cursor:pointer;">Print Summary</button>
+        </div>
+
+        <div class="archive-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin:16px 0;">
+            <input type="text" id="facultyLoadingSearch" placeholder="Search faculty name or ID...">
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="min-width:180px;">Faculty Name</th>
+                        <th style="min-width:120px;">Employee ID</th>
+                        <th style="min-width:100px; text-align:center;">Subjects</th>
+                        <th style="min-width:100px; text-align:center;">Sections</th>
+                        <th style="min-width:130px; text-align:center;">Teaching Hours</th>
+                        <th style="min-width:140px; text-align:center;">Load Status</th>
+                        <th style="min-width:150px; text-align:center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="facultyLoadingTableBody"></tbody>
+            </table>
+        </div>
+
+        <p id="emptyFacultyLoading" class="empty-note" style="text-align:center; padding:20px; color:#777;">Loading faculty loading reports...</p>
+    </div>
+
+</div>
+
+<!-- Class Schedule Calendar Modal -->
+<div id="classCalendarModal" class="cal-modal-overlay" style="display:none;">
+    <div class="cal-modal-content">
+        <div class="cal-modal-header">
+            <div>
+                <h2 id="classCalModalTitle" style="margin:0; font-size:18px; color:#1b5e20;">Class Schedule Timetable</h2>
+                <p id="classCalModalSubtitle" style="margin:4px 0 0 0; font-size:13px; color:#555;"></p>
+            </div>
+            <button id="classCalModalClose" class="cal-modal-close" type="button">&times;</button>
+        </div>
+        <div class="cal-modal-body" id="classCalModalBody">
+            <!-- Calendar timetable injected dynamically -->
+        </div>
+    </div>
 </div>
 
 <!-- Exam Schedule Calendar Modal -->

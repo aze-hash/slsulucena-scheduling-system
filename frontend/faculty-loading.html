@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faculty Loading - SLSU Lucena Campus</title>
+    <link rel="stylesheet" href="chairperson.css">
+    <style>
+        .loading-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .loading-filters select,
+        .loading-filters input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #1a1a1a;
+            outline: none;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .loading-filters select:focus,
+        .loading-filters input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+        }
+
+        .faculty-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .faculty-load-card {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e0dbd0;
+            padding: 18px;
+            box-shadow: 0 2px 8px var(--shadow);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .faculty-load-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        }
+
+        .faculty-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .faculty-card-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--dark);
+            margin: 0 0 4px 0;
+        }
+
+        .faculty-card-sub {
+            font-size: 12px;
+            color: #666;
+            margin: 0;
+        }
+
+        .load-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        .load-normal {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #c8e6c9;
+        }
+
+        .load-overload {
+            background: #fff3e0;
+            color: #e65100;
+            border: 1px solid #ffe0b2;
+        }
+
+        .load-exceeded {
+            background: #ffebee;
+            color: #b71c1c;
+            border: 1px solid #ffcdd2;
+        }
+
+        .load-none {
+            background: #f5f5f5;
+            color: #777;
+            border: 1px solid #e0e0e0;
+        }
+
+        .faculty-stats-row {
+            display: flex;
+            justify-content: space-between;
+            background: #faf8f3;
+            border: 1px solid #eae5d9;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin: 12px 0;
+        }
+
+        .faculty-stat-item {
+            text-align: center;
+        }
+
+        .faculty-stat-num {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--primary);
+            display: block;
+        }
+
+        .faculty-stat-label {
+            font-size: 11px;
+            color: #777;
+            text-transform: uppercase;
+        }
+
+        .faculty-card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn-card-action {
+            flex: 1;
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 1px solid transparent;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .btn-primary-action {
+            background: var(--primary);
+            color: #ffffff;
+        }
+
+        .btn-primary-action:hover {
+            background: #1b5e20;
+        }
+
+        .btn-secondary-action {
+            background: #ffffff;
+            border-color: #c9c1b0;
+            color: #333;
+        }
+
+        .btn-secondary-action:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .view-switch {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .view-switch-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #c9c1b0;
+            background: #ffffff;
+            color: #333;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .view-switch-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+
+        /* Conflict Alert in Modal */
+        .assign-conflict-alert {
+            background: #ffebee;
+            border: 1px solid #ffcdd2;
+            color: #b71c1c;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 13px;
+            margin-top: 12px;
+            line-height: 1.4;
+        }
+
+        .assign-conflict-alert strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Modal Overlay & Centering */
+        .custom-confirm-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 115vw;
+            height: 115vh;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        .custom-confirm-content {
+            background: #ffffff;
+            border-radius: 14px;
+            max-width: 580px;
+            width: 95%;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+            overflow: hidden;
+            position: relative;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            animation: customModalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes customModalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.94) translateY(-8px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .custom-confirm-header {
+            background: var(--dark, #1b5e20);
+            color: #ffffff;
+            padding: 16px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .custom-confirm-header h3 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .custom-confirm-header .close-modal,
+        .close-modal {
+            color: #ffffff;
+            font-size: 24px;
+            line-height: 1;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0 4px;
+            transition: transform 0.15s ease, opacity 0.15s ease;
+            user-select: none;
+        }
+
+        .custom-confirm-header .close-modal:hover,
+        .close-modal:hover {
+            opacity: 0.8;
+            transform: scale(1.15);
+        }
+
+        .custom-confirm-body {
+            padding: 20px 24px;
+            font-size: 14px;
+            color: #1a1a1a;
+            line-height: 1.6;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .custom-confirm-body p {
+            margin: 0;
+        }
+
+        .custom-confirm-footer {
+            display: flex;
+            gap: 10px;
+            padding: 14px 24px;
+            justify-content: flex-end;
+            border-top: 1px solid #e0dbd0;
+            background: #faf8f3;
+            flex-shrink: 0;
+        }
+
+        .custom-confirm-btn {
+            padding: 9px 22px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .custom-confirm-btn.cancel {
+            background: #e0dbd0;
+            color: #333333;
+        }
+
+        .custom-confirm-btn.cancel:hover {
+            background: #c9c1b0;
+        }
+
+        .custom-confirm-btn.ok {
+            background: var(--primary, #2e7d32);
+            color: #ffffff;
+        }
+
+        .custom-confirm-btn.ok:hover {
+            background: var(--dark, #1b5e20);
+        }
+
+        /* Modal Table Styling */
+        .custom-confirm-modal table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+        }
+
+        .custom-confirm-modal th {
+            background: #eef5ee;
+            color: #1b5e20;
+            font-weight: 700;
+            font-size: 13px;
+            padding: 10px 12px;
+            border-bottom: 2px solid #c8e6c9;
+            text-align: left;
+        }
+
+        .custom-confirm-modal td {
+            padding: 10px 12px;
+            font-size: 13px;
+            border-bottom: 1px solid #e8e4dc;
+            color: #333333;
+            text-align: left;
+        }
+
+        .custom-confirm-modal tbody tr:hover {
+            background: #f7faf7;
+        }
+
+        /* Custom Toast Notification */
+        .custom-toast {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(2px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100000;
+        }
+
+        .custom-toast-content {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px 36px;
+            max-width: 440px;
+            width: 90%;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25);
+            text-align: center;
+            position: relative;
+            font-size: 15px;
+            color: #1a1a1a;
+            line-height: 1.5;
+        }
+
+        .custom-toast-close {
+            position: absolute;
+            top: 6px;
+            right: 12px;
+            font-size: 24px;
+            font-weight: bold;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #888888;
+            transition: 0.2s;
+        }
+
+        .custom-toast-close:hover {
+            color: #b71c1c;
+        }
+
+        /* ── Faculty Timetable Modal ─────────────── */
+        .ft-modal-wide {
+            max-width: 960px;
+            width: 97%;
+        }
+
+        .ft-modal-body {
+            padding: 16px 20px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .ft-summary-box {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            background: #f0f7f0;
+            border: 1px solid #c8e6c9;
+            border-radius: 8px;
+            padding: 12px 18px;
+            margin-bottom: 14px;
+            font-size: 13px;
+            color: #1a1a1a;
+        }
+
+        .ft-summary-box div {
+            white-space: nowrap;
+        }
+
+        /* ── Calendar timetable grid ─────────────── */
+        .cal-timetable-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid #d0ccbf;
+            border-radius: 10px;
+            background: #fafaf7;
+            margin-top: 4px;
+        }
+
+        .cal-timetable {
+            display: flex;
+            min-width: calc(64px + 130px * 5);
+            width: 100%;
+        }
+
+        .cal-time-col {
+            flex: 0 0 64px;
+            width: 64px;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: #fafaf7;
+            border-right: 1px solid #d0ccbf;
+        }
+
+        .cal-time-header {
+            height: 52px;
+            border-bottom: 2px solid #d0ccbf;
+            background: #e8f5e9;
+        }
+
+        .cal-time-body {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cal-time-label {
+            position: absolute;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
+            font-size: 10px;
+            color: #7a7060;
+            text-align: right;
+            padding-right: 7px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .cal-day-col {
+            flex: 1 1 130px;
+            min-width: 130px;
+            border-right: 1px solid #d0ccbf;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .cal-day-col:last-child { border-right: none; }
+
+        .cal-day-header {
+            height: 52px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #e8f5e9;
+            border-bottom: 2px solid #d0ccbf;
+            gap: 2px;
+            padding: 4px 2px;
+        }
+
+        .cal-day-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1b5e20;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+        }
+
+        .cal-day-body {
+            position: relative;
+            overflow: hidden;
+            background: #ffffff;
+        }
+
+        .cal-hour-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e0dbd0;
+            pointer-events: none;
+        }
+
+        .cal-block {
+            position: absolute;
+            border-radius: 6px;
+            padding: 4px 6px;
+            overflow: hidden;
+            box-sizing: border-box;
+            cursor: default;
+            border-left: 3px solid transparent;
+            transition: box-shadow 0.15s ease, transform 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            font-size: 10.5px;
+            line-height: 1.35;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+        }
+
+        .cal-block:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transform: translateY(-1px);
+            z-index: 5;
+        }
+
+        .cal-block-code { font-weight: 700; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cal-block-name { font-size: 10px; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cal-block-time { font-size: 9.5px; opacity: 0.75; }
+        .cal-block-room { font-size: 9.5px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* 16 subject colour themes */
+        .cal-block-color-1  { background:#e8f5e9; border-left-color:#2e7d32; color:#1b5e20; }
+        .cal-block-color-2  { background:#e3f2fd; border-left-color:#1565c0; color:#0d47a1; }
+        .cal-block-color-3  { background:#fff8e1; border-left-color:#f57f17; color:#e65100; }
+        .cal-block-color-4  { background:#fce4ec; border-left-color:#c2185b; color:#880e4f; }
+        .cal-block-color-5  { background:#ede7f6; border-left-color:#512da8; color:#311b92; }
+        .cal-block-color-6  { background:#e0f2f1; border-left-color:#00897b; color:#004d40; }
+        .cal-block-color-7  { background:#fbe9e7; border-left-color:#e64a19; color:#bf360c; }
+        .cal-block-color-8  { background:#e0f7fa; border-left-color:#0097a7; color:#006064; }
+        .cal-block-color-9  { background:#f3e5f5; border-left-color:#8e24aa; color:#4a148c; }
+        .cal-block-color-10 { background:#f9fbe7; border-left-color:#afb42b; color:#827717; }
+        .cal-block-color-11 { background:#efebe9; border-left-color:#6d4c41; color:#3e2723; }
+        .cal-block-color-12 { background:#eceff1; border-left-color:#546e7a; color:#263238; }
+        .cal-block-color-13 { background:#ffebee; border-left-color:#d32f2f; color:#b71c1c; }
+        .cal-block-color-14 { background:#e1f5fe; border-left-color:#0288d1; color:#01579b; }
+        .cal-block-color-15 { background:#fffde7; border-left-color:#fbc02d; color:#f57f17; }
+        .cal-block-color-16 { background:#e8f8f5; border-left-color:#16a085; color:#0e6655; }
+
+        .cal-block-conflict {
+            background: #ffebee !important;
+            border-left-color: #d32f2f !important;
+            color: #b71c1c !important;
+            box-shadow: 0 0 0 1px #ef9a9a, 0 2px 6px rgba(211,47,47,0.25) !important;
+            z-index: 4;
+        }
+
+        .cal-color-dot { border: 1px solid rgba(0,0,0,0.15); }
+
+        /* Collapsible schedule details table under the calendar */
+        .cal-details-collapsible {
+            margin-top: 14px;
+            border: 1px solid #d0ccbf;
+            border-radius: 10px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .cal-details-summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: #f4f9f4;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+        }
+
+        .cal-details-summary::-webkit-details-marker { display: none; }
+
+        .cal-details-summary-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cal-details-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1b5e20;
+        }
+
+        .cal-details-count {
+            font-size: 11px;
+            color: #555;
+            background: #e8f5e9;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid #c8e6c9;
+        }
+
+        .cal-details-toggle-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            color: #1b5e20;
+            transition: transform 0.2s ease;
+        }
+
+        details[open] .cal-details-toggle-icon { transform: rotate(180deg); }
+
+        .cal-details-content {
+            border-top: 1px solid #d0ccbf;
+            overflow-x: auto;
+        }
+    </style>
+
+</head>
+<body>
+
+<nav>
+    <div class="logo">
+        <img src="new slsu logo.jpg" alt="SLSU Logo">
+        <h2>Admin Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Scheduling</a></li>
+        <li><a href="faculty-loading.html" class="active"><span class="nav-icon">👥</span> Faculty Loading</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<main class="container">
+
+    <header class="header">
+        <div>
+            <h1>Faculty Loading</h1>
+            <p>Monitor faculty teaching loads, assigned subjects, and teaching hours across class schedules.</p>
+        </div>
+
+        <div class="admin-profile">
+            <strong id="adminName">SLSU Admin</strong>
+            <span>Administrator / Chairperson / Department Head</span>
+        </div>
+    </header>
+
+    <div class="notice" id="loadingNotice">
+        Loading faculty teaching load data from class schedules...
+    </div>
+
+    <!-- Summary Stats -->
+    <section class="dashboard-grid" style="margin-bottom:20px;">
+        <article class="stat-card">
+            <p>Total Faculty Members</p>
+            <h2 id="totalFacultyCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Faculty with Load</p>
+            <h2 id="assignedFacultyCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Total Teaching Sections</p>
+            <h2 id="totalSectionsCount">0</h2>
+        </article>
+
+        <article class="stat-card">
+            <p>Total Teaching Hours</p>
+            <h2 id="totalTeachingHoursCount">0 hrs</h2>
+        </article>
+    </section>
+
+    <!-- Main Card -->
+    <div class="card">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+            <div class="view-switch">
+                <button type="button" class="view-switch-btn active" id="viewCardsBtn">Faculty Cards</button>
+                <button type="button" class="view-switch-btn" id="viewTableBtn">Detailed Master Table</button>
+            </div>
+            <div>
+                <button type="button" id="openAssignModalBtn" class="btn-card-action btn-primary-action" style="padding:9px 18px; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+                    <span>+</span> Assign Faculty to Class
+                </button>
+            </div>
+        </div>
+
+        <!-- Filter Controls -->
+        <div class="loading-filters">
+            <input type="text" id="facultySearchInput" placeholder="⌕ Search faculty name, ID, or subject...">
+
+            <select id="facultyAyFilter">
+                <option value="">All Academic Years</option>
+            </select>
+
+            <select id="facultySemFilter">
+                <option value="">All Semesters</option>
+                <option value="1">1st Semester</option>
+                <option value="2">2nd Semester</option>
+            </select>
+
+            <select id="facultyDeptFilter">
+                <option value="">All Programs / Departments</option>
+                <option value="BIT">BIT</option>
+                <option value="BINDTECH">BINDTECH</option>
+                <option value="BTVTED">BTVTED</option>
+            </select>
+        </div>
+
+        <!-- View Mode 1: Faculty Cards Grid -->
+        <div id="facultyCardsContainer" class="faculty-summary-grid"></div>
+
+        <!-- View Mode 2: Detailed Master Table -->
+        <div id="facultyTableContainer" class="table-container" style="display:none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="min-width:180px;">Faculty</th>
+                        <th style="min-width:120px;">Faculty ID</th>
+                        <th style="min-width:180px;">Subject</th>
+                        <th style="min-width:110px;">Subject Code</th>
+                        <th style="min-width:120px;">Section</th>
+                        <th style="min-width:100px;">Day</th>
+                        <th style="min-width:130px;">Time</th>
+                        <th style="min-width:120px;">Room</th>
+                        <th style="min-width:80px; text-align:center;">Hours</th>
+                        <th style="min-width:130px; text-align:center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="facultyLoadingTableBody"></tbody>
+            </table>
+        </div>
+
+        <p id="emptyFacultyLoading" class="empty-note" style="text-align:center; padding:24px; color:#777; display:none;">
+            No faculty loading records found for the selected criteria.
+        </p>
+    </div>
+
+</main>
+
+<!-- Assign / Reassign Faculty Modal -->
+<div id="assignFacultyModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content" style="max-width:580px; width:95%;">
+        <div class="custom-confirm-header">
+            <h3 id="assignModalTitle">Assign Faculty to Class</h3>
+            <span id="closeAssignModalBtn" class="close-modal" title="Close">&times;</span>
+        </div>
+        <form id="assignFacultyForm" style="display:flex; flex-direction:column; flex:1; min-height:0; margin:0;">
+            <div class="custom-confirm-body">
+                <div style="display:flex; flex-direction:column; gap:14px;">
+                    <div>
+                        <label for="assignFacultySelect" style="display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:#333;">Faculty Member *</label>
+                        <select id="assignFacultySelect" required style="width:100%; padding:10px 12px; border:1px solid #c9c1b0; border-radius:8px; font-size:14px; background:#fff;">
+                            <option value="">-- Select Faculty --</option>
+                        </select>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                        <div>
+                            <label for="assignScheduleSelect" style="display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:#333;">Class Schedule / Section *</label>
+                            <select id="assignScheduleSelect" required style="width:100%; padding:10px 12px; border:1px solid #c9c1b0; border-radius:8px; font-size:14px; background:#fff;">
+                                <option value="">-- Select Section --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="assignSubjectSelect" style="display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:#333;">Subject *</label>
+                            <select id="assignSubjectSelect" required style="width:100%; padding:10px 12px; border:1px solid #c9c1b0; border-radius:8px; font-size:14px; background:#fff;">
+                                <option value="">-- Select Subject --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="assignClassDetails" style="display:none; background:#faf8f3; border:1px solid #e0dbd0; border-radius:8px; padding:12px; font-size:13px;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div><strong>Day:</strong> <span id="assignDetailDay">-</span></div>
+                            <div><strong>Time:</strong> <span id="assignDetailTime">-</span></div>
+                            <div><strong>Room:</strong> <span id="assignDetailRoom">-</span></div>
+                            <div><strong>Units / Hours:</strong> <span id="assignDetailHours">-</span></div>
+                        </div>
+                    </div>
+
+                    <div id="assignConflictNotice" class="assign-conflict-alert" style="display:none;"></div>
+                </div>
+            </div>
+
+            <div class="custom-confirm-footer">
+                <button type="button" id="cancelAssignModalBtn" class="custom-confirm-btn cancel">Cancel</button>
+                <button type="submit" id="saveAssignmentBtn" class="custom-confirm-btn ok">Save Assignment</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Faculty Timetable Modal -->
+<div id="facultyTimetableModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content ft-modal-wide">
+        <div class="custom-confirm-header">
+            <div>
+                <h3 id="ftModalTitle" style="margin:0;">Faculty Teaching Schedule</h3>
+                <small id="ftModalSubtitle" style="color:rgba(255,255,255,0.85); font-size:12px;"></small>
+            </div>
+            <span id="closeFtModalBtn" class="close-modal" title="Close">&times;</span>
+        </div>
+        <div class="custom-confirm-body ft-modal-body">
+            <div id="ftSummaryBox" class="ft-summary-box"></div>
+            <div id="ftCalendarBody"></div>
+        </div>
+        <div class="custom-confirm-footer">
+            <button type="button" id="closeFtBtn" class="custom-confirm-btn cancel">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Toast -->
+<div id="customToast" class="custom-toast" style="display:none;">
+    <div class="custom-toast-content">
+        <span id="customToastMessage"></span>
+        <button id="customToastClose" class="custom-toast-close">&times;</button>
+    </div>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div id="customConfirmModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content">
+        <div class="custom-confirm-header">
+            <h3>Confirm Action</h3>
+        </div>
+        <div class="custom-confirm-body">
+            <p id="customConfirmMessage"></p>
+        </div>
+        <div class="custom-confirm-footer">
+            <button id="customConfirmCancel" class="custom-confirm-btn cancel">Cancel</button>
+            <button id="customConfirmOk" class="custom-confirm-btn ok">Yes, Proceed</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="faculty-loading.js"></script>
+
+</body>
+</html>

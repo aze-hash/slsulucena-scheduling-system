@@ -24,6 +24,11 @@ import {
 import { renderExamCalendar, renderWeeklyExamCalendar } from "./js/schedule-calendar.js";
 
 const examScheduleContainer = document.getElementById("examScheduleContainer");
+const classTeachingScheduleContainer = document.getElementById("classScheduleContainer") || document.getElementById("classTeachingScheduleContainer");
+const facultyWorkloadSummaryBadge = document.getElementById("facultyLoadBadgeContainer") || document.getElementById("facultyWorkloadSummaryBadge");
+const facultyTotalSubjectsEl = document.getElementById("facultyTotalSubjects");
+const facultyTotalSectionsEl = document.getElementById("facultyTotalSections");
+const facultyTotalHoursEl = document.getElementById("facultyTotalHours");
 const navFacultyName = document.getElementById("navFacultyName");
 const navFacultyRole = document.getElementById("navFacultyRole");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -807,13 +812,17 @@ function calculateWeeklyHours(dayStr, timeStr) {
     return Math.round(total * 10) / 10;
 }
 
-function isClassEntryAssignedToFaculty(entry, userUid, fullName) {
+function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
     if (!entry) return false;
-    if (userUid && entry.facultyId && String(entry.facultyId).trim() === String(userUid).trim()) {
+    if (userUid && (String(entry.facultyUid || "").trim() === String(userUid).trim() || String(entry.facultyId || "").trim() === String(userUid).trim())) {
         return true;
     }
-    if (fullName && entry.facultyName) {
-        const normEntry = normalize(entry.facultyName);
+    if (employeeId && (String(entry.facultyId || "").trim() === String(employeeId).trim() || String(entry.employeeId || "").trim() === String(employeeId).trim())) {
+        return true;
+    }
+    const facName = entry.faculty || entry.facultyName;
+    if (fullName && facName) {
+        const normEntry = normalize(facName);
         const normUser = normalize(fullName);
         if (normEntry && normUser && (normEntry === normUser || normEntry.includes(normUser) || normUser.includes(normEntry))) {
             return true;
@@ -833,11 +842,15 @@ function renderClassTeachingSchedules(assignedClasses) {
                 </span>
             `;
         }
+        if (facultyTotalSubjectsEl) facultyTotalSubjectsEl.textContent = "0";
+        if (facultyTotalSectionsEl) facultyTotalSectionsEl.textContent = "0";
+        if (facultyTotalHoursEl) facultyTotalHoursEl.textContent = "0 hrs";
+
         classTeachingScheduleContainer.innerHTML = `
             <div class="empty-state" style="padding:28px 16px; text-align:center; color:#666;">
                 <div style="font-size:24px; margin-bottom:8px;">📚</div>
-                <p style="margin:0; font-size:14px; font-weight:600; color:#333;">No class teaching assignments published yet.</p>
-                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When exam schedules are published by your department Chairperson, your weekly classes will be displayed here.</p>
+                <p style="margin:0; font-size:14px; font-weight:600; color:#333;">No class teaching assignments found.</p>
+                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When class schedules are assigned by your department Chairperson, your weekly classes will be displayed here.</p>
             </div>
         `;
         return;
@@ -847,27 +860,36 @@ function renderClassTeachingSchedules(assignedClasses) {
     let totalUnits = 0;
     let totalWeeklyHours = 0;
     const distinctSections = new Set();
+    const distinctSubjects = new Set();
 
     assignedClasses.forEach(item => {
         totalUnits += Number(item.units) || 0;
         totalWeeklyHours += calculateWeeklyHours(item.day, item.time);
         if (item.section) distinctSections.add(item.section);
+        if (item.code || item.subjectCode) distinctSubjects.add(item.code || item.subjectCode);
     });
 
     totalWeeklyHours = Math.round(totalWeeklyHours * 10) / 10;
 
+    if (facultyTotalSubjectsEl) facultyTotalSubjectsEl.textContent = distinctSubjects.size;
+    if (facultyTotalSectionsEl) facultyTotalSectionsEl.textContent = distinctSections.size;
+    if (facultyTotalHoursEl) facultyTotalHoursEl.textContent = `${totalWeeklyHours} hrs`;
+
     // Load badge
     let loadBadgeStyle = "";
     let loadLabel = "";
-    if (totalUnits <= 18) {
+    if (totalWeeklyHours <= 0) {
+        loadBadgeStyle = "background:#f5f5f5; color:#777; border:1px solid #e0e0e0;";
+        loadLabel = "No Load";
+    } else if (totalWeeklyHours > 21) {
+        loadBadgeStyle = "background:#ffebee; color:#c62828; border:1px solid #ffcdd2;";
+        loadLabel = "⚠️ Over Capacity (>21 hrs)";
+    } else if (totalWeeklyHours >= 19) {
+        loadBadgeStyle = "background:#fff3e0; color:#e65100; border:1px solid #ffe0b2;";
+        loadLabel = "⚡ Overload (19–21 hrs)";
+    } else {
         loadBadgeStyle = "background:#e8f5e9; color:#1b5e20; border:1px solid #c8e6c9;";
         loadLabel = "✓ Normal Load";
-    } else if (totalUnits <= 21) {
-        loadBadgeStyle = "background:#fff3e0; color:#e65100; border:1px solid #ffe0b2;";
-        loadLabel = "⚡ Overload";
-    } else {
-        loadBadgeStyle = "background:#ffebee; color:#c62828; border:1px solid #ffcdd2;";
-        loadLabel = "⚠️ Over Capacity";
     }
 
     if (facultyWorkloadSummaryBadge) {
@@ -925,13 +947,11 @@ function renderClassTeachingSchedules(assignedClasses) {
     `;
 }
 
-// Retained only for backward-compatible data recovery; the examination-only
-// faculty dashboard never starts this legacy class-teaching listener.
-function watchArchivedClassTeachingSchedules(user, fullName) {
+function watchAssignedClassSchedules(user, fullName, employeeId) {
     if (!classTeachingScheduleContainer) return;
 
     onSnapshot(
-        collection(db, "examSchedules"),
+        collection(db, "classSchedules"),
         snapshot => {
             const assignedClasses = [];
 
@@ -942,11 +962,11 @@ function watchArchivedClassTeachingSchedules(user, fullName) {
 
                 const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
                 entries.forEach(entry => {
-                    if (isClassEntryAssignedToFaculty(entry, user.uid, fullName)) {
+                    if (isClassEntryAssignedToFaculty(entry, user.uid, fullName, employeeId)) {
                         assignedClasses.push({
                             ...entry,
                             scheduleId: schedule.id,
-                            scheduleName: schedule.name || schedule.section || "Exam Schedule",
+                            scheduleName: schedule.name || schedule.section || "Class Schedule",
                             section: schedule.section || schedule.name || "",
                             academicYear: schedule.academicYear || "",
                             semester: schedule.semester || "",
@@ -971,9 +991,9 @@ function watchArchivedClassTeachingSchedules(user, fullName) {
             renderClassTeachingSchedules(assignedClasses);
         },
         error => {
-            console.error("Could not watch assigned exam schedules:", error);
+            console.error("Could not watch assigned class schedules:", error);
             if (classTeachingScheduleContainer) {
-                classTeachingScheduleContainer.innerHTML = '<div class="empty-state">Unable to load exam schedules right now.</div>';
+                classTeachingScheduleContainer.innerHTML = '<div class="empty-state">Unable to load class schedules right now.</div>';
             }
         }
     );
@@ -1020,6 +1040,7 @@ async function initializeFacultyDashboard() {
 
             watchAssignedExamSchedules(user, fullName);
             watchRescheduleNotifications();
+            watchAssignedClassSchedules(user, fullName, currentFacultyId);
         } catch (error) {
             console.error("Could not load faculty dashboard:", error);
             examScheduleContainer.innerHTML = '<div class="empty-state">Unable to load exam schedules right now.</div>';

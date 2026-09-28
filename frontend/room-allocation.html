@@ -16,6 +16,8 @@
 
     <ul>
         <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Scheduling</a></li>
+        <li><a href="faculty-loading.html"><span class="nav-icon">👥</span> Faculty Loading</a></li>
         <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
         <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
@@ -30,16 +32,32 @@
     <div class="header">
         <div>
             <h1>Room Assignment Dashboard</h1>
-            <p>Monitor which sections are assigned to which rooms during examinations.
-                This page is <strong>read‑only</strong> — it only displays the existing generated examination schedules.
-                Use the Exam Schedule page to change room assignments.</p>
+            <p>Monitor which sections and classes are assigned to which rooms.
+                This page is <strong>read‑only</strong> — it displays generated class and examination schedules.
+                Use the Class Scheduling or Exam Schedule page to modify schedules.</p>
         </div>
     </div>
 
     <!-- Filters -->
     <div class="card" id="raFiltersCard">
-        <h3>Room Filters</h3>
-        <p class="card-subtitle">Filters update the calendar instantly without reloading the page.</p>
+        <div class="ra-schedule-type-container">
+            <label class="ra-section-label">Schedule Type</label>
+            <div class="ra-schedule-type-toggle" role="group" aria-label="Select Schedule Type">
+                <button type="button" class="ra-type-btn active" id="raTypeBtnClass" data-type="class">
+                    <span class="nav-icon">📅</span> Class Schedule
+                </button>
+                <button type="button" class="ra-type-btn" id="raTypeBtnExam" data-type="exam">
+                    <span class="nav-icon">📝</span> Exam Schedule
+                </button>
+            </div>
+        </div>
+
+        <div class="ra-filter-header-row">
+            <div>
+                <h3>Room Filters</h3>
+                <p class="card-subtitle">Filters update the calendar instantly without reloading the page.</p>
+            </div>
+        </div>
 
         <div class="ra-filters-grid">
             <div class="ra-control">
@@ -58,13 +76,22 @@
                 </select>
             </div>
 
-            <div class="ra-control">
+            <div class="ra-control" id="raExamTypeControl" style="display:none;">
                 <label for="raExamType">Exam Type</label>
                 <select id="raExamType">
                     <option value="">All Exam Types</option>
                     <option value="Preliminary">Preliminary</option>
                     <option value="Midterm">Midterm</option>
                     <option value="Final">Final</option>
+                </select>
+            </div>
+
+            <div class="ra-control" id="raClassStatusControl">
+                <label for="raClassStatus">Schedule Status</label>
+                <select id="raClassStatus">
+                    <option value="">All Statuses</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
                 </select>
             </div>
 
@@ -83,6 +110,17 @@
             </div>
 
             <div class="ra-control">
+                <label for="raRoomType">Room Type</label>
+                <select id="raRoomType">
+                    <option value="">All Room Types</option>
+                    <option value="Lecture Room">Lecture Rooms</option>
+                    <option value="Laboratory">Laboratories</option>
+                    <option value="Gymnasium">Gymnasium / Facilities</option>
+                    <option value="Other">Other Rooms</option>
+                </select>
+            </div>
+
+            <div class="ra-control">
                 <label for="raRoom">Room</label>
                 <select id="raRoom">
                     <option value="">Select Room</option>
@@ -91,12 +129,12 @@
         </div>
     </div>
 
-    <!-- Lecture Rooms -->
+    <!-- Rooms -->
     <div class="card" id="raRoomsCard">
         <div class="ra-card-header">
             <div>
-                <h3>Rooms</h3>
-                <p class="card-subtitle">Tabs are generated automatically from the <code>roomName</code> field of the Firestore <code>rooms</code> collection.</p>
+                <h3 id="raRoomsCardTitle">Rooms</h3>
+                <p class="card-subtitle" id="raRoomsCardSubtitle">Showing lecture rooms, laboratories, and facilities from the <code>rooms</code> collection.</p>
             </div>
             <span class="ra-counter" id="raRoomCounter">0 rooms</span>
         </div>
@@ -105,21 +143,21 @@
 
     <!-- Calendar -->
     <div class="card" id="raCalendarCard">
-        <h3 id="raCalendarTitle">Examination Room Usage</h3>
-        <p class="card-subtitle" id="raCalendarSubtitle">Room assignment for the selected lecture room.</p>
+        <h3 id="raCalendarTitle">Weekly Room Usage</h3>
+        <p class="card-subtitle" id="raCalendarSubtitle">Room assignment for the selected room.</p>
 
         <div id="raRoomSummary" class="ra-summary"></div>
         <div id="raConflictBanner" class="ra-conflict-banner" style="display:none;"></div>
 
         <div id="raCalendar" class="ra-cal-scroll">
-            <p class="ra-loading" id="raLoading">Loading examination schedules from Firestore...</p>
+            <p class="ra-loading" id="raLoading">Loading schedules from Firestore...</p>
         </div>
 
         <p id="raEmpty" class="ra-empty" style="display:none;"></p>
 
-        <div class="ra-legend">
-            <span class="ra-legend-item"><span class="ra-legend-swatch occupied"></span> Occupied — examination assigned</span>
-            <span class="ra-legend-item"><span class="ra-legend-swatch conflict"></span> Room conflict — two or more exams in the same room, date &amp; time</span>
+        <div class="ra-legend" id="raLegend">
+            <span class="ra-legend-item"><span class="ra-legend-swatch occupied"></span> Occupied — class/exam assigned</span>
+            <span class="ra-legend-item"><span class="ra-legend-swatch conflict"></span> Room conflict — two or more classes/exams in the same room &amp; time</span>
         </div>
     </div>
 

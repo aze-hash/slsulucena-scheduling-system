@@ -44,6 +44,9 @@ let modalProgramFilter = "";
 let modalMajorFilter = "";
 let modalYearFilter = "";
 let modalSemesterFilter = "";
+let activeModalView = "catalog"; // "catalog" | "assigned"
+let assignedSearchTerm = "";
+let selectedForDeleteKeys = new Set(); // keys checked for deletion in assigned view
 
 /* =========================
    COMPOSITE SUBJECT KEY
@@ -819,6 +822,9 @@ async function openAssignSubjectsModal(userId, userName, userEmail) {
     // Load existing assigned subjects (stored as composite keys)
     const existing = facultyAssignmentsMap.get(userId) || [];
     selectedSubjectKeys = new Set(existing);
+    selectedForDeleteKeys.clear();
+    activeModalView = "catalog";
+    assignedSearchTerm = "";
 
     // Reset filters
     modalSearchTerm = "";
@@ -826,6 +832,9 @@ async function openAssignSubjectsModal(userId, userName, userEmail) {
     modalMajorFilter = "";
     modalYearFilter = "";
     modalSemesterFilter = "";
+
+    const assignedSearchInput = document.getElementById("assignedSearchInput");
+    if (assignedSearchInput) assignedSearchInput.value = "";
 
     document.getElementById("subjectSearchInput").value = "";
     document.getElementById("subjectProgramFilter").value = "";
@@ -844,7 +853,7 @@ async function openAssignSubjectsModal(userId, userName, userEmail) {
         await loadProspectusSubjects();
     }
 
-    renderModalSubjectList();
+    switchModalView("catalog");
 
     // Display modal
     const modalOverlay = document.getElementById("assignSubjectsModal");
@@ -860,6 +869,8 @@ function closeAssignSubjectsModal() {
     }
     activeFacultyUser = null;
     selectedSubjectKeys.clear();
+    selectedForDeleteKeys.clear();
+    activeModalView = "catalog";
 }
 
 function updateModalHeaderBadge() {
@@ -869,6 +880,16 @@ function updateModalHeaderBadge() {
         badge.textContent = count > 0
             ? `${count} subject${count === 1 ? "" : "s"} assigned`
             : "No subjects assigned";
+    }
+
+    const btnCount = document.getElementById("assignedBtnCount");
+    if (btnCount) {
+        btnCount.textContent = count;
+    }
+
+    const navBadge = document.getElementById("navAssignedCountBadge");
+    if (navBadge) {
+        navBadge.textContent = count;
     }
 
     const loadBadge = document.getElementById("modalLoadBadge");
@@ -1032,6 +1053,347 @@ function renderModalSubjectList() {
 }
 
 /* =========================
+   ASSIGNED SUBJECTS VIEW & DELETION
+========================= */
+
+/**
+ * Resolves full prospectus details from a composite key or legacy subject code.
+ */
+function getSubjectDetailsFromKey(key) {
+    if (!key) return null;
+
+    const subjectMapByKey = new Map();
+    const subjectMapByCode = new Map();
+
+    for (const subj of prospectusSubjects) {
+        subjectMapByKey.set(getSubjectKey(subj), subj);
+        const code = String(subj.subjectCode || "").trim().toUpperCase();
+        if (code && !subjectMapByCode.has(code)) {
+            subjectMapByCode.set(code, subj);
+        }
+    }
+
+    let subj = subjectMapByKey.get(key);
+    if (!subj && typeof key === "string") {
+        const parts = key.split("_");
+        const code = parts[parts.length - 1].toUpperCase();
+        subj = subjectMapByCode.get(code) || subjectMapByCode.get(key.toUpperCase());
+    }
+
+    if (subj) {
+        return {
+            key,
+            subjectCode: subj.subjectCode || "",
+            subjectName: subj.subjectName || "",
+            units: (subj.units !== undefined && !isNaN(Number(subj.units))) ? Number(subj.units) : 3,
+            lecHours: (subj.lecHours !== undefined && !isNaN(Number(subj.lecHours))) ? Number(subj.lecHours) : 0,
+            labHours: (subj.labHours !== undefined && !isNaN(Number(subj.labHours))) ? Number(subj.labHours) : 0,
+            programCode: subj.programCode || "",
+            majorCode: subj.majorCode || "",
+            yearLevel: subj.yearLevel || "",
+            semester: subj.semester || "",
+            subjectType: subj.subjectType || ""
+        };
+    }
+
+    // Fallback if not found in prospectusSubjects
+    if (typeof key === "string" && key.includes("_")) {
+        const parts = key.split("_");
+        const code = parts[parts.length - 1];
+        return {
+            key,
+            subjectCode: code,
+            subjectName: `Subject (${code})`,
+            units: 3,
+            lecHours: 0,
+            labHours: 0,
+            programCode: parts[0] || "",
+            majorCode: parts[1] || "",
+            yearLevel: parts[2] || "",
+            semester: parts[3] || "",
+            subjectType: ""
+        };
+    }
+
+    return {
+        key,
+        subjectCode: key,
+        subjectName: `Subject (${key})`,
+        units: 3,
+        lecHours: 0,
+        labHours: 0,
+        programCode: "",
+        majorCode: "",
+        yearLevel: "",
+        semester: "",
+        subjectType: ""
+    };
+}
+
+/**
+ * Switches the Assign Subjects modal view between "catalog" and "assigned".
+ */
+function switchModalView(viewName) {
+    activeModalView = viewName;
+    const catalogSection = document.getElementById("catalogViewSection");
+    const assignedSection = document.getElementById("assignedViewSection");
+    const tabCatalog = document.getElementById("tabCatalogView");
+    const tabAssigned = document.getElementById("tabAssignedView");
+
+    if (viewName === "assigned") {
+        if (catalogSection) catalogSection.style.display = "none";
+        if (assignedSection) assignedSection.style.display = "flex";
+        if (tabCatalog) tabCatalog.classList.remove("active");
+        if (tabAssigned) tabAssigned.classList.add("active");
+
+        assignedSearchTerm = "";
+        selectedForDeleteKeys.clear();
+        const searchInput = document.getElementById("assignedSearchInput");
+        if (searchInput) searchInput.value = "";
+
+        renderAssignedSubjectsTable();
+    } else {
+        if (catalogSection) catalogSection.style.display = "";
+        if (assignedSection) assignedSection.style.display = "none";
+        if (tabCatalog) tabCatalog.classList.add("active");
+        if (tabAssigned) tabAssigned.classList.remove("active");
+
+        renderModalSubjectList();
+    }
+}
+
+/**
+ * Returns filtered list of assigned subjects based on assignedSearchTerm.
+ */
+function getFilteredAssignedSubjects() {
+    const list = Array.from(selectedSubjectKeys).map(key => getSubjectDetailsFromKey(key)).filter(Boolean);
+
+    return list.filter(item => {
+        if (!assignedSearchTerm) return true;
+        const term = assignedSearchTerm.toLowerCase();
+        const code = String(item.subjectCode || "").toLowerCase();
+        const name = String(item.subjectName || "").toLowerCase();
+        const prog = String(item.programCode || "").toLowerCase();
+        const maj = String(item.majorCode || "").toLowerCase();
+        return code.includes(term) || name.includes(term) || prog.includes(term) || maj.includes(term);
+    }).sort((a, b) => (a.subjectCode || "").localeCompare(b.subjectCode || ""));
+}
+
+/**
+ * Updates the Delete Selected button state, count badge, and Select All checkbox.
+ */
+function updateDeleteSelectedButton() {
+    const deleteBtn = document.getElementById("deleteSelectedAssignedBtn");
+    const countSpan = document.getElementById("selectedDeleteCount");
+    const countText = document.getElementById("assignedSelectedCountText");
+    const selectAllCb = document.getElementById("selectAllAssignedCheckbox");
+
+    const deleteCount = selectedForDeleteKeys.size;
+
+    if (countSpan) countSpan.textContent = deleteCount;
+    if (countText) {
+        countText.textContent = `${deleteCount} selected for removal`;
+        countText.style.color = deleteCount > 0 ? "#c62828" : "#888";
+    }
+
+    if (deleteBtn) {
+        deleteBtn.disabled = deleteCount === 0;
+    }
+
+    if (selectAllCb) {
+        const visibleSubjects = getFilteredAssignedSubjects();
+        if (visibleSubjects.length > 0 && visibleSubjects.every(s => selectedForDeleteKeys.has(s.key))) {
+            selectAllCb.checked = true;
+            selectAllCb.indeterminate = false;
+        } else if (visibleSubjects.some(s => selectedForDeleteKeys.has(s.key))) {
+            selectAllCb.checked = false;
+            selectAllCb.indeterminate = true;
+        } else {
+            selectAllCb.checked = false;
+            selectAllCb.indeterminate = false;
+        }
+    }
+}
+
+/**
+ * Renders the table of assigned subjects with checkboxes on the left of each row.
+ */
+function renderAssignedSubjectsTable() {
+    const tbody = document.getElementById("assignedTableBody");
+    const showingCountEl = document.getElementById("assignedShowingCount");
+    if (!tbody) return;
+
+    const subjects = getFilteredAssignedSubjects();
+
+    if (showingCountEl) {
+        showingCountEl.textContent = `Showing ${subjects.length} of ${selectedSubjectKeys.size} assigned subjects`;
+    }
+
+    if (!subjects.length) {
+        if (selectedSubjectKeys.size === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="empty-state" style="padding:40px 20px; text-align:center; color:#777;">
+                        <div style="font-size:32px; margin-bottom:8px;">📚</div>
+                        <div style="font-weight:700; font-size:15px; color:#333; margin-bottom:4px;">No Assigned Subjects</div>
+                        <p style="font-size:13px; color:#666; margin:0 0 14px 0;">This faculty member does not have any assigned subjects yet.</p>
+                        <button type="button" class="btn-back-catalog" id="emptyStateAssignBtn" style="padding:8px 16px;">
+                            + Browse and Assign Subjects
+                        </button>
+                    </td>
+                </tr>
+            `;
+            document.getElementById("emptyStateAssignBtn")?.addEventListener("click", () => {
+                switchModalView("catalog");
+            });
+        } else {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="empty-state" style="padding:30px 15px; text-align:center; color:#777;">
+                        No assigned subjects match "${safe(assignedSearchTerm)}".
+                    </td>
+                </tr>
+            `;
+        }
+        updateDeleteSelectedButton();
+        return;
+    }
+
+    tbody.innerHTML = subjects.map(item => {
+        const isChecked = selectedForDeleteKeys.has(item.key);
+        const curriculum = [item.programCode, item.majorCode].filter(Boolean).join(" - ") || "—";
+        const yearSem = (item.yearLevel || item.semester)
+            ? `Yr ${item.yearLevel || "—"}, Sem ${item.semester || "—"}`
+            : "—";
+
+        return `
+            <tr class="${isChecked ? "selected-for-delete" : ""}">
+                <td style="text-align:center;">
+                    <input
+                        type="checkbox"
+                        class="assigned-row-cb"
+                        data-subject-key="${safe(item.key)}"
+                        ${isChecked ? "checked" : ""}
+                        title="Select to delete / remove"
+                    >
+                </td>
+                <td>
+                    <span class="subject-code-badge">${safe(item.subjectCode)}</span>
+                </td>
+                <td>
+                    <div style="font-weight:600; color:#222;">${safe(item.subjectName)}</div>
+                </td>
+                <td style="text-align:center;">
+                    <span class="meta-tag units">${safe(item.units)} Units</span>
+                </td>
+                <td>
+                    <span class="meta-tag curriculum">${safe(curriculum)}</span>
+                </td>
+                <td style="font-size:12px; color:#555;">
+                    ${safe(yearSem)}
+                </td>
+                <td style="text-align:center;">
+                    <button
+                        type="button"
+                        class="btn-remove-row"
+                        data-subject-key="${safe(item.key)}"
+                        data-subject-code="${safe(item.subjectCode)}"
+                        data-subject-name="${safe(item.subjectName)}"
+                    >
+                        Remove
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+
+    // Checkbox event listeners on each row
+    tbody.querySelectorAll(".assigned-row-cb").forEach(cb => {
+        cb.addEventListener("change", event => {
+            const key = event.target.dataset.subjectKey;
+            const row = event.target.closest("tr");
+            if (event.target.checked) {
+                selectedForDeleteKeys.add(key);
+                row?.classList.add("selected-for-delete");
+            } else {
+                selectedForDeleteKeys.delete(key);
+                row?.classList.remove("selected-for-delete");
+            }
+            updateDeleteSelectedButton();
+        });
+    });
+
+    // Individual remove button event listener on each row
+    tbody.querySelectorAll(".btn-remove-row").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const key = btn.dataset.subjectKey;
+            const code = btn.dataset.subjectCode;
+            const name = btn.dataset.subjectName;
+            handleDeleteAssignedSubjects([key], `Remove "${code} - ${name}" from ${activeFacultyUser?.fullName || "this faculty member"}?`);
+        });
+    });
+
+    updateDeleteSelectedButton();
+}
+
+/**
+ * Handles deletion of one or multiple assigned subjects from faculty.
+ */
+async function handleDeleteAssignedSubjects(keysToRemove = [], customConfirmMessage = "") {
+    if (!activeFacultyUser || !activeFacultyUser.id) {
+        console.error("No active faculty member selected.");
+        return;
+    }
+
+    if (!keysToRemove.length) {
+        alert("Please select at least one assigned subject to remove.");
+        return;
+    }
+
+    const facultyName = activeFacultyUser.fullName || "this faculty member";
+    const confirmMsg = customConfirmMessage ||
+        `Are you sure you want to remove ${keysToRemove.length} assigned subject${keysToRemove.length === 1 ? "" : "s"} from ${facultyName}?\n\nThis will unassign these subjects and update the database.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const facultyUserId = activeFacultyUser.id;
+
+        // Remove the selected keys
+        keysToRemove.forEach(k => {
+            selectedSubjectKeys.delete(k);
+            selectedForDeleteKeys.delete(k);
+        });
+
+        const updatedArray = Array.from(selectedSubjectKeys).filter(Boolean);
+
+        console.log(`Updating assigned subjects for faculty ${facultyUserId} after deletion:`, updatedArray);
+
+        // Save to Firestore facultySubjectAssignments
+        await setDoc(doc(db, "facultySubjectAssignments", facultyUserId), {
+            facultyId: facultyUserId,
+            handledSubjects: updatedArray,
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        // Update local state map
+        facultyAssignmentsMap.set(facultyUserId, updatedArray);
+
+        // Update UI
+        updateModalHeaderBadge();
+        renderAssignedSubjectsTable();
+        renderModalSubjectList();
+        renderUsers();
+
+        alert(`Successfully removed ${keysToRemove.length} assigned subject${keysToRemove.length === 1 ? "" : "s"}.`);
+
+    } catch (error) {
+        console.error("Error removing assigned subjects:", error);
+        alert(`Failed to remove assigned subjects: ${error.message}`);
+    }
+}
+
+/* =========================
    MODAL ACTIONS & EVENT LISTENERS
 ========================= */
 
@@ -1090,7 +1452,7 @@ document.getElementById("saveAssignBtn")?.addEventListener("click", async () => 
     }
 
     const saveBtn = document.getElementById("saveAssignBtn");
-    const originalText = saveBtn.textContent;
+    const originalHtml = saveBtn.innerHTML;
 
     try {
         saveBtn.disabled = true;
@@ -1123,7 +1485,7 @@ document.getElementById("saveAssignBtn")?.addEventListener("click", async () => 
         alert(`Failed to save assigned subjects: ${error.message}`);
     } finally {
         saveBtn.disabled = false;
-        saveBtn.textContent = originalText;
+        saveBtn.innerHTML = originalHtml;
     }
 });
 
@@ -1141,6 +1503,55 @@ document.getElementById("assignSubjectsModal")?.addEventListener("click", event 
     if (event.target === document.getElementById("assignSubjectsModal")) {
         closeAssignSubjectsModal();
     }
+});
+
+// Done button in assigned view
+document.getElementById("closeAssignedModalBtn")?.addEventListener("click", () => {
+    closeAssignSubjectsModal();
+});
+
+// Toggle View buttons & tabs in modal
+document.getElementById("viewAssignedSubjectsBtn")?.addEventListener("click", () => {
+    switchModalView("assigned");
+});
+
+document.getElementById("tabCatalogView")?.addEventListener("click", () => {
+    switchModalView("catalog");
+});
+
+document.getElementById("tabAssignedView")?.addEventListener("click", () => {
+    switchModalView("assigned");
+});
+
+document.getElementById("backToCatalogBtn")?.addEventListener("click", () => {
+    switchModalView("catalog");
+});
+
+// Assigned subjects search input
+document.getElementById("assignedSearchInput")?.addEventListener("input", event => {
+    assignedSearchTerm = event.target.value.trim();
+    renderAssignedSubjectsTable();
+});
+
+// Select all assigned checkbox
+document.getElementById("selectAllAssignedCheckbox")?.addEventListener("change", event => {
+    const isChecked = event.target.checked;
+    const visibleSubjects = getFilteredAssignedSubjects();
+    visibleSubjects.forEach(s => {
+        if (isChecked) {
+            selectedForDeleteKeys.add(s.key);
+        } else {
+            selectedForDeleteKeys.delete(s.key);
+        }
+    });
+    renderAssignedSubjectsTable();
+});
+
+// Delete selected assigned subjects button
+document.getElementById("deleteSelectedAssignedBtn")?.addEventListener("click", () => {
+    const keys = Array.from(selectedForDeleteKeys);
+    if (!keys.length) return;
+    handleDeleteAssignedSubjects(keys);
 });
 
 /* =========================
