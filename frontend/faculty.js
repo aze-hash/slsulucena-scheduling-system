@@ -814,20 +814,30 @@ function calculateWeeklyHours(dayStr, timeStr) {
 
 function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
     if (!entry) return false;
-    if (userUid && (String(entry.facultyUid || "").trim() === String(userUid).trim() || String(entry.facultyId || "").trim() === String(userUid).trim())) {
-        return true;
+
+    // Match by UID (most reliable)
+    if (userUid) {
+        const entryFacultyUid = String(entry.facultyUid || "").trim();
+        if (entryFacultyUid && entryFacultyUid === String(userUid).trim()) return true;
+        // Do NOT match facultyId against userUid — they are different fields
     }
-    if (employeeId && (String(entry.facultyId || "").trim() === String(employeeId).trim() || String(entry.employeeId || "").trim() === String(employeeId).trim())) {
-        return true;
+
+    // Match by employeeId
+    if (employeeId) {
+        const entryFacultyId = String(entry.facultyId || "").trim();
+        if (entryFacultyId && entryFacultyId === String(employeeId).trim()) return true;
     }
+
+    // Match by full name — exact match only (no substring/partial match)
     const facName = entry.faculty || entry.facultyName;
     if (fullName && facName) {
         const normEntry = normalize(facName);
         const normUser = normalize(fullName);
-        if (normEntry && normUser && (normEntry === normUser || normEntry.includes(normUser) || normUser.includes(normEntry))) {
+        if (normEntry && normUser && normEntry !== "unassigned" && normEntry !== "tba" && normEntry === normUser) {
             return true;
         }
     }
+
     return false;
 }
 

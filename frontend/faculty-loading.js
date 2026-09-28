@@ -186,6 +186,96 @@ function sameFaculty(f1, f2) {
     return n1 === n2;
 }
 
+function parseHandledSubject(raw) {
+    if (!raw) return null;
+    if (typeof raw === "object") {
+        return {
+            programCode: String(raw.programCode || raw.program || "").trim().toUpperCase(),
+            majorCode: String(raw.majorCode || raw.major || "").trim().toUpperCase(),
+            yearLevel: raw.yearLevel ? String(raw.yearLevel).trim() : "",
+            semester: raw.semester ? String(raw.semester).trim() : "",
+            subjectCode: String(raw.subjectCode || raw.code || raw.id || "").trim().toUpperCase()
+        };
+    }
+    const str = String(raw).trim();
+    if (!str) return null;
+    if (str.includes("_")) {
+        const parts = str.split("_");
+        if (parts.length >= 5) {
+            return {
+                programCode: parts[0].trim().toUpperCase(),
+                majorCode: parts[1].trim().toUpperCase(),
+                yearLevel: parts[2].trim(),
+                semester: parts[3].trim(),
+                subjectCode: parts[4].trim().toUpperCase()
+            };
+        }
+        if (parts.length === 2) {
+            const left = parts[0].trim().toUpperCase();
+            const right = parts[1].trim().toUpperCase();
+            if (left.includes("-")) {
+                const subParts = left.split("-");
+                return {
+                    programCode: subParts[0].trim(),
+                    majorCode: subParts[1].trim(),
+                    yearLevel: "",
+                    semester: "",
+                    subjectCode: right
+                };
+            }
+            return {
+                programCode: left,
+                majorCode: "",
+                yearLevel: "",
+                semester: "",
+                subjectCode: right
+            };
+        }
+    }
+    return {
+        programCode: "",
+        majorCode: "",
+        yearLevel: "",
+        semester: "",
+        subjectCode: str.toUpperCase()
+    };
+}
+
+function isFacultyEligibleForSubject(facultyHandledList, criteria) {
+    if (!Array.isArray(facultyHandledList) || !facultyHandledList.length || !criteria) return false;
+    const cleanSubjectCode = String(criteria.subjectCode || criteria.code || "").trim().toUpperCase();
+    if (!cleanSubjectCode) return false;
+
+    let cleanProg = String(criteria.programCode || criteria.program || "").trim().toUpperCase();
+    let cleanMaj = String(criteria.majorCode || criteria.major || "").trim().toUpperCase();
+
+    if ((!cleanProg || !cleanMaj) && criteria.section) {
+        const match = String(criteria.section).trim().match(/^([A-Za-z]+)-([A-Za-z]+)/i);
+        if (match) {
+            if (!cleanProg) cleanProg = match[1].toUpperCase();
+            if (!cleanMaj) cleanMaj = match[2].toUpperCase();
+        }
+    }
+
+    for (const raw of facultyHandledList) {
+        const parsed = parseHandledSubject(raw);
+        if (!parsed || !parsed.subjectCode) continue;
+
+        // Exact subject code match
+        if (parsed.subjectCode !== cleanSubjectCode) continue;
+
+        // Program match
+        if (parsed.programCode && cleanProg && parsed.programCode !== cleanProg) continue;
+
+        // Major match
+        if (parsed.majorCode && cleanMaj && parsed.majorCode !== cleanMaj) continue;
+
+        return true;
+    }
+
+    return false;
+}
+
 function getLoadStatus(totalHours) {
     if (totalHours <= 0) {
         return { text: "No Load", className: "load-none" };
@@ -409,7 +499,12 @@ function computeFacultyLoads(filteredClasses) {
     return allFaculty.map(faculty => {
         // Classes assigned to this faculty member
         const assigned = filteredClasses.filter(c => {
-            if (c.facultyUid && (c.facultyUid === faculty.uid || c.facultyUid === faculty.id)) return true;
+            if (c.facultyUid) {
+                return c.facultyUid === faculty.uid || c.facultyUid === faculty.id;
+            }
+            if (c.facultyId && faculty.employeeId) {
+                return c.facultyId === faculty.employeeId;
+            }
             return sameFaculty(c.faculty, faculty.name);
         });
 
@@ -689,6 +784,45 @@ function updateAssignClassDetails() {
     assignDetailHours.textContent = `${e.units || 3} units (${calculateClassDurationHours(e.time, e.units)} hrs)`;
     assignClassDetails.style.display = "block";
 
+    // Re-filter the faculty dropdown to show only eligible faculty for this subject + curriculum
+    const entryCriteria = {
+        subjectCode: e.code || "",
+        programCode: sched.program || "",
+        majorCode: sched.major || "",
+        yearLevel: sched.yearLevel || "",
+        semester: sched.semester || "",
+        section: sched.section || sched.name || ""
+    };
+    const currentFacultyName = assignFacultySelect.value;
+    const currentFacultyUid = assignFacultySelect.selectedOptions[0]?.dataset?.uid || "";
+
+    const eligibleForEntry = allFaculty.filter(f => {
+        const handled = facultySubjectAssignmentsMap.get(f.uid) || facultySubjectAssignmentsMap.get(f.id) || [];
+        // Graceful fallback: if no handled subjects recorded, show all faculty
+        if (handled.length === 0) return true;
+        return isFacultyEligibleForSubject(handled, entryCriteria);
+    });
+
+    // Preserve the currently selected faculty even if not eligible (visible warning will be shown)
+    const listForDropdown = [...eligibleForEntry];
+    if (currentFacultyName) {
+        const alreadyIn = listForDropdown.some(f => sameFaculty(f.name, currentFacultyName) || f.uid === currentFacultyUid);
+        if (!alreadyIn) {
+            const currentFac = allFaculty.find(f => sameFaculty(f.name, currentFacultyName) || f.uid === currentFacultyUid);
+            if (currentFac) listForDropdown.unshift(currentFac);
+        }
+    }
+
+    assignFacultySelect.innerHTML = `<option value="">-- Select Faculty Member --</option>`;
+    listForDropdown.forEach(f => {
+        const isSel = currentFacultyUid ? f.uid === currentFacultyUid : sameFaculty(f.name, currentFacultyName);
+        assignFacultySelect.innerHTML += `
+            <option value="${escapeHtml(f.name)}" data-uid="${escapeHtml(f.uid)}" data-employee-id="${escapeHtml(f.employeeId || '')}" ${isSel ? 'selected' : ''}>
+                ${escapeHtml(f.name)}${f.employeeId ? ' (' + escapeHtml(f.employeeId) + ')' : ''}
+            </option>
+        `;
+    });
+
     validateCandidateAssignment();
 }
 
@@ -708,6 +842,31 @@ function validateCandidateAssignment() {
     if (!sched || !sched.entries[entryIdx]) return;
 
     const candidateEntry = sched.entries[entryIdx];
+
+    // --- Eligibility check: faculty must have this subject in handled subjects for this curriculum ---
+    const selectedFacultyObj = allFaculty.find(f => (facultyUid && f.uid === facultyUid) || sameFaculty(f.name, facultyName));
+    if (selectedFacultyObj) {
+        const handledList = facultySubjectAssignmentsMap.get(selectedFacultyObj.uid) ||
+                            facultySubjectAssignmentsMap.get(selectedFacultyObj.id) || [];
+        const criteria = {
+            subjectCode: candidateEntry.code || "",
+            programCode: sched.program || "",
+            majorCode: sched.major || "",
+            yearLevel: sched.yearLevel || "",
+            semester: sched.semester || "",
+            section: sched.section || sched.name || ""
+        };
+        if (handledList.length > 0 && !isFacultyEligibleForSubject(handledList, criteria)) {
+            assignConflictNotice.innerHTML =
+                `<strong>Eligibility Warning:</strong> ${escapeHtml(facultyName)} does not have ` +
+                `<strong>${escapeHtml(candidateEntry.code || "")}</strong> listed as a handled subject ` +
+                `for this curriculum (${escapeHtml(sched.program || "")} ${escapeHtml(sched.major || "")}).`;
+            assignConflictNotice.style.display = "block";
+            saveAssignmentBtn.disabled = true;
+            return;
+        }
+    }
+
     const candDays = String(candidateEntry.day || "").split("/").map(s => s.trim());
     const candTimes = String(candidateEntry.time || "").split("/").map(s => s.trim());
 
@@ -846,7 +1005,12 @@ function openFacultyTimetableModal(facultyUid) {
     /* ── Collect this faculty's class entries ── */
     const filteredClasses = getFilteredClasses();
     const assigned = filteredClasses.filter(c => {
-        if (c.facultyUid && (c.facultyUid === faculty.uid || c.facultyUid === faculty.id)) return true;
+        if (c.facultyUid) {
+            return c.facultyUid === faculty.uid || c.facultyUid === faculty.id;
+        }
+        if (c.facultyId && faculty.employeeId) {
+            return c.facultyId === faculty.employeeId;
+        }
         return sameFaculty(c.faculty, faculty.name);
     });
 

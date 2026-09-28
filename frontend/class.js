@@ -437,6 +437,7 @@ function setSavedSchedules(schedules) {
 let allFacultyMembers = [];
 let facultyAssignmentsMap = new Map();
 let subjectGroups = [];
+let allLoadedSubjects = [];
 let currentSubjectGroupIndex = 0;
 const subjectFacultySelections = new Map();
 
@@ -507,40 +508,211 @@ async function loadFacultySubjectAssignments() {
     }
 }
 
-function buildFacultySelectHtml(subjectCode, selectedFaculty = "") {
+function parseHandledSubject(raw) {
+    if (!raw) return null;
+    if (typeof raw === "object") {
+        return {
+            programCode: String(raw.programCode || raw.program || "").trim().toUpperCase(),
+            majorCode: String(raw.majorCode || raw.major || "").trim().toUpperCase(),
+            yearLevel: raw.yearLevel ? String(raw.yearLevel).trim() : "",
+            semester: raw.semester ? String(raw.semester).trim() : "",
+            subjectCode: String(raw.subjectCode || raw.code || raw.id || "").trim().toUpperCase()
+        };
+    }
+    const str = String(raw).trim();
+    if (!str) return null;
+    if (str.includes("_")) {
+        const parts = str.split("_");
+        if (parts.length >= 5) {
+            return {
+                programCode: parts[0].trim().toUpperCase(),
+                majorCode: parts[1].trim().toUpperCase(),
+                yearLevel: parts[2].trim(),
+                semester: parts[3].trim(),
+                subjectCode: parts[4].trim().toUpperCase()
+            };
+        }
+        if (parts.length === 2) {
+            const left = parts[0].trim().toUpperCase();
+            const right = parts[1].trim().toUpperCase();
+            if (left.includes("-")) {
+                const subParts = left.split("-");
+                return {
+                    programCode: subParts[0].trim(),
+                    majorCode: subParts[1].trim(),
+                    yearLevel: "",
+                    semester: "",
+                    subjectCode: right
+                };
+            }
+            return {
+                programCode: left,
+                majorCode: "",
+                yearLevel: "",
+                semester: "",
+                subjectCode: right
+            };
+        }
+    }
+    return {
+        programCode: "",
+        majorCode: "",
+        yearLevel: "",
+        semester: "",
+        subjectCode: str.toUpperCase()
+    };
+}
+
+function getSubjectCompositeKey(subject) {
+    if (!subject) return "";
+    if (typeof subject === "string") return subject.trim().toUpperCase();
+    return [
+        String(subject.programCode || subject.program || "").trim().toUpperCase(),
+        String(subject.majorCode || subject.major || "").trim().toUpperCase(),
+        String(subject.yearLevel || "").trim(),
+        String(subject.semester || "").trim(),
+        String(subject.subjectCode || subject.code || "").trim().toUpperCase()
+    ].filter(Boolean).join("_");
+}
+
+function isFacultyEligibleForSubject(facultyHandledList, criteria) {
+    if (!Array.isArray(facultyHandledList) || !facultyHandledList.length || !criteria) return false;
+    const cleanSubjectCode = String(criteria.subjectCode || criteria.code || "").trim().toUpperCase();
+    if (!cleanSubjectCode) return false;
+
+    let cleanProg = String(criteria.programCode || criteria.program || "").trim().toUpperCase();
+    let cleanMaj = String(criteria.majorCode || criteria.major || "").trim().toUpperCase();
+
+    if ((!cleanProg || !cleanMaj) && criteria.section) {
+        const match = String(criteria.section).trim().match(/^([A-Za-z]+)-([A-Za-z]+)/i);
+        if (match) {
+            if (!cleanProg) cleanProg = match[1].toUpperCase();
+            if (!cleanMaj) cleanMaj = match[2].toUpperCase();
+        }
+    }
+
+    for (const raw of facultyHandledList) {
+        const parsed = parseHandledSubject(raw);
+        if (!parsed || !parsed.subjectCode) continue;
+
+        // Subject code must match exactly (never substring or partial match)
+        if (parsed.subjectCode !== cleanSubjectCode) continue;
+
+        // If handled subject specifies program, and class specifies program, they must match
+        if (parsed.programCode && cleanProg && parsed.programCode !== cleanProg) continue;
+
+        // If handled subject specifies major, and class specifies major, they must match
+        if (parsed.majorCode && cleanMaj && parsed.majorCode !== cleanMaj) continue;
+
+        return true;
+    }
+
+    return false;
+}
+
+function buildFacultySelectHtml(subject, selectedFaculty = "") {
     let options = `<option value="">-- Unassigned --</option>`;
 
-    let suggestedUid = "";
-    if (!selectedFaculty && facultyAssignmentsMap.size > 0 && subjectCode) {
-        const cleanCode = String(subjectCode).replace(/\s+/g, "").toUpperCase();
-        for (const [facId, subjects] of facultyAssignmentsMap.entries()) {
-            const match = subjects.some(s => {
-                const sc = String(s).replace(/\s+/g, "").toUpperCase();
-                return sc === cleanCode || sc.endsWith("_" + cleanCode) || sc.includes(cleanCode);
-            });
-            if (match) {
-                suggestedUid = facId;
-                break;
+    const criteria = typeof subject === "object" ? subject : { subjectCode: subject };
+    const cleanSubjectCode = String(criteria.subjectCode || criteria.code || "").trim().toUpperCase();
+
+    const eligibleFaculty = allFacultyMembers.filter(f => {
+        const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+        return isFacultyEligibleForSubject(handled, criteria);
+    });
+
+    const optionsFaculty = [...eligibleFaculty];
+    if (selectedFaculty) {
+        const alreadyIn = optionsFaculty.some(f => sameFaculty(f.name, selectedFaculty) || f.uid === selectedFaculty);
+        if (!alreadyIn) {
+            const currentFac = allFacultyMembers.find(f => sameFaculty(f.name, selectedFaculty) || f.uid === selectedFaculty);
+            if (currentFac) {
+                optionsFaculty.unshift(currentFac);
             }
         }
     }
 
-    const cleanSubjectCode = String(subjectCode || "").replace(/\s+/g, "").toUpperCase();
-    const eligibleFaculty = allFacultyMembers.filter(f => {
-        const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
-        return handled.some(s => {
-            const sc = String(s).replace(/\s+/g, "").toUpperCase();
-            return sc === cleanSubjectCode || sc.endsWith("_" + cleanSubjectCode) || sc.includes(cleanSubjectCode);
-        });
-    });
-
-    eligibleFaculty.forEach(f => {
+    optionsFaculty.forEach(f => {
         const isSelected = selectedFaculty
             ? (sameFaculty(f.name, selectedFaculty) || f.uid === selectedFaculty)
-            : (suggestedUid && (f.uid === suggestedUid || f.id === suggestedUid));
+            : false;
         options += `<option value="${escapeHtml(f.name)}" data-uid="${escapeHtml(f.uid)}" data-employee-id="${escapeHtml(f.employeeId || '')}" ${isSelected ? 'selected' : ''}>${escapeHtml(f.name)}${f.employeeId ? ' (' + escapeHtml(f.employeeId) + ')' : ''}</option>`;
     });
-    return `<select class="faculty-select" data-subject-code="${escapeHtml(subjectCode)}" style="padding:6px 10px; border:1px solid #c9c1b0; border-radius:6px; font-size:13px; max-width:220px; background:#fff;">${options}</select>`;
+
+    const subjectKey = getSubjectCompositeKey(criteria);
+    return `<select class="faculty-select" data-subject-key="${escapeHtml(subjectKey)}" data-subject-code="${escapeHtml(cleanSubjectCode)}" style="padding:6px 10px; border:1px solid #c9c1b0; border-radius:6px; font-size:13px; max-width:220px; background:#fff;">${options}</select>`;
+}
+
+function getFacultyForSubject(subjectOrCode, curriculumMeta = {}) {
+    if (!subjectOrCode) {
+        return { faculty: "Unassigned", facultyUid: "", facultyId: "" };
+    }
+
+    let code = "";
+    let criteria = {};
+    if (typeof subjectOrCode === "object") {
+        criteria = { ...subjectOrCode, ...curriculumMeta };
+        code = (criteria.subjectCode || criteria.code || "").trim();
+    } else {
+        code = String(subjectOrCode).trim();
+        criteria = { subjectCode: code, ...curriculumMeta };
+    }
+
+    const key = getSubjectCompositeKey(criteria);
+
+    // 1. Explicitly selected by user in UI dropdown
+    const manualVal = (key && subjectFacultySelections.get(key)) || subjectFacultySelections.get(code);
+    if (manualVal) {
+        const fac = allFacultyMembers.find(f => sameFaculty(f.name, manualVal) || f.uid === manualVal);
+        if (fac) {
+            return {
+                faculty: fac.name,
+                facultyUid: fac.uid || "",
+                facultyId: fac.employeeId || ""
+            };
+        }
+        return {
+            faculty: manualVal,
+            facultyUid: "",
+            facultyId: ""
+        };
+    }
+
+    // Handled Subjects means eligibility only — actual assignment is Unassigned unless explicitly selected
+    return {
+        faculty: "Unassigned",
+        facultyUid: "",
+        facultyId: ""
+    };
+}
+
+function getSectionMeta(secCode) {
+    const clean = (secCode || "").trim();
+    let secMeta = allSections.find(s => (s.sectionCode || "").trim().toUpperCase() === clean.toUpperCase());
+    if (secMeta && secMeta.programCode && secMeta.majorCode && secMeta.yearLevel) {
+        return {
+            sectionCode: clean,
+            programCode: secMeta.programCode,
+            majorCode: secMeta.majorCode,
+            yearLevel: Number(secMeta.yearLevel)
+        };
+    }
+    // Parse regex fallback: e.g. "BINDTECH-CPT 2A", "BIT-CPT 3A", "BTVTED-AT 1A"
+    const match = clean.match(/^([A-Za-z]+)-([A-Za-z]+)\s*(\d+)/i);
+    if (match) {
+        return {
+            sectionCode: clean,
+            programCode: secMeta?.programCode || match[1].toUpperCase(),
+            majorCode: secMeta?.majorCode || match[2].toUpperCase(),
+            yearLevel: Number(secMeta?.yearLevel || match[3])
+        };
+    }
+    return {
+        sectionCode: clean,
+        programCode: secMeta?.programCode || selectedValues(programSelect)[0] || "",
+        majorCode: secMeta?.majorCode || selectedValues(majorSelect)[0] || "",
+        yearLevel: Number(secMeta?.yearLevel || selectedValues(yearLevelSelect)[0] || 1)
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2075,6 +2247,7 @@ async function loadSubjects() {
 
     subjectBody.innerHTML = "";
     subjectGroups = [];
+    allLoadedSubjects = [];
     currentSubjectGroupIndex = 0;
     if (subjectsPageLabel) subjectsPageLabel.textContent = "";
     if (subjectPagination) subjectPagination.style.display = "none";
@@ -2103,6 +2276,8 @@ async function loadSubjects() {
             if (!yearLevels.includes(Number(subject.yearLevel))) return;
             matchingSubjects.push({ id: docSnap.id, ...subject });
         });
+
+        allLoadedSubjects = matchingSubjects;
 
         if (matchingSubjects.length === 0) {
             return;
@@ -2138,7 +2313,13 @@ async function loadSubjects() {
 
 function captureSubjectFacultySelections() {
     subjectBody.querySelectorAll(".faculty-select").forEach(select => {
-        if (select.value) subjectFacultySelections.set(select.dataset.subjectCode, select.value);
+        const key = select.dataset.subjectKey || select.dataset.subjectCode;
+        if (key && select.value) {
+            subjectFacultySelections.set(key, select.value);
+            if (select.dataset.subjectCode) {
+                subjectFacultySelections.set(select.dataset.subjectCode, select.value);
+            }
+        }
     });
 }
 
@@ -2153,7 +2334,8 @@ function renderSubjectGroup() {
             <tr class="subject-column-header-row"><th>Subject Code</th><th>Subject Name</th><th>Units</th><th>Lec</th><th>Lab</th><th>Hrs/Wk</th><th>Assigned Faculty</th></tr>` + group.map(subject => {
                 const lecHours = Number(subject.lecHours) || 0;
                 const labHours = Number(subject.labHours) || 0;
-                return `<tr data-subject-type="${escapeHtml(subject.subjectType || "")}" data-meeting-type="${escapeHtml(subject.meetingType || "")}" data-required-room-type="${escapeHtml(subject.requiredRoomType || "")}" data-program-code="${escapeHtml(subject.programCode || "")}" data-major-code="${escapeHtml(subject.majorCode || "")}" data-year-level="${escapeHtml(subject.yearLevel || "")}"><td>${escapeHtml(subject.subjectCode)}</td><td>${escapeHtml(subject.subjectName)}</td><td>${subject.units ?? 3}</td><td>${lecHours}</td><td>${labHours}</td><td>${lecHours + labHours}</td><td>${buildFacultySelectHtml(subject.subjectCode, subjectFacultySelections.get(subject.subjectCode) || "")}</td></tr>`;
+                const currentVal = subjectFacultySelections.get(getSubjectCompositeKey(subject)) || subjectFacultySelections.get(subject.subjectCode) || "";
+                return `<tr data-subject-type="${escapeHtml(subject.subjectType || "")}" data-meeting-type="${escapeHtml(subject.meetingType || "")}" data-required-room-type="${escapeHtml(subject.requiredRoomType || "")}" data-program-code="${escapeHtml(subject.programCode || "")}" data-major-code="${escapeHtml(subject.majorCode || "")}" data-year-level="${escapeHtml(subject.yearLevel || "")}"><td>${escapeHtml(subject.subjectCode)}</td><td>${escapeHtml(subject.subjectName)}</td><td>${subject.units ?? 3}</td><td>${lecHours}</td><td>${labHours}</td><td>${lecHours + labHours}</td><td>${buildFacultySelectHtml(subject, currentVal)}</td></tr>`;
             }).join("");
     }
     const total = subjectGroups.length;
@@ -2170,6 +2352,18 @@ subjectsNextBtn?.addEventListener("click", () => {
     if (currentSubjectGroupIndex < subjectGroups.length - 1) { currentSubjectGroupIndex++; renderSubjectGroup(); }
 });
 
+subjectBody?.addEventListener("change", event => {
+    if (event.target && event.target.classList.contains("faculty-select")) {
+        const key = event.target.dataset.subjectKey || event.target.dataset.subjectCode;
+        if (key) {
+            subjectFacultySelections.set(key, event.target.value);
+            if (event.target.dataset.subjectCode) {
+                subjectFacultySelections.set(event.target.dataset.subjectCode, event.target.value);
+            }
+        }
+    }
+});
+
 
 document.querySelector(".close-modal").addEventListener("click", () => {
     modal.style.display = "none";
@@ -2183,7 +2377,7 @@ window.addEventListener("click", event => {
 
 document.getElementById("generateBtn").addEventListener("click", generateSchedule);
 
-function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookings, currentAcademicYear, currentSemester) {
+function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookings, currentAcademicYear, currentSemester, suppressToast = false) {
     const timetable = {
         Monday: [],
         Tuesday: [],
@@ -2192,40 +2386,73 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         Friday: []
     };
 
-    const prog = secMeta.programCode || selectedValues(programSelect)[0] || "BIT";
+    const prog = secMeta.programCode || selectedValues(programSelect)[0] || "";
     const major = secMeta.majorCode || selectedValues(majorSelect)[0] || "";
     const yl = secMeta.yearLevel || Number(selectedValues(yearLevelSelect)[0]) || 1;
 
     let secSubjectRows = allSubjectRows.filter(row => {
-        const rowProg = row.dataset.programCode;
-        const rowMaj = row.dataset.majorCode;
-        const rowYl = row.dataset.yearLevel;
-        if (rowProg && prog && rowProg !== prog) return false;
-        if (rowMaj && major && rowMaj !== major) return false;
+        const rowProg = row.programCode || row.dataset?.programCode || "";
+        const rowMaj = row.majorCode || row.dataset?.majorCode || "";
+        const rowYl = row.yearLevel || row.dataset?.yearLevel || "";
+        if (rowProg && prog && rowProg.trim().toUpperCase() !== prog.trim().toUpperCase()) return false;
+        if (rowMaj && major && rowMaj.trim().toUpperCase() !== major.trim().toUpperCase()) return false;
         if (rowYl && yl && Number(rowYl) !== Number(yl)) return false;
         return true;
     });
-    if (!secSubjectRows.length) return null;
+    if (!secSubjectRows.length) {
+        if (!suppressToast) {
+            showToast(`No subjects found for ${section} (${prog} - ${major} Year ${yl}).`);
+        }
+        return null;
+    }
 
     const subjects = secSubjectRows.map(row => {
-        const cells = row.querySelectorAll("td");
-        const facultySelect = row.querySelector(".faculty-select");
-        const facultyName = facultySelect ? facultySelect.value : "";
-        const facultyUid = facultySelect ? facultySelect.selectedOptions[0]?.dataset?.uid || "" : "";
-        const facultyId = facultySelect ? facultySelect.selectedOptions[0]?.dataset?.employeeId || "" : "";
+        if (row instanceof HTMLElement || (row.querySelectorAll && typeof row.querySelectorAll === "function")) {
+            const cells = row.querySelectorAll("td");
+            const facultySelect = row.querySelector(".faculty-select");
+            const facultyName = facultySelect ? facultySelect.value : "";
+            const facultyUid = facultySelect ? facultySelect.selectedOptions[0]?.dataset?.uid || "" : "";
+            const facultyId = facultySelect ? facultySelect.selectedOptions[0]?.dataset?.employeeId || "" : "";
+            // needsAutoAssign = true when admin left the dropdown blank (no explicit choice)
+            const needsAutoAssign = !facultyName || facultyName === "" || facultyName === "Unassigned";
 
+            return {
+                code: cells[0].textContent.trim(),
+                name: cells[1].textContent.trim(),
+                units: Number(cells[2].textContent),
+                faculty: facultyName || "Unassigned",
+                facultyUid: facultyUid || "",
+                facultyId: facultyId || "",
+                needsAutoAssign,
+                subjectType: row.dataset.subjectType || "",
+                meetingType: (row.dataset.meetingType || "").toLowerCase(),
+                requiredRoomType: normalizeRoomType(
+                    row.dataset.requiredRoomType || ""
+                )
+            };
+        }
+
+        const code = (row.subjectCode || row.code || "").trim();
+        const facInfo = getFacultyForSubject(row, {
+            programCode: prog,
+            majorCode: major,
+            yearLevel: secMeta?.yearLevel || "",
+            semester: currentSemester,
+            section: section
+        });
+        // needsAutoAssign = true when no explicit manual selection was stored
+        const needsAutoAssign = !facInfo.faculty || facInfo.faculty === "Unassigned";
         return {
-            code: cells[0].textContent.trim(),
-            name: cells[1].textContent.trim(),
-            units: Number(cells[2].textContent),
-            faculty: facultyName || "Unassigned",
-            facultyUid: facultyUid || "",
-            facultyId: facultyId || "",
-            subjectType: row.dataset.subjectType || "",
-            meetingType: (row.dataset.meetingType || "").toLowerCase(),
-            requiredRoomType: normalizeRoomType(
-                row.dataset.requiredRoomType || ""
-            )
+            code,
+            name: (row.subjectName || row.name || "").trim(),
+            units: Number(row.units ?? 3),
+            faculty: facInfo.faculty || "Unassigned",
+            facultyUid: facInfo.facultyUid || "",
+            facultyId: facInfo.facultyId || "",
+            needsAutoAssign,
+            subjectType: row.subjectType || "",
+            meetingType: (row.meetingType || "").toLowerCase(),
+            requiredRoomType: normalizeRoomType(row.requiredRoomType || "")
         };
     }).sort((first, second) => {
         /* Schedule activity/gymnasium subjects FIRST so they secure a
@@ -2665,6 +2892,69 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
     let lastFailureReason = "";
     const MAX_SOLVER_ATTEMPTS = 20;
 
+    /**
+     * Automatically selects the best eligible faculty for a subject at the given slots.
+     *
+     * Selection criteria (in priority order):
+     *   1. Must be eligible for this subject + curriculum/major (isFacultyEligibleForSubject)
+     *   2. Must have NO schedule conflict at ANY of the required day/time pairs (facultyIsBooked)
+     *   3. Among valid candidates, prefer the one with the LOWEST current teaching load
+     *      (fewest saved-booking entries so far, including previously generated sections)
+     *   4. Random tiebreak to avoid always assigning the same faculty first alphabetically
+     *
+     * @param {string}   subjectCode       - Subject code to check eligibility against
+     * @param {string[]} days              - Array of days the subject will meet (e.g. ["Monday", "Wednesday"])
+     * @param {string[]} times             - Parallel array of time slots for each day
+     * @param {Object}   timetableInstance - Current timetable being built (inner-loop conflicts)
+     * @returns {Object|null} Faculty object { uid, name, employeeId } or null if none available
+     */
+    function autoSelectFacultyForSubject(subjectCode, days, times, timetableInstance) {
+        const criteria = {
+            subjectCode,
+            programCode: prog,
+            majorCode:   major,
+            yearLevel:   String(yl),
+            semester:    currentSemester,
+            section
+        };
+
+        // 1. Find all faculty who have this subject listed as a handled subject for this curriculum
+        const eligible = allFacultyMembers.filter(f => {
+            const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+            // Faculty with no handled subjects recorded are skipped (not eligible by default)
+            return handled.length > 0 && isFacultyEligibleForSubject(handled, criteria);
+        });
+        if (!eligible.length) return null;
+
+        // 2. Filter to those who are free at ALL required day/time slots
+        const available = eligible.filter(f =>
+            days.every((day, i) => {
+                const time = times[i] !== undefined ? times[i] : (times[0] || "");
+                // Skip conflict check if no real time slot (e.g. TBA subjects)
+                if (!day || !time) return true;
+                return !facultyIsBooked(f.name, f.uid, day, time, timetableInstance);
+            })
+        );
+        if (!available.length) return null;
+
+        // 3. Count current load from savedBookings (cumulative across already-generated sections)
+        const getLoad = f => savedBookings.filter(b =>
+            (b.facultyUid && b.facultyUid === f.uid) ||
+            (b.facultyId && f.employeeId && b.facultyId === f.employeeId) ||
+            sameFaculty(b.faculty, f.name)
+        ).length;
+
+        // 4. Sort: fewest load first, random tiebreak for fair distribution
+        available.sort((a, b) => {
+            const diff = getLoad(a) - getLoad(b);
+            return diff !== 0 ? diff : (Math.random() - 0.5);
+        });
+
+        return available[0];
+    }
+
+
+
     for (let attempt = 1; attempt <= MAX_SOLVER_ATTEMPTS; attempt++) {
         const timetableInstance = {
             Monday: [],
@@ -2722,13 +3012,28 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     break;
                 }
 
-                const facultyClash = Boolean(result.facultyConflict) ||
-                    facultyIsBooked(subject.faculty, subject.facultyUid, result.day1, result.time1, timetableInstance) ||
-                    facultyIsBooked(subject.faculty, subject.facultyUid, result.day2, result.time2, timetableInstance);
+                let finalFaculty, finalFacultyUid, finalFacultyId;
 
-                const finalFaculty = facultyClash ? "Unassigned" : (subject.faculty || "Unassigned");
-                const finalFacultyUid = facultyClash ? "" : (subject.facultyUid || "");
-                const finalFacultyId = facultyClash ? "" : (subject.facultyId || "");
+                if (subject.needsAutoAssign) {
+                    // No manual selection — auto-pick an eligible, conflict-free, least-loaded faculty
+                    const auto = autoSelectFacultyForSubject(
+                        subject.code,
+                        [result.day1, result.day2],
+                        [result.time1, result.time2],
+                        timetableInstance
+                    );
+                    finalFaculty    = auto ? auto.name              : "Unassigned";
+                    finalFacultyUid = auto ? (auto.uid || "")       : "";
+                    finalFacultyId  = auto ? (auto.employeeId || "") : "";
+                } else {
+                    // Admin manually chose a faculty — honour that choice; only clear on real conflict
+                    const clash = Boolean(result.facultyConflict) ||
+                        facultyIsBooked(subject.faculty, subject.facultyUid, result.day1, result.time1, timetableInstance) ||
+                        facultyIsBooked(subject.faculty, subject.facultyUid, result.day2, result.time2, timetableInstance);
+                    finalFaculty    = clash ? "Unassigned" : (subject.faculty || "Unassigned");
+                    finalFacultyUid = clash ? "" : (subject.facultyUid || "");
+                    finalFacultyId  = clash ? "" : (subject.facultyId  || "");
+                }
 
                 timetableInstance[result.day1].push({
                     time: result.time1,
@@ -2787,12 +3092,27 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     activityDays.add(result.day);
                 }
 
-                const facultyClash = Boolean(result.facultyConflict) ||
-                    facultyIsBooked(subject.faculty, subject.facultyUid, result.day, result.time, timetableInstance);
+                let finalFaculty, finalFacultyUid, finalFacultyId;
 
-                const finalFaculty = facultyClash ? "Unassigned" : (subject.faculty || "Unassigned");
-                const finalFacultyUid = facultyClash ? "" : (subject.facultyUid || "");
-                const finalFacultyId = facultyClash ? "" : (subject.facultyId || "");
+                if (subject.needsAutoAssign) {
+                    // No manual selection — auto-pick an eligible, conflict-free, least-loaded faculty
+                    const auto = autoSelectFacultyForSubject(
+                        subject.code,
+                        [result.day],
+                        [result.time],
+                        timetableInstance
+                    );
+                    finalFaculty    = auto ? auto.name              : "Unassigned";
+                    finalFacultyUid = auto ? (auto.uid || "")       : "";
+                    finalFacultyId  = auto ? (auto.employeeId || "") : "";
+                } else {
+                    // Admin manually chose a faculty — honour that choice; only clear on real conflict
+                    const clash = Boolean(result.facultyConflict) ||
+                        facultyIsBooked(subject.faculty, subject.facultyUid, result.day, result.time, timetableInstance);
+                    finalFaculty    = clash ? "Unassigned" : (subject.faculty || "Unassigned");
+                    finalFacultyUid = clash ? "" : (subject.facultyUid || "");
+                    finalFacultyId  = clash ? "" : (subject.facultyId  || "");
+                }
 
                 timetableInstance[result.day].push({
                     time: result.time,
@@ -2920,13 +3240,34 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
     }
 
     if (!scheduleSuccess) {
-        showToast(lastFailureReason || "Could not generate a complete schedule without conflicts.");
-        return;
+        if (!suppressToast) {
+            showToast(lastFailureReason || "Could not generate a complete schedule without conflicts.");
+        }
+        return null;
     }
 
-    /* Append TBA subjects with no room/day/time assignment */
+    /* Append TBA subjects with no room/day/time assignment.
+       If admin left the faculty blank, auto-select by eligibility + load only
+       (no time-slot conflict check is possible for TBA). */
     for (const subject of subjects) {
         if (!TBA_SUBJECT_CODES.has(subject.code)) continue;
+
+        let tbaFaculty    = subject.faculty    || "Unassigned";
+        let tbaFacultyUid = subject.facultyUid || "";
+        let tbaFacultyId  = subject.facultyId  || "";
+
+        if (subject.needsAutoAssign) {
+            // Pass empty arrays — autoSelectFacultyForSubject skips conflict check when no day/time given
+            const auto = autoSelectFacultyForSubject(subject.code, [], [], {
+                Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: []
+            });
+            if (auto) {
+                tbaFaculty    = auto.name;
+                tbaFacultyUid = auto.uid || "";
+                tbaFacultyId  = auto.employeeId || "";
+            }
+        }
+
         finalOutput.push({
             code: subject.code,
             name: subject.name,
@@ -2935,9 +3276,9 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             time: "7:30am-6:30pm",
             room: "TBA",
             roomCode: "",
-            faculty: subject.faculty || "Unassigned",
-            facultyUid: subject.facultyUid || "",
-            facultyId: subject.facultyId || ""
+            faculty: tbaFaculty,
+            facultyUid: tbaFacultyUid,
+            facultyId: tbaFacultyId
         });
     }
 
@@ -3081,6 +3422,8 @@ document.getElementById("nextGeneratedSectionBtn")?.addEventListener("click", ()
 });
 
 async function generateSchedule() {
+    captureSubjectFacultySelections();
+
     const sectionCodes = selectedValues(sectionSelect);
 
     if (!sectionCodes.length) {
@@ -3102,20 +3445,77 @@ async function generateSchedule() {
     }
     const currentSemester = semesterSelect.options[semesterSelect.selectedIndex]?.text || (semVal === "2" ? "2nd Semester" : "1st Semester");
 
-    const subjectRows = [...subjectBody.querySelectorAll("tr")]
-        .filter(row => !row.classList.contains("subject-group-title-row") &&
-            !row.classList.contains("subject-column-header-row") &&
-            row.querySelectorAll("td").length >= 6);
-
-    if (!subjectRows.length) {
-        showToast("Please load subjects first.");
-        return;
-    }
-
     generatingOverlay.style.display = "flex";
     generateBtn.disabled = true;
 
     try {
+        const sectionsToGenerate = sectionCodes.map(code => getSectionMeta(code));
+
+        // Auto-fetch prospectus subjects if any section's subjects are missing
+        const neededKeys = new Set(
+            sectionsToGenerate.map(s => `${s.programCode}-${s.majorCode}-${s.yearLevel}`)
+        );
+        const existingKeys = new Set(
+            (allLoadedSubjects || []).map(s => `${s.programCode}-${s.majorCode}-${s.yearLevel}`)
+        );
+        const hasMissing = [...neededKeys].some(k => !existingKeys.has(k));
+
+        if (hasMissing || !allLoadedSubjects || !allLoadedSubjects.length) {
+            try {
+                const subjectQuery = query(
+                    collection(db, "prospectus"),
+                    where("semester", "==", Number(semVal))
+                );
+                const snapshot = await getDocs(subjectQuery);
+                const fetched = [];
+                snapshot.forEach(docSnap => {
+                    const subject = docSnap.data();
+                    if (subject.subjectCode && subject.subjectCode.includes("NSTP")) return;
+                    const key = `${subject.programCode}-${subject.majorCode}-${subject.yearLevel}`;
+                    if (neededKeys.has(key)) {
+                        fetched.push({ id: docSnap.id, ...subject });
+                    }
+                });
+
+                if (fetched.length > 0) {
+                    const existingIds = new Set((allLoadedSubjects || []).map(s => s.id || s.subjectCode));
+                    const newSubjects = fetched.filter(s => !existingIds.has(s.id || s.subjectCode));
+                    allLoadedSubjects = [...(allLoadedSubjects || []), ...newSubjects];
+
+                    const grouped = new Map();
+                    allLoadedSubjects.forEach(subject => {
+                        const groupKey = `${subject.programCode || ""}-${subject.majorCode || ""}-${subject.yearLevel || ""}`;
+                        if (!grouped.has(groupKey)) grouped.set(groupKey, []);
+                        grouped.get(groupKey).push(subject);
+                    });
+                    subjectGroups = [...grouped.values()];
+                    if (!subjectBody.querySelectorAll("tr").length) {
+                        currentSubjectGroupIndex = 0;
+                        renderSubjectGroup();
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not auto-fetch prospectus subjects:", err);
+            }
+        }
+
+        let subjectsToUse = allLoadedSubjects;
+        if (!subjectsToUse || !subjectsToUse.length) {
+            subjectsToUse = (subjectGroups || []).flat();
+        }
+        if (!subjectsToUse || !subjectsToUse.length) {
+            const domRows = [...subjectBody.querySelectorAll("tr")]
+                .filter(row => !row.classList.contains("subject-group-title-row") &&
+                    !row.classList.contains("subject-column-header-row") &&
+                    row.querySelectorAll("td").length >= 6);
+            if (domRows.length) subjectsToUse = domRows;
+        }
+
+        if (!subjectsToUse || !subjectsToUse.length) {
+            showToast("Please load subjects first.");
+            return;
+        }
+
         let rooms;
         try {
             const roomSnapshot = await getDocs(collection(db, "rooms"));
@@ -3128,29 +3528,24 @@ async function generateSchedule() {
         const runningBookings = getSavedBookings(currentAcademicYear, currentSemester);
         const generatedSchedules = [];
         const failedSections = [];
+        const isBatch = sectionsToGenerate.length > 1;
 
-        for (const secCode of sectionCodes) {
-            const secMeta = allSections.find(s => s.sectionCode === secCode) || {
-                sectionCode: secCode,
-                programCode: selectedValues(programSelect)[0] || "",
-                majorCode: selectedValues(majorSelect)[0] || "",
-                yearLevel: Number(selectedValues(yearLevelSelect)[0]) || 1
-            };
-
+        for (const secMeta of sectionsToGenerate) {
             const sched = generateForSection(
-                secCode,
+                secMeta.sectionCode,
                 secMeta,
-                subjectRows,
+                subjectsToUse,
                 rooms,
                 runningBookings,
                 currentAcademicYear,
-                currentSemester
+                currentSemester,
+                isBatch
             );
 
             if (sched) {
                 generatedSchedules.push(sched);
             } else {
-                failedSections.push(secCode);
+                failedSections.push(secMeta.sectionCode);
             }
         }
 
@@ -3717,11 +4112,30 @@ function openEditScheduleModal(scheduleId) {
                 <td>
                     <select class="edit-faculty-select" style="width:100%; padding:8px; border:1px solid #c9c1b0; border-radius:6px; font-size:13px; background:#fff;">
                         <option value="">-- Unassigned --</option>
-                        ${allFacultyMembers.map(f => `
-                            <option value="${escapeHtml(f.name)}" data-uid="${escapeHtml(f.uid)}" data-employee-id="${escapeHtml(f.employeeId || '')}" ${(entry.faculty && (sameFaculty(entry.faculty, f.name) || entry.facultyUid === f.uid)) ? 'selected' : ''}>
-                                ${escapeHtml(f.name)}${f.employeeId ? ' (' + escapeHtml(f.employeeId) + ')' : ''}
-                            </option>
-                        `).join("")}
+                        ${(() => {
+                            const entryCriteria = {
+                                subjectCode: entry.code || "",
+                                programCode: schedule.program || "",
+                                majorCode: schedule.major || "",
+                                yearLevel: schedule.yearLevel || "",
+                                semester: schedule.semester || "",
+                                section: schedule.section || schedule.name || ""
+                            };
+                            const eligible = allFacultyMembers.filter(f => {
+                                const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+                                return isFacultyEligibleForSubject(handled, entryCriteria);
+                            });
+                            const list = [...eligible];
+                            if (entry.faculty && !list.some(f => sameFaculty(entry.faculty, f.name) || (entry.facultyUid && entry.facultyUid === f.uid))) {
+                                const currentFac = allFacultyMembers.find(f => sameFaculty(entry.faculty, f.name) || (entry.facultyUid && entry.facultyUid === f.uid));
+                                if (currentFac) list.unshift(currentFac);
+                            }
+                            return list.map(f => `
+                                <option value="${escapeHtml(f.name)}" data-uid="${escapeHtml(f.uid)}" data-employee-id="${escapeHtml(f.employeeId || '')}" ${(entry.faculty && (sameFaculty(entry.faculty, f.name) || entry.facultyUid === f.uid)) ? 'selected' : ''}>
+                                    ${escapeHtml(f.name)}${f.employeeId ? ' (' + escapeHtml(f.employeeId) + ')' : ''}
+                                </option>
+                            `).join("");
+                        })()}
                     </select>
                 </td>
             </tr>
