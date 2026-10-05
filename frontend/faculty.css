@@ -1951,3 +1951,83 @@ nav ul li a.active {
         height: 44px;
     }
 }
+
+/* =============================================================
+   FACULTY TIMETABLE / TEACHING LOAD SUMMARY & BADGES
+   ============================================================= */
+.teaching-load-header {
+    background: #1b5e20 !important;
+    color: #ffffff !important;
+    padding: 14px 18px;
+    border-radius: 10px 10px 0 0;
+    border-bottom: none;
+}
+
+.teaching-load-header h4 {
+    color: #ffffff !important;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.teaching-load-header small {
+    color: rgba(255, 255, 255, 0.85) !important;
+    font-size: 12px;
+}
+
+.ft-summary-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    background: #f0f7f0;
+    border: 1px solid #c8e6c9;
+    border-radius: 8px;
+    padding: 12px 18px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: #1a1a1a;
+}
+
+.ft-summary-box div {
+    white-space: nowrap;
+}
+
+.load-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.load-normal {
+    background: #e8f5e9;
+    color: #1b5e20;
+    border: 1px solid #c8e6c9;
+}
+
+.load-overload {
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffe0b2;
+}
+
+.load-exceeded {
+    background: #ffebee;
+    color: #b71c1c;
+    border: 1px solid #ffcdd2;
+}
+
+.load-none {
+    background: #f5f5f5;
+    color: #777;
+    border: 1px solid #e0e0e0;
+}
+
+/* On faculty dashboard, hide administrative unassign buttons if conflict banner is shown */
+.faculty-conflict-alert .cal-unassign-clash-btn,
+.faculty-conflict-alert .cal-unassign-all-conflicts-btn {
+    display: none !important;
+}

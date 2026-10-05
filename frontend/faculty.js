@@ -80,6 +80,7 @@ let currentFacultyName = "";
 let currentFacultyUid = "";
 let currentFacultyEmail = "";
 let currentFacultyId = "";
+let currentFacultyDepartment = "";
 let assignedExamSchedules = [];
 let assignedExamsList = [];
 let latestNotificationsList = [];
@@ -800,8 +801,8 @@ function parseSlotDurationHours(timeRange) {
 
 function calculateWeeklyHours(dayStr, timeStr) {
     if (!timeStr) return 0;
-    const days = String(dayStr || "").split(" / ").map(d => d.trim()).filter(Boolean);
-    const times = String(timeStr || "").split(" / ").map(t => t.trim()).filter(Boolean);
+    const days = String(dayStr || "").split(/\s*\/\s*/).map(d => d.trim()).filter(Boolean);
+    const times = String(timeStr || "").split(/\s*\/\s*/).map(t => t.trim()).filter(Boolean);
     const count = Math.max(days.length, times.length, 1);
 
     let total = 0;
@@ -812,6 +813,10 @@ function calculateWeeklyHours(dayStr, timeStr) {
     return Math.round(total * 10) / 10;
 }
 
+function normalizeFaculty(name) {
+    return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
     if (!entry) return false;
 
@@ -819,7 +824,6 @@ function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
     if (userUid) {
         const entryFacultyUid = String(entry.facultyUid || "").trim();
         if (entryFacultyUid && entryFacultyUid === String(userUid).trim()) return true;
-        // Do NOT match facultyId against userUid — they are different fields
     }
 
     // Match by employeeId
@@ -828,11 +832,11 @@ function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
         if (entryFacultyId && entryFacultyId === String(employeeId).trim()) return true;
     }
 
-    // Match by full name — exact match only (no substring/partial match)
+    // Match by full name — exact match with normalized spaces
     const facName = entry.faculty || entry.facultyName;
     if (fullName && facName) {
-        const normEntry = normalize(facName);
-        const normUser = normalize(fullName);
+        const normEntry = normalizeFaculty(facName);
+        const normUser = normalizeFaculty(fullName);
         if (normEntry && normUser && normEntry !== "unassigned" && normEntry !== "tba" && normEntry === normUser) {
             return true;
         }
@@ -844,12 +848,10 @@ function isClassEntryAssignedToFaculty(entry, userUid, fullName, employeeId) {
 function renderClassTeachingSchedules(assignedClasses) {
     if (!classTeachingScheduleContainer) return;
 
-    if (!assignedClasses.length) {
+    if (!assignedClasses || !assignedClasses.length) {
         if (facultyWorkloadSummaryBadge) {
             facultyWorkloadSummaryBadge.innerHTML = `
-                <span style="background:#e0e0e0; color:#555; font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px;">
-                    0 Units Assigned
-                </span>
+                <span class="load-badge load-none">0 Units Assigned</span>
             `;
         }
         if (facultyTotalSubjectsEl) facultyTotalSubjectsEl.textContent = "0";
@@ -858,101 +860,69 @@ function renderClassTeachingSchedules(assignedClasses) {
 
         classTeachingScheduleContainer.innerHTML = `
             <div class="empty-state" style="padding:28px 16px; text-align:center; color:#666;">
-                <div style="font-size:24px; margin-bottom:8px;"></div>
+                <div style="font-size:32px; margin-bottom:8px;">📅</div>
                 <p style="margin:0; font-size:14px; font-weight:600; color:#333;">No class teaching assignments found.</p>
-                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When class schedules are published, your weekly classes will be displayed here.</p>
+                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When class schedules are published, your weekly teaching load timetable will appear here.</p>
             </div>
         `;
         return;
     }
 
-    // Calculate metrics
-    let totalUnits = 0;
-    let totalWeeklyHours = 0;
-    const distinctSections = new Set();
-    const distinctSubjects = new Set();
-
+    // Group assigned classes by Academic Term (e.g., "A.Y. 2026-2027 • 2nd Semester")
+    // This unites ALL sections taught by this faculty member into ONE weekly timetable!
+    const termGroups = new Map();
     assignedClasses.forEach(item => {
-        totalUnits += Number(item.units) || 0;
-        totalWeeklyHours += calculateWeeklyHours(item.day, item.time);
-        if (item.section) distinctSections.add(item.section);
-        if (item.code || item.subjectCode) distinctSubjects.add(item.code || item.subjectCode);
-    });
-
-    totalWeeklyHours = Math.round(totalWeeklyHours * 10) / 10;
-
-    if (facultyTotalSubjectsEl) facultyTotalSubjectsEl.textContent = distinctSubjects.size;
-    if (facultyTotalSectionsEl) facultyTotalSectionsEl.textContent = distinctSections.size;
-    if (facultyTotalHoursEl) facultyTotalHoursEl.textContent = `${totalWeeklyHours} hrs`;
-
-    // Load badge
-    let loadBadgeStyle = "";
-    let loadLabel = "";
-    if (totalWeeklyHours <= 0) {
-        loadBadgeStyle = "background:#f5f5f5; color:#777; border:1px solid #e0e0e0;";
-        loadLabel = "No Load";
-    } else if (totalWeeklyHours > 21) {
-        loadBadgeStyle = "background:#ffebee; color:#c62828; border:1px solid #ffcdd2;";
-        loadLabel = "⚠️ Over Capacity (>21 hrs)";
-    } else if (totalWeeklyHours >= 19) {
-        loadBadgeStyle = "background:#fff3e0; color:#e65100; border:1px solid #ffe0b2;";
-        loadLabel = "⚡ Overload (19–21 hrs)";
-    } else {
-        loadBadgeStyle = "background:#e8f5e9; color:#1b5e20; border:1px solid #c8e6c9;";
-        loadLabel = "✓ Normal Load";
-    }
-
-    if (facultyWorkloadSummaryBadge) {
-        facultyWorkloadSummaryBadge.innerHTML = `
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                <span style="${loadBadgeStyle} padding:4px 12px; border-radius:999px; font-weight:700; font-size:12px;">
-                    ${loadLabel} (${totalUnits} Units)
-                </span>
-                <span style="background:#f1f8e9; color:#33691e; border:1px solid #dcedc8; padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px;">
-                    🕒 ${totalWeeklyHours} hrs/wk
-                </span>
-                <span style="background:#e8eaf6; color:#283593; border:1px solid #c5cae9; padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px;">
-                    👥 ${distinctSections.size} Section${distinctSections.size === 1 ? "" : "s"}
-                </span>
-            </div>
-        `;
-    }
-
-    // Group entries by their parent schedule so each section gets its own calendar card
-    const scheduleGroups = new Map();
-    assignedClasses.forEach(item => {
-        const key = item.scheduleId || item.section || "default";
-        if (!scheduleGroups.has(key)) {
-            scheduleGroups.set(key, {
-                scheduleId: item.scheduleId,
-                section: item.section,
-                scheduleName: item.scheduleName,
-                academicYear: item.academicYear,
-                semester: item.semester,
-                yearLevel: item.yearLevel,
-                entries: []
-            });
+        const ay = item.academicYear ? `A.Y. ${item.academicYear}` : "";
+        const sem = item.semester || "";
+        const termKey = [ay, sem].filter(Boolean).join(" • ") || "Academic Year Schedule";
+        if (!termGroups.has(termKey)) {
+            termGroups.set(termKey, []);
         }
-        scheduleGroups.get(key).entries.push(item);
+        termGroups.get(termKey).push(item);
     });
 
-    // Render one calendar card per schedule group
-    const cardsHtml = Array.from(scheduleGroups.values()).map(group => {
-        const calHtml = renderClassCalendar({ entries: group.entries });
-        const sectionLabel = group.section || group.scheduleName || "Class Schedule";
-        const metaParts = [
-            group.academicYear ? `A.Y. ${group.academicYear}` : "",
-            group.semester || "",
-            group.yearLevel || ""
-        ].filter(Boolean);
-        const metaText = metaParts.join(" • ");
+    // Calculate overall metrics
+    let overallHours = 0;
+    const allSubjects = new Set();
+    const allSections = new Set();
+    assignedClasses.forEach(item => {
+        if (item.code || item.subjectCode) allSubjects.add(item.code || item.subjectCode);
+        if (item.section) allSections.add(item.section);
+        overallHours += calculateWeeklyHours(item.day, item.time);
+    });
+    overallHours = Math.round(overallHours * 10) / 10;
+
+    if (facultyTotalSubjectsEl) facultyTotalSubjectsEl.textContent = allSubjects.size;
+    if (facultyTotalSectionsEl) facultyTotalSectionsEl.textContent = allSections.size;
+    if (facultyTotalHoursEl) facultyTotalHoursEl.textContent = `${overallHours} hrs`;
+
+    // Render one unified calendar card per academic period (combining all sections)
+    const cardsHtml = Array.from(termGroups.entries()).map(([termLabel, groupClasses]) => {
+        // Build entries for renderClassCalendar
+        const entriesForCalendar = groupClasses.map(c => ({
+            code:        c.code || c.subjectCode || "",
+            name:        c.name || c.subjectName || "",
+            day:         c.day || "",
+            time:        c.time || "",
+            room:        c.room || "",
+            section:     c.section || "",
+            units:       c.units ?? "",
+            facultyName: currentFacultyName,
+            facultyUid:  currentFacultyUid,
+            scheduleId:  c.scheduleId || "",
+            entryIndex:  c.entryIndex
+        }));
+
+        const calHtml = renderClassCalendar({
+            entries: entriesForCalendar,
+            isFacultySchedule: true
+        });
 
         return `
             <article class="schedule-card" style="margin-bottom:20px;">
-                <div class="schedule-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <div class="schedule-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <div>
-                        <h4 style="margin:0; font-size:15px; color:#1b5e20; font-weight:700;">Section: ${safe(sectionLabel)}</h4>
-                        ${metaText ? `<small style="color:#666; font-size:12px;">${safe(metaText)}</small>` : ""}
+                        <h4 style="margin:0; font-size:15px; color:#1b5e20; font-weight:700;">${safe(termLabel)}</h4>
                     </div>
                 </div>
                 ${calHtml}
@@ -978,10 +948,11 @@ function watchAssignedClassSchedules(user, fullName, employeeId) {
                 if (status !== "published" && status !== "active") return;
 
                 const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
-                entries.forEach(entry => {
+                entries.forEach((entry, entryIndex) => {
                     if (isClassEntryAssignedToFaculty(entry, user.uid, fullName, employeeId)) {
                         assignedClasses.push({
                             ...entry,
+                            entryIndex,
                             scheduleId: schedule.id,
                             scheduleName: schedule.name || schedule.section || "Class Schedule",
                             section: schedule.section || schedule.name || "",
@@ -1052,6 +1023,7 @@ async function initializeFacultyDashboard() {
             currentFacultyUid = user.uid;
             currentFacultyEmail = profile.email || user.email || "";
             currentFacultyId = profile.employeeId || profile.facultyId || "";
+            currentFacultyDepartment = profile.department || profile.program || profile.dept || "";
             navFacultyName.textContent = fullName;
             navFacultyRole.textContent = "Instructor";
 
