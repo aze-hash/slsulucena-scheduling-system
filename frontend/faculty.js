@@ -21,7 +21,7 @@ import {
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import { renderExamCalendar, renderWeeklyExamCalendar } from "./js/schedule-calendar.js";
+import { renderClassCalendar, renderExamCalendar, renderWeeklyExamCalendar } from "./js/schedule-calendar.js";
 
 const examScheduleContainer = document.getElementById("examScheduleContainer");
 const classTeachingScheduleContainer = document.getElementById("classScheduleContainer") || document.getElementById("classTeachingScheduleContainer");
@@ -858,9 +858,9 @@ function renderClassTeachingSchedules(assignedClasses) {
 
         classTeachingScheduleContainer.innerHTML = `
             <div class="empty-state" style="padding:28px 16px; text-align:center; color:#666;">
-                <div style="font-size:24px; margin-bottom:8px;">📚</div>
+                <div style="font-size:24px; margin-bottom:8px;"></div>
                 <p style="margin:0; font-size:14px; font-weight:600; color:#333;">No class teaching assignments found.</p>
-                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When class schedules are assigned by your department Chairperson, your weekly classes will be displayed here.</p>
+                <p style="margin:4px 0 0 0; font-size:12px; color:#777;">When class schedules are published, your weekly classes will be displayed here.</p>
             </div>
         `;
         return;
@@ -918,43 +918,49 @@ function renderClassTeachingSchedules(assignedClasses) {
         `;
     }
 
-    classTeachingScheduleContainer.innerHTML = `
-        <div class="table-container" style="overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse; margin-top:8px;">
-                <thead>
-                    <tr style="background:#f0f4ec; text-align:left;">
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Subject Code</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Subject Description</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6; text-align:center;">Units</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Section</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Day</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Time</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6;">Room</th>
-                        <th style="padding:10px 12px; font-size:12px; border-bottom:2px solid #cbbfa6; text-align:center;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${assignedClasses.map(item => `
-                        <tr style="border-bottom:1px solid #eee;">
-                            <td style="padding:10px 12px; font-weight:bold; color:#1b5e20;">${safe(item.code)}</td>
-                            <td style="padding:10px 12px;">${safe(item.name)}</td>
-                            <td style="padding:10px 12px; text-align:center; font-weight:600;">${safe(item.units)}</td>
-                            <td style="padding:10px 12px;"><span style="background:#f5f5f5; border:1px solid #ddd; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600;">${safe(item.section)}</span></td>
-                            <td style="padding:10px 12px;">${safe(item.day)}</td>
-                            <td style="padding:10px 12px;">${safe(item.time)}</td>
-                            <td style="padding:10px 12px; font-weight:600;">${safe(item.room)}</td>
-                            <td style="padding:10px 12px; text-align:center;">
-                                ${item.status === "published"
-                                    ? `<span style="background:#e8f5e9; color:#1b5e20; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">✓ Published</span>`
-                                    : `<span style="background:#fff3e0; color:#e65100; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">Draft</span>`
-                                }
-                            </td>
-                        </tr>
-                    `).join("")}
-                </tbody>
-            </table>
-        </div>
-    `;
+    // Group entries by their parent schedule so each section gets its own calendar card
+    const scheduleGroups = new Map();
+    assignedClasses.forEach(item => {
+        const key = item.scheduleId || item.section || "default";
+        if (!scheduleGroups.has(key)) {
+            scheduleGroups.set(key, {
+                scheduleId: item.scheduleId,
+                section: item.section,
+                scheduleName: item.scheduleName,
+                academicYear: item.academicYear,
+                semester: item.semester,
+                yearLevel: item.yearLevel,
+                entries: []
+            });
+        }
+        scheduleGroups.get(key).entries.push(item);
+    });
+
+    // Render one calendar card per schedule group
+    const cardsHtml = Array.from(scheduleGroups.values()).map(group => {
+        const calHtml = renderClassCalendar({ entries: group.entries });
+        const sectionLabel = group.section || group.scheduleName || "Class Schedule";
+        const metaParts = [
+            group.academicYear ? `A.Y. ${group.academicYear}` : "",
+            group.semester || "",
+            group.yearLevel || ""
+        ].filter(Boolean);
+        const metaText = metaParts.join(" • ");
+
+        return `
+            <article class="schedule-card" style="margin-bottom:20px;">
+                <div class="schedule-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                    <div>
+                        <h4 style="margin:0; font-size:15px; color:#1b5e20; font-weight:700;">Section: ${safe(sectionLabel)}</h4>
+                        ${metaText ? `<small style="color:#666; font-size:12px;">${safe(metaText)}</small>` : ""}
+                    </div>
+                </div>
+                ${calHtml}
+            </article>
+        `;
+    }).join("");
+
+    classTeachingScheduleContainer.innerHTML = cardsHtml;
 }
 
 function watchAssignedClassSchedules(user, fullName, employeeId) {
@@ -968,7 +974,8 @@ function watchAssignedClassSchedules(user, fullName, employeeId) {
             snapshot.docs.forEach(docSnap => {
                 const schedule = { id: docSnap.id, ...docSnap.data() };
                 const status = normalize(schedule.status || "draft");
-                if (status === "archived") return;
+                // Only show published/active schedules; skip drafts and archived
+                if (status !== "published" && status !== "active") return;
 
                 const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
                 entries.forEach(entry => {

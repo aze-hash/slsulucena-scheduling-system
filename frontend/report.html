@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Schedule Archive - Examination Scheduling System</title>
     <link rel="stylesheet" href="report.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -64,7 +65,6 @@
                         <th style="min-width:140px;">Academic Year</th>
                         <th style="min-width:130px;">Semester</th>
                         <th style="min-width:110px; text-align:center;">Subjects</th>
-                        <th style="min-width:130px;">Archived Date</th>
                         <th style="min-width:180px; text-align:center;">Action</th>
                     </tr>
                 </thead>
@@ -111,7 +111,6 @@
                         <th style="min-width:140px;">Academic Year</th>
                         <th style="min-width:130px;">Semester</th>
                         <th style="min-width:120px;">Exam Type</th>
-                        <th style="min-width:130px;">Archived Date</th>
                         <th style="min-width:180px; text-align:center;">Action</th>
                     </tr>
                 </thead>
@@ -133,30 +132,54 @@
 
     <!-- Faculty Loading Report Card -->
     <div class="card" id="facultyLoadingReportSection">
-        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
             <div>
-                <h3 style="margin:0;">Faculty Loading Reports</h3>
-                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Comprehensive summary of teaching assignments, contact hours, and faculty workloads.</p>
+                <h3 style="margin:0; font-size:20px; color:#1b5e20;">Faculty Loading Reports</h3>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#666;">Comprehensive summary and combined master reports of faculty teaching assignments, contact hours, and workloads.</p>
             </div>
-            <button type="button" class="action-btn" id="printAllFacultyLoadingBtn" style="background:#2e7d32; color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:600; cursor:pointer;">Print Summary</button>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="action-btn" id="exportFacultyLoadingBtn" style="background:#0f9d58; color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 2px 4px rgba(0,0,0,0.15);">
+                    <span style="font-size:16px;">📊</span> Export to Google Sheet
+                </button>
+                <button type="button" class="action-btn" id="printCombinedFacultyLoadingBtn" style="background:#1b5e20; color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                    <span>🖨️</span> Print Combined Report
+                </button>
+
+            </div>
         </div>
 
-        <div class="archive-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin:16px 0;">
-            <input type="text" id="facultyLoadingSearch" placeholder="Search faculty name or ID...">
+        <!-- Filters -->
+        <div class="archive-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:16px 0 12px 0;">
+            <select id="facultyLoadingAcademicYear">
+                <option value="">All Academic Years</option>
+            </select>
+            <select id="facultyLoadingSemester">
+                <option value="">All Semesters</option>
+                <option value="1st Semester">1st Semester</option>
+                <option value="2nd Semester">2nd Semester</option>
+            </select>
+            <select id="facultyLoadingDepartment">
+                <option value="">All Programs / Depts</option>
+            </select>
+            <input type="text" id="facultyLoadingSearch" placeholder="Search faculty, subject, or section...">
+        </div>
+
+        <!-- View Mode Switcher -->
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #e0e0e0;">
+            <div style="display:inline-flex; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:8px; padding:3px; gap:4px;">
+                <button type="button" id="facultyViewCombinedBtn" class="faculty-view-toggle active" style="padding:6px 14px; border:none; border-radius:6px; font-size:13px; font-weight:bold; cursor:pointer; background:#2e7d32; color:#fff; transition:0.2s;">
+                    📋 Combined Master Report
+                </button>
+            </div>
+            <div id="facultyLoadingStatsBadge" style="font-size:13px; color:#555; background:#fff; padding:6px 12px; border-radius:6px; border:1px solid #ddd; font-weight:500;">
+                Loading records...
+            </div>
         </div>
 
         <div class="table-container">
             <table>
-                <thead>
-                    <tr>
-                        <th style="min-width:180px;">Faculty Name</th>
-                        <th style="min-width:120px;">Employee ID</th>
-                        <th style="min-width:100px; text-align:center;">Subjects</th>
-                        <th style="min-width:100px; text-align:center;">Sections</th>
-                        <th style="min-width:130px; text-align:center;">Teaching Hours</th>
-                        <th style="min-width:140px; text-align:center;">Load Status</th>
-                        <th style="min-width:150px; text-align:center;">Action</th>
-                    </tr>
+                <thead id="facultyLoadingTableHead">
+                    <!-- Injected dynamically based on view mode -->
                 </thead>
                 <tbody id="facultyLoadingTableBody"></tbody>
             </table>
@@ -195,6 +218,84 @@
         </div>
         <div class="cal-modal-body" id="calModalBody">
             <!-- Calendar timetable injected dynamically -->
+        </div>
+    </div>
+</div>
+
+<!-- Export Faculty Loading Modal -->
+<div id="facultyExportModal" class="cal-modal-overlay" style="display:none;">
+    <div class="cal-modal-content" style="max-width:560px;">
+        <div class="cal-modal-header">
+            <div>
+                <h2 style="margin:0; font-size:18px; color:#1b5e20; display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:22px;">📊</span> Export to Google Sheets
+                </h2>
+                <p style="margin:4px 0 0 0; font-size:13px; color:#555;">Choose how you want to export the faculty loading report.</p>
+            </div>
+            <button id="facultyExportModalClose" class="cal-modal-close" type="button">&times;</button>
+        </div>
+        <div class="cal-modal-body" style="padding:16px 20px 20px 20px; display:flex; flex-direction:column; gap:12px;">
+
+            <!-- Quick Launch to Google Sheets -->
+            <div class="export-card" style="background:#e8f5e9; border:1.5px solid #81c784; border-radius:10px; padding:14px; display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <div style="flex:1;">
+                    <div style="font-weight:bold; color:#1b5e20; font-size:14px; display:flex; align-items:center; gap:6px;">
+                        <span>🚀</span> Open Directly in Google Sheets
+                    </div>
+                    <div style="font-size:12px; color:#388e3c; margin-top:2px;">
+                        Copies formatted table to clipboard &amp; opens <code>sheets.new</code>. Just press <strong>Ctrl+V</strong> to paste!
+                    </div>
+                </div>
+                <button type="button" id="exportToSheetsWebBtn" style="background:#0f9d58; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer; white-space:nowrap;">
+                    Open &amp; Paste
+                </button>
+            </div>
+
+            <!-- Download Excel XLSX -->
+            <div class="export-card" style="background:#f1f8e9; border:1px solid #c5e1a5; border-radius:10px; padding:14px; display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <div style="flex:1;">
+                    <div style="font-weight:bold; color:#2e7d32; font-size:14px; display:flex; align-items:center; gap:6px;">
+                        <span>📗</span> Download Excel Workbook (.xlsx)
+                    </div>
+                    <div style="font-size:12px; color:#555; margin-top:2px;">
+                        Contains 2 sheets: <strong>Master Loading Report</strong> &amp; <strong>Summary</strong>. Drag right into Google Drive!
+                    </div>
+                </div>
+                <button type="button" id="exportToExcelBtn" style="background:#2e7d32; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer; white-space:nowrap;">
+                    Download .xlsx
+                </button>
+            </div>
+
+            <!-- Download CSV Master -->
+            <div class="export-card" style="background:#fff; border:1px solid #ddd; border-radius:10px; padding:14px; display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <div style="flex:1;">
+                    <div style="font-weight:bold; color:#333; font-size:14px; display:flex; align-items:center; gap:6px;">
+                        <span>📄</span> Download Combined Master CSV
+                    </div>
+                    <div style="font-size:12px; color:#666; margin-top:2px;">
+                        All instructor classes, sections, units, and hours in UTF-8 CSV.
+                    </div>
+                </div>
+                <button type="button" id="exportToCsvMasterBtn" style="background:#424242; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer; white-space:nowrap;">
+                    Download CSV
+                </button>
+            </div>
+
+            <!-- Download CSV Summary -->
+            <div class="export-card" style="background:#fff; border:1px solid #ddd; border-radius:10px; padding:14px; display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <div style="flex:1;">
+                    <div style="font-weight:bold; color:#333; font-size:14px; display:flex; align-items:center; gap:6px;">
+                        <span>📊</span> Download Faculty Workload Summary CSV
+                    </div>
+                    <div style="font-size:12px; color:#666; margin-top:2px;">
+                        Totals per instructor: subjects, sections, weekly teaching hours, and status.
+                    </div>
+                </div>
+                <button type="button" id="exportToCsvSummaryBtn" style="background:#546e7a; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer; white-space:nowrap;">
+                    Download CSV
+                </button>
+            </div>
+
         </div>
     </div>
 </div>

@@ -33,8 +33,8 @@
     <header class="header">
         <div>
             <h1>Welcome, Admin</h1>
-            <p>A centralized platform for efficient examination scheduling and academic resource management.
-</p>
+            <p>A centralized platform for efficient class scheduling and examination management.</p>
+
         </div>
 
         <div class="admin-profile">
@@ -44,7 +44,7 @@
     </header>
 
     <div class="notice" id="dashboardNotice">
-        Loading live examination scheduling data...
+        Loading live class and examination scheduling data...
     </div>
 
     <section class="dashboard-grid">
@@ -86,14 +86,14 @@
             <div class="chart-card-header">
                 <div>
                     <h3>Room Assignment</h3>
-                    <p class="chart-subtitle">Assigned examinations per room</p>
+                    <p class="chart-subtitle">Assigned classes and examinations per room</p>
                 </div>
                 <div class="chart-controls">
                     <select id="roomChartFilter" class="chart-select">
-                        <option value="this_semester" selected>This Semester</option>
+                        <option value="this_semester">This Semester</option>
                         <option value="1st Semester">1st Semester</option>
                         <option value="2nd Semester">2nd Semester</option>
-                        <option value="all">All</option>
+                        <option value="all" selected>All</option>
                     </select>
                 </div>
             </div>
@@ -114,10 +114,10 @@
                 </div>
                 <div class="chart-controls">
                     <select id="scheduleOverviewFilter" class="chart-select">
-                        <option value="this_semester" selected>This Semester</option>
+                        <option value="this_semester">This Semester</option>
                         <option value="1st Semester">1st Semester</option>
                         <option value="2nd Semester">2nd Semester</option>
-                        <option value="all">All</option>
+                        <option value="all" selected>All</option>
                     </select>
                 </div>
             </div>

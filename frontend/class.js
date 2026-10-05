@@ -446,7 +446,9 @@ function sameFaculty(f1, f2) {
     const n1 = String(f1).trim().replace(/\s+/g, " ").toLowerCase();
     const n2 = String(f2).trim().replace(/\s+/g, " ").toLowerCase();
     if (!n1 || !n2 || n1 === "unassigned" || n2 === "unassigned" || n1 === "tba" || n2 === "tba") return false;
-    return n1 === n2;
+    if (n1 === n2) return true;
+    const stripInitial = s => s.replace(/\s+[a-z]\.?$/i, "").replace(/,\s*/g, " ").trim();
+    return stripInitial(n1) === stripInitial(n2);
 }
 
 async function loadFacultyMembers() {
@@ -1123,11 +1125,17 @@ function isActivityEntry(entry) {
     return /^pathfit/i.test(String(entry.code).trim());
 }
 
+function isActivityGymOrCourtRoom(roomVal) {
+    if (!roomVal) return false;
+    const norm = String(roomVal).toLowerCase().trim();
+    return /covered\s*court|court|gym|gymnasium|activity/i.test(norm);
+}
+
 /**
  * Maximum number of PATHFit/Activity sections that may simultaneously occupy
- * the Covered Court (or any Gymnasium-type room). ≤ 3 → allowed; ≥ 4 → conflict.
+ * the Covered Court (or any Gymnasium-type room). ≤ 2 → allowed; ≥ 3 → conflict.
  */
-const COVERED_COURT_MAX_SECTIONS = 3;
+const COVERED_COURT_MAX_SECTIONS = 2;
 
 /**
  * After the pairwise room-conflict scan, sweep all entries to find groups of
@@ -1138,16 +1146,16 @@ const COVERED_COURT_MAX_SECTIONS = 3;
  * @param {Array}  roomConflicts - Conflict array to push capacity violations into.
  * @param {Set}    seenKeys      - Deduplication set shared with the main scan.
  * @param {string} statusLabel   - "Generated (Internal)" | "Saved" | "Draft"
- * @returns {Array} List of allowed shared Covered Court usages (2 or 3 sections)
+ * @returns {Array} List of allowed shared Covered Court usages (2 sections)
  */
 function checkCoveredCourtCapacity(allEntries, roomConflicts, seenKeys, statusLabel) {
     const coveredCourtUsage = [];
     const seenUsageKeys = new Set();
 
-    // Group PATHFit entries by (roomName, day)
+    // Group PATHFit/Activity entries by (roomName, day)
     const groups = new Map();
     for (const entry of allEntries) {
-        if (!isActivityEntry(entry)) continue;
+        if (!isActivityEntry(entry) && !isActivityGymOrCourtRoom(entry.room)) continue;
         const roomKey = entry.room.trim();
         const dayKey  = entry.day.trim();
         const mapKey  = `${roomKey}|||${dayKey}`;
@@ -1350,12 +1358,11 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
             const aRoom = a.room.trim().toLowerCase();
             const bRoom = b.room.trim().toLowerCase();
 
-            const aIsActivity = isActivityEntry(a);
-            const bIsActivity = isActivityEntry(b);
-            const bothActivity = aIsActivity && bIsActivity;
-            const isGymByName = aRoom.includes("gym") && bRoom.includes("gym");
+            const isGymCourtA = isActivityGymOrCourtRoom(aRoom) || isActivityEntry(a);
+            const isGymCourtB = isActivityGymOrCourtRoom(bRoom) || isActivityEntry(b);
+            const bothGymCourt = isGymCourtA && isGymCourtB;
 
-            if (!bothActivity && !isGymByName && aRoom && bRoom && aRoom === bRoom) {
+            if (!bothGymCourt && aRoom && bRoom && aRoom === bRoom) {
                 const key = `SELF_ROOM_${a.day}_${a.room}_${a.code}_${b.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -1427,12 +1434,11 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
             // B. Room Conflict with an existing schedule
             const curRoom = cur.room.trim().toLowerCase();
             const extRoom = ext.room.trim().toLowerCase();
-            const curIsActivity = isActivityEntry(cur);
-            const extIsActivity = isActivityEntry(ext);
-            const bothActivityExt = curIsActivity && extIsActivity;
-            const isGymByNameExt = curRoom.includes("gym") && extRoom.includes("gym");
+            const isGymCourtCur = isActivityGymOrCourtRoom(curRoom) || isActivityEntry(cur);
+            const isGymCourtExt = isActivityGymOrCourtRoom(extRoom) || isActivityEntry(ext);
+            const bothGymCourtExt = isGymCourtCur && isGymCourtExt;
 
-            if (!bothActivityExt && !isGymByNameExt && curRoom && extRoom && curRoom === extRoom) {
+            if (!bothGymCourtExt && curRoom && extRoom && curRoom === extRoom) {
                 const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -1980,12 +1986,11 @@ async function runConflictScanningProcess(generatedSchedule, existingSchedules) 
             // PATHFit/Activity pairs → capacity sweep; normal rooms → immediate conflict.
             const curRoom = cur.room.trim().toLowerCase();
             const extRoom = ext.room.trim().toLowerCase();
-            const curIsActivity = isActivityEntry(cur);
-            const extIsActivity = isActivityEntry(ext);
-            const bothActivityExt = curIsActivity && extIsActivity;
-            const isGymByNameExt = curRoom.includes("gym") && extRoom.includes("gym");
+            const isGymCourtCur = isActivityGymOrCourtRoom(curRoom) || isActivityEntry(cur);
+            const isGymCourtExt = isActivityGymOrCourtRoom(extRoom) || isActivityEntry(ext);
+            const bothGymCourtExt = isGymCourtCur && isGymCourtExt;
 
-            if (!bothActivityExt && !isGymByNameExt && curRoom && extRoom && curRoom === extRoom) {
+            if (!bothGymCourtExt && curRoom && extRoom && curRoom === extRoom) {
                 const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -2037,12 +2042,11 @@ async function runConflictScanningProcess(generatedSchedule, existingSchedules) 
             // PATHFit/Activity pairs → capacity sweep; normal rooms → immediate conflict.
             const curRoomD = cur.room.trim().toLowerCase();
             const extRoomD = ext.room.trim().toLowerCase();
-            const curIsActivityD = isActivityEntry(cur);
-            const extIsActivityD = isActivityEntry(ext);
-            const bothActivityDraft = curIsActivityD && extIsActivityD;
-            const isGymByNameDraft = curRoomD.includes("gym") && extRoomD.includes("gym");
+            const isGymCourtCurD = isActivityGymOrCourtRoom(curRoomD) || isActivityEntry(cur);
+            const isGymCourtExtD = isActivityGymOrCourtRoom(extRoomD) || isActivityEntry(ext);
+            const bothActivityDraft = isGymCourtCurD && isGymCourtExtD;
 
-            if (!bothActivityDraft && !isGymByNameDraft && curRoomD && extRoomD && curRoomD === extRoomD) {
+            if (!bothActivityDraft && curRoomD && extRoomD && curRoomD === extRoomD) {
                 const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -3180,11 +3184,11 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 //    NOT counted as a room conflict. A THIRD section on the
                 //    same day/time IS flagged as a conflict.
                 const gymRoomCodes = new Set(
-                    rooms.filter(r => r.roomType === "Gymnasium").map(r => r.roomCode)
+                    rooms.filter(r => isActivityGymOrCourtRoom(r.roomName || r.roomCode || r.roomType)).map(r => r.roomCode)
                 );
                 for (const entry of dayEntries) {
-                    /* Gym capacity check instead of a hard single-booking rule */
-                    if (gymRoomCodes.has(entry.roomCode)) {
+                    /* Gym / Covered Court capacity check instead of a hard single-booking rule */
+                    if (gymRoomCodes.has(entry.roomCode) || isActivityGymOrCourtRoom(entry.room || entry.roomCode)) {
                         const otherGymBookings = savedBookings.filter(booking =>
                             booking.day === day &&
                             booking.section !== section &&
@@ -3974,7 +3978,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
 
             const aRoom = (a.room || "").trim().toLowerCase();
             const bRoom = (b.room || "").trim().toLowerCase();
-            const isGym = aRoom.includes("gym");
+            const isGym = isActivityGymOrCourtRoom(aRoom);
 
             if (!isGym && aRoom && bRoom && aRoom === bRoom && a.day.toLowerCase() === b.day.toLowerCase() && timesOverlap(a.time, b.time)) {
                 conflicts.push(`Room Double-Booking on <strong>${escapeHtml(a.day)}</strong>: Both <strong>${escapeHtml(a.code)}</strong> and <strong>${escapeHtml(b.code)}</strong> are assigned to <strong>${escapeHtml(a.room)}</strong> at overlapping times.`);
@@ -3993,7 +3997,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
         const roomName = (slot.room || "").trim().toLowerCase();
         if (!roomName) return;
 
-        const isGym = roomName.includes("gym");
+        const isGym = isActivityGymOrCourtRoom(roomName);
         const matching = otherBookings.filter(b =>
             (b.room || "").trim().toLowerCase() === roomName &&
             (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
@@ -4001,10 +4005,10 @@ function validateScheduleEdits(updatedEntries, schedule) {
         );
 
         if (isGym) {
-            // Gym allows up to 2 simultaneous sections
+            // Activity / Gymnasium / Covered Court allows up to 2 simultaneous sections
             if (matching.length >= 2) {
                 const bookedSections = [...new Set(matching.map(b => b.section || "Another section"))].join(", ");
-                conflicts.push(`Gymnasium Capacity Exceeded on <strong>${escapeHtml(slot.day)}</strong> (${escapeHtml(slot.time)}): Already booked by 2 sections (<strong>${escapeHtml(bookedSections)}</strong>).`);
+                conflicts.push(`Capacity Exceeded in ${escapeHtml(slot.room)} on <strong>${escapeHtml(slot.day)}</strong> (${escapeHtml(slot.time)}): Already booked by 2 sections (<strong>${escapeHtml(bookedSections)}</strong>).`);
                 conflictRowIndices.add(slot.rowIdx);
             }
         } else if (matching.length > 0) {

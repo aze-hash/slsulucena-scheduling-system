@@ -593,9 +593,6 @@ function renderCardsView(facultyLoads) {
                                 ID: <strong>${escapeHtml(f.employeeId || "N/A")}</strong> • ${escapeHtml(f.department || "Faculty")}
                             </p>
                         </div>
-                        <span class="load-badge ${f.loadStatus.className}">
-                            ${escapeHtml(f.loadStatus.text)}
-                        </span>
                     </div>
 
                     <div class="faculty-stats-row">

@@ -743,3 +743,45 @@ tr:hover{
 .cal-details-summary:hover .cal-details-toggle-icon { background: #c8e6c9 !important; }
 .cal-details-collapsible[open] .cal-details-toggle-icon { transform: rotate(180deg); background: #c8e6c9 !important; }
 
+/* Combined Faculty Loading Report & Export */
+.faculty-view-toggle {
+    transition: all 0.2s ease;
+}
+.faculty-view-toggle:hover:not(.active) {
+    background: rgba(46, 125, 50, 0.1) !important;
+}
+.faculty-view-toggle.active {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+}
+
+.export-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.export-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.master-fac-header-row td {
+    background: #f1f8e9 !important;
+    border-top: 2px solid #a5d6a7 !important;
+    border-bottom: 1px solid #c8e6c9 !important;
+    padding: 8px 12px !important;
+}
+
+.master-fac-subtotal-row td {
+    background: #fafafa !important;
+    border-bottom: 2px solid #ddd !important;
+    font-size: 11px !important;
+    padding: 6px 12px !important;
+}
+
+.master-class-row td {
+    background: #ffffff;
+    font-size: 12px;
+}
+.master-class-row:hover td {
+    background: #f9fbf9 !important;
+}
+
+

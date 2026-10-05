@@ -109,7 +109,7 @@ async function main() {
 
         if (a.room !== b.room) continue;
 
-        const isGym = /gym/i.test(a.room);
+        const isGym = /gym|court|activity/i.test(a.room);
         if (isGym && a.section !== b.section) {
           // count distinct sections sharing this gym slot
           const sharers = new Set(

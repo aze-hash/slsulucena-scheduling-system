@@ -99,7 +99,12 @@ let classFilterSemester = "";
 let classFilterSearch = "";
 
 let facultyLoadingRecords = [];
+let facultyDiscreteClasses = [];
+let facultyFilterYear = "";
+let facultyFilterSemester = "";
+let facultyFilterDepartment = "";
 let facultyLoadingSearch = "";
+let facultyViewMode = "combined";
 
 /* ------------------------------------------------------------------ */
 /*  Filter Population                                                 */
@@ -195,7 +200,6 @@ function renderExamArchive() {
             <td>${escapeHtml(report.academicYear ? `A.Y. ${report.academicYear}` : "—")}</td>
             <td>${escapeHtml(report.semester || "—")}</td>
             <td><span style="background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:700;">${escapeHtml(report.examType || "Preliminary")}</span></td>
-            <td style="font-size:12px; color:#555;">${escapeHtml(formatDate(report.createdAt))}</td>
             <td style="text-align:center;">
                 <div style="display:inline-flex; gap:6px; align-items:center; justify-content:center; flex-wrap:wrap;">
                     <button type="button" class="archive-view-pdf" data-view-exam-id="${escapeHtml(report.id)}" style="padding:6px 12px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-size:12px; font-weight:bold; cursor:pointer;">
@@ -640,7 +644,6 @@ function renderClassArchive() {
                     ${(item.entries || []).length} Subject${(item.entries || []).length === 1 ? "" : "s"}
                 </span>
             </td>
-            <td style="font-size:12px; color:#555;">${escapeHtml(formatDate(item.createdAt))}</td>
             <td style="text-align:center;">
                 <div style="display:inline-flex; gap:6px; align-items:center; justify-content:center; flex-wrap:wrap;">
                     <button type="button" class="class-archive-view-cal" data-view-class-id="${escapeHtml(item.id)}" style="padding:6px 12px; border:1px solid #2e7d32; border-radius:6px; background:#fff; color:#2e7d32; font-size:12px; font-weight:bold; cursor:pointer;">
@@ -879,71 +882,274 @@ function sameFaculty(f1, f2) {
     return n1 === n2;
 }
 
-function renderFacultyLoadingTable() {
-    const tbody = document.getElementById("facultyLoadingTableBody");
-    const emptyNote = document.getElementById("emptyFacultyLoading");
-    if (!tbody || !emptyNote) return;
+function populateFacultyFilters() {
+    const yearSelect = document.getElementById("facultyLoadingAcademicYear");
+    const deptSelect = document.getElementById("facultyLoadingDepartment");
 
-    let filtered = [...facultyLoadingRecords];
+    if (yearSelect) {
+        const years = [...new Set(
+            facultyDiscreteClasses.map(c => c.academicYear).filter(Boolean)
+        )].sort((a, b) => b.localeCompare(a));
+        const cur = yearSelect.value;
+        yearSelect.innerHTML = `<option value="">All Academic Years</option>` +
+            years.map(y => `<option value="${escapeHtml(y)}">A.Y. ${escapeHtml(y)}</option>`).join("");
+        if (cur && years.includes(cur)) yearSelect.value = cur;
+    }
+
+    if (deptSelect) {
+        const depts = [...new Set([
+            ...facultyLoadingRecords.map(f => f.department).filter(Boolean),
+            ...facultyDiscreteClasses.map(c => c.program).filter(Boolean)
+        ])].sort((a, b) => a.localeCompare(b));
+        const cur = deptSelect.value;
+        deptSelect.innerHTML = `<option value="">All Programs / Depts</option>` +
+            depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
+        if (cur && depts.includes(cur)) deptSelect.value = cur;
+    }
+}
+
+function getFilteredFacultyRecords() {
+    let result = facultyLoadingRecords.map(f => {
+        let classes = f.assignedClasses || [];
+
+        if (facultyFilterYear) {
+            classes = classes.filter(c => (c.academicYear || "") === facultyFilterYear);
+        }
+        if (facultyFilterSemester) {
+            classes = classes.filter(c => (c.semester || "").toLowerCase() === facultyFilterSemester.toLowerCase());
+        }
+        if (facultyFilterDepartment) {
+            const dept = normalise(facultyFilterDepartment);
+            classes = classes.filter(c => normalise(c.program) === dept || normalise(f.department) === dept);
+        }
+
+        const uniqueSubjects = [...new Set(classes.map(c => c.subjectCode))];
+        const uniqueSections = [...new Set(classes.map(c => c.section))];
+        const totalHours = Number(classes.reduce((sum, c) => sum + (Number(c.hours) || 0), 0).toFixed(1));
+
+        return {
+            ...f,
+            filteredClasses: classes,
+            totalSubjects: uniqueSubjects.length,
+            totalSections: uniqueSections.length,
+            totalHours,
+            loadStatus: getLoadStatus(totalHours)
+        };
+    });
+
+    if (facultyFilterDepartment) {
+        const dept = normalise(facultyFilterDepartment);
+        result = result.filter(f => normalise(f.department) === dept || f.filteredClasses.length > 0);
+    }
 
     if (facultyLoadingSearch) {
         const q = normalise(facultyLoadingSearch);
-        filtered = filtered.filter(f =>
+        result = result.filter(f =>
             normalise(f.name).includes(q) ||
             normalise(f.employeeId).includes(q) ||
             normalise(f.department).includes(q) ||
-            (Array.isArray(f.assignedClasses) && f.assignedClasses.some(c =>
+            (Array.isArray(f.filteredClasses) && f.filteredClasses.some(c =>
                 normalise(c.subjectCode).includes(q) ||
                 normalise(c.subjectName).includes(q) ||
-                normalise(c.section).includes(q)
+                normalise(c.section).includes(q) ||
+                normalise(c.room).includes(q) ||
+                normalise(c.day).includes(q)
             ))
         );
     }
 
-    filtered.sort((a, b) => a.name.localeCompare(b.name));
+    result.sort((a, b) => a.name.localeCompare(b.name));
+    return result;
+}
+
+function renderFacultyLoadingTable() {
+    const thead = document.getElementById("facultyLoadingTableHead");
+    const tbody = document.getElementById("facultyLoadingTableBody");
+    const emptyNote = document.getElementById("emptyFacultyLoading");
+    const statsBadge = document.getElementById("facultyLoadingStatsBadge");
+    if (!tbody || !emptyNote) return;
+
+    populateFacultyFilters();
+
+    const filtered = getFilteredFacultyRecords();
+
+    // Calculate aggregated stats
+    const totalFaculty = filtered.length;
+    const assignedFaculty = filtered.filter(f => f.totalHours > 0).length;
+    const totalClasses = filtered.reduce((sum, f) => sum + f.filteredClasses.length, 0);
+    const totalTeachingHours = Number(filtered.reduce((sum, f) => sum + f.totalHours, 0).toFixed(1));
+
+    if (statsBadge) {
+        statsBadge.innerHTML = `Showing <strong>${totalFaculty}</strong> faculty (${assignedFaculty} assigned) • <strong>${totalClasses}</strong> class assignments • <strong>${totalTeachingHours} hrs/wk</strong> total`;
+    }
 
     if (!filtered.length) {
+        if (thead) thead.innerHTML = "";
         tbody.innerHTML = "";
         emptyNote.textContent = facultyLoadingRecords.length === 0
             ? "No faculty loading data found."
-            : "No faculty loading records matching the search query.";
+            : "No faculty loading records matching the active filters or search.";
         emptyNote.hidden = false;
         return;
     }
 
     emptyNote.hidden = true;
 
-    tbody.innerHTML = filtered.map(f => {
-        const status = f.loadStatus;
-        return `
-            <tr>
-                <td>
-                    <strong>${escapeHtml(f.name)}</strong>
-                    ${f.department ? `<div style="font-size:12px; color:#666;">${escapeHtml(f.department)}</div>` : ""}
+    if (facultyViewMode === "combined") {
+        // Combined Master Report View
+        if (thead) {
+            thead.innerHTML = `
+                <tr>
+                    <th style="min-width:200px;">Faculty / Instructor</th>
+                    <th style="min-width:110px;">Employee ID</th>
+                    <th style="min-width:110px;">Course Code</th>
+                    <th style="min-width:180px;">Course Description</th>
+                    <th style="min-width:100px;">Section</th>
+                    <th style="min-width:130px;">Schedule (Day/Time)</th>
+                    <th style="min-width:80px; text-align:center;">Room</th>
+                    <th style="min-width:60px; text-align:center;">Units</th>
+                    <th style="min-width:80px; text-align:center;">Hours/Wk</th>
+                    <th style="min-width:120px; text-align:center;">Load Status</th>
+                    <th style="min-width:100px; text-align:center;">Action</th>
+                </tr>
+            `;
+        }
+
+        let rowsHtml = "";
+        filtered.forEach(f => {
+            const status = f.loadStatus;
+            const classes = f.filteredClasses || [];
+
+            // Group Header Row for this faculty
+            rowsHtml += `
+                <tr class="master-fac-header-row">
+                    <td colspan="9" style="background:#e8f5e9; font-weight:bold; color:#1b5e20; padding:10px 12px;">
+                        <span>👤 <strong>${escapeHtml(f.name)}</strong></span>
+                        <span style="font-weight:normal; color:#555; margin-left:8px;">[ID: ${escapeHtml(f.employeeId || 'N/A')}]</span>
+                        <span style="font-weight:normal; background:#fff; border:1px solid #c8e6c9; padding:2px 8px; border-radius:10px; font-size:11px; margin-left:8px; color:#2e7d32;">
+                            ${escapeHtml(f.department || 'General')}
+                        </span>
+                        <span style="font-weight:normal; margin-left:12px; color:#555; font-size:12px;">
+                            Assignments: <strong>${classes.length}</strong> | Total: <strong>${f.totalHours} hrs/wk</strong>
+                        </span>
+                    </td>
+                    <td style="text-align:center; background:#e8f5e9; padding:10px 6px;">
+                        <span style="background:${status.bg}; color:${status.color}; border:1px solid ${status.border}; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:bold;">
+                            ${escapeHtml(status.text)}
+                        </span>
+                    </td>
+                    <td style="text-align:center; background:#e8f5e9; padding:10px 6px;">
+                        <button type="button" class="faculty-loading-print-btn" data-faculty-id="${escapeHtml(f.uid || f.id)}" style="padding:4px 10px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-size:11px; font-weight:bold; cursor:pointer;" title="Print Individual Teaching Load Sheet">
+                            🖨️ Print
+                        </button>
+                    </td>
+                </tr>
+            `;
+
+            if (classes.length > 0) {
+                classes.forEach(c => {
+                    rowsHtml += `
+                        <tr class="master-class-row">
+                            <td style="padding-left:26px; color:#555; font-size:12px;">
+                                ↳ <span style="color:#222;">${escapeHtml(f.name)}</span>
+                            </td>
+                            <td style="font-size:12px; color:#666;">${escapeHtml(f.employeeId || '—')}</td>
+                            <td><strong style="color:#1b5e20;">${escapeHtml(c.subjectCode)}</strong></td>
+                            <td style="font-size:12px;">${escapeHtml(c.subjectName)}</td>
+                            <td><span style="background:#e8f5e9; color:#1b5e20; border:1px solid #c8e6c9; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:600;">${escapeHtml(c.section)}</span></td>
+                            <td style="font-size:12px;"><strong>${escapeHtml(c.day)}</strong> ${escapeHtml(c.time)}</td>
+                            <td style="text-align:center; font-size:12px;">${escapeHtml(c.room)}</td>
+                            <td style="text-align:center; font-size:12px;">${c.units || 3}</td>
+                            <td style="text-align:center; font-weight:bold; font-size:12px;">${c.hours || 3} hrs</td>
+                            <td style="text-align:center; font-size:11px; color:#666;">${escapeHtml(status.text)}</td>
+                            <td style="text-align:center; color:#aaa; font-size:11px;">—</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                rowsHtml += `
+                    <tr class="master-class-row">
+                        <td style="padding-left:26px; color:#777; font-size:12px;">↳ ${escapeHtml(f.name)}</td>
+                        <td style="font-size:12px; color:#777;">${escapeHtml(f.employeeId || '—')}</td>
+                        <td colspan="7" style="text-align:center; color:#999; font-style:italic; padding:10px;">
+                            No active teaching assignments recorded for this period
+                        </td>
+                        <td style="text-align:center; font-size:11px; color:#777;">${escapeHtml(status.text)}</td>
+                        <td style="text-align:center; color:#aaa; font-size:11px;">—</td>
+                    </tr>
+                `;
+            }
+        });
+
+        // Master Grand Totals Row
+        rowsHtml += `
+            <tr style="background:#f1f8e9; border-top:2px solid #2e7d32; font-weight:bold;">
+                <td colspan="7" style="padding:10px 12px; font-size:13px; color:#1b5e20;">
+                    MASTER GRAND TOTALS (${totalFaculty} Faculty Members • ${totalClasses} Classes Assigned)
                 </td>
-                <td>${escapeHtml(f.employeeId || "—")}</td>
-                <td style="text-align:center;">
-                    <span style="font-weight:bold;">${f.totalSubjects}</span>
+                <td style="text-align:center; font-size:13px; color:#1b5e20;">
+                    ${filtered.reduce((sum, f) => sum + (f.filteredClasses || []).reduce((s, c) => s + (Number(c.units) || 0), 0), 0)}
                 </td>
-                <td style="text-align:center;">
-                    <span style="font-weight:bold;">${f.totalSections}</span>
+                <td style="text-align:center; font-size:13px; color:#1b5e20;">
+                    ${totalTeachingHours} hrs
                 </td>
-                <td style="text-align:center;">
-                    <strong>${f.totalHours} hrs/wk</strong>
-                </td>
-                <td style="text-align:center;">
-                    <span style="background:${status.bg}; color:${status.color}; border:1px solid ${status.border}; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:700;">
-                        ${escapeHtml(status.text)}
-                    </span>
-                </td>
-                <td style="text-align:center;">
-                    <button type="button" class="faculty-loading-print-btn" data-faculty-id="${escapeHtml(f.uid || f.id)}" style="padding:6px 12px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-size:12px; font-weight:bold; cursor:pointer;">
-                        🖨️ Print Load
-                    </button>
+                <td colspan="2" style="text-align:center; font-size:12px; color:#555;">
+                    ${assignedFaculty} Assigned
                 </td>
             </tr>
         `;
-    }).join("");
+
+        tbody.innerHTML = rowsHtml;
+    } else {
+        // Summary View
+        if (thead) {
+            thead.innerHTML = `
+                <tr>
+                    <th style="min-width:180px;">Faculty Name</th>
+                    <th style="min-width:120px;">Employee ID</th>
+                    <th style="min-width:150px;">Department</th>
+                    <th style="min-width:100px; text-align:center;">Subjects</th>
+                    <th style="min-width:100px; text-align:center;">Sections</th>
+                    <th style="min-width:130px; text-align:center;">Teaching Hours</th>
+                    <th style="min-width:140px; text-align:center;">Load Status</th>
+                    <th style="min-width:120px; text-align:center;">Action</th>
+                </tr>
+            `;
+        }
+
+        tbody.innerHTML = filtered.map(f => {
+            const status = f.loadStatus;
+            return `
+                <tr>
+                    <td>
+                        <strong>${escapeHtml(f.name)}</strong>
+                        ${f.department ? `<div style="font-size:12px; color:#666;">${escapeHtml(f.department)}</div>` : ""}
+                    </td>
+                    <td>${escapeHtml(f.employeeId || "—")}</td>
+                    <td>${escapeHtml(f.department || "General")}</td>
+                    <td style="text-align:center;">
+                        <span style="font-weight:bold;">${f.totalSubjects}</span>
+                    </td>
+                    <td style="text-align:center;">
+                        <span style="font-weight:bold;">${f.totalSections}</span>
+                    </td>
+                    <td style="text-align:center;">
+                        <strong>${f.totalHours} hrs/wk</strong>
+                    </td>
+                    <td style="text-align:center;">
+                        <span style="background:${status.bg}; color:${status.color}; border:1px solid ${status.border}; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:700;">
+                            ${escapeHtml(status.text)}
+                        </span>
+                    </td>
+                    <td style="text-align:center;">
+                        <button type="button" class="faculty-loading-print-btn" data-faculty-id="${escapeHtml(f.uid || f.id)}" style="padding:6px 12px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-size:12px; font-weight:bold; cursor:pointer;">
+                            🖨️ Print Load
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+    }
 }
 
 async function loadFacultyLoadingData() {
@@ -1039,6 +1245,8 @@ async function loadFacultyLoadingData() {
             });
         });
 
+        facultyDiscreteClasses = discreteClasses;
+
         // Ensure any assigned faculty not in facultyList is added
         discreteClasses.forEach(c => {
             if (c.faculty && !facultyList.some(f => f.uid === c.facultyUid || sameFaculty(f.name, c.faculty))) {
@@ -1086,8 +1294,378 @@ async function loadFacultyLoadingData() {
     }
 }
 
-function printFacultyLoadingSummary() {
-    if (!facultyLoadingRecords.length) {
+/* ------------------------------------------------------------------ */
+/*  Google Sheets & Spreadsheet Exporters                             */
+/* ------------------------------------------------------------------ */
+
+function escapeCsvField(val) {
+    const str = String(val ?? "");
+    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+}
+
+function triggerDownload(content, filename, mimeType = "text/csv;charset=utf-8;") {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function getMasterReportRows(filteredData) {
+    const rows = [];
+    filteredData.forEach(f => {
+        const classes = f.filteredClasses || [];
+        if (classes.length > 0) {
+            classes.forEach(c => {
+                rows.push({
+                    facultyName: f.name,
+                    employeeId: f.employeeId || "—",
+                    department: f.department || "General",
+                    courseCode: c.subjectCode,
+                    courseDescription: c.subjectName,
+                    section: c.section,
+                    day: c.day,
+                    time: c.time,
+                    room: c.room,
+                    units: c.units || 3,
+                    hours: c.hours || 3,
+                    loadStatus: f.loadStatus.text,
+                    academicYear: c.academicYear || facultyFilterYear || "—",
+                    semester: c.semester || facultyFilterSemester || "—"
+                });
+            });
+        } else {
+            rows.push({
+                facultyName: f.name,
+                employeeId: f.employeeId || "—",
+                department: f.department || "General",
+                courseCode: "—",
+                courseDescription: "No active teaching assignments",
+                section: "—",
+                day: "—",
+                time: "—",
+                room: "—",
+                units: 0,
+                hours: 0,
+                loadStatus: f.loadStatus.text,
+                academicYear: facultyFilterYear || "—",
+                semester: facultyFilterSemester || "—"
+            });
+        }
+    });
+    return rows;
+}
+
+function getSummaryReportRows(filteredData) {
+    return filteredData.map(f => ({
+        facultyName: f.name,
+        employeeId: f.employeeId || "—",
+        department: f.department || "General",
+        totalSubjects: f.totalSubjects,
+        totalSections: f.totalSections,
+        totalHours: f.totalHours,
+        loadStatus: f.loadStatus.text
+    }));
+}
+
+async function exportCombinedToGoogleSheets() {
+    const filtered = getFilteredFacultyRecords();
+    if (!filtered.length) {
+        showToast("No faculty loading data available to export.");
+        return;
+    }
+
+    const masterRows = getMasterReportRows(filtered);
+
+    // Build Tab-Separated Values (TSV) for native Google Sheets clipboard paste
+    const headers = [
+        "Faculty Member",
+        "Employee ID",
+        "Department",
+        "Course Code",
+        "Course Description",
+        "Section",
+        "Day",
+        "Time",
+        "Room",
+        "Units",
+        "Hours/Week",
+        "Load Status",
+        "Academic Year",
+        "Semester"
+    ];
+
+    const tsvLines = [headers.join("\t")];
+    masterRows.forEach(r => {
+        tsvLines.push([
+            r.facultyName,
+            r.employeeId,
+            r.department,
+            r.courseCode,
+            r.courseDescription,
+            r.section,
+            r.day,
+            r.time,
+            r.room,
+            r.units,
+            r.hours,
+            r.loadStatus,
+            r.academicYear,
+            r.semester
+        ].map(val => String(val).replace(/[\t\r\n]/g, " ")).join("\t"));
+    });
+    const tsvContent = tsvLines.join("\n");
+
+    // Build rich HTML table for clipboard styling in Google Sheets
+    const htmlTable = `
+        <table border="1">
+            <thead>
+                <tr style="background:#2e7d32; color:#ffffff; font-weight:bold;">
+                    ${headers.map(h => `<th style="padding:6px 10px;">${escapeHtml(h)}</th>`).join("")}
+                </tr>
+            </thead>
+            <tbody>
+                ${masterRows.map((r, idx) => `
+                    <tr style="background:${idx % 2 === 0 ? '#ffffff' : '#f9f9f9'};">
+                        <td style="padding:4px 8px;"><strong>${escapeHtml(r.facultyName)}</strong></td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.employeeId)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.department)}</td>
+                        <td style="padding:4px 8px;"><code>${escapeHtml(r.courseCode)}</code></td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.courseDescription)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.section)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.day)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.time)}</td>
+                        <td style="padding:4px 8px; text-align:center;">${escapeHtml(r.room)}</td>
+                        <td style="padding:4px 8px; text-align:center;">${r.units}</td>
+                        <td style="padding:4px 8px; text-align:center;"><strong>${r.hours}</strong></td>
+                        <td style="padding:4px 8px; text-align:center;">${escapeHtml(r.loadStatus)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.academicYear)}</td>
+                        <td style="padding:4px 8px;">${escapeHtml(r.semester)}</td>
+                    </tr>
+                `).join("")}
+            </tbody>
+        </table>
+    `;
+
+    let copied = false;
+    if (navigator.clipboard && window.ClipboardItem) {
+        try {
+            const textBlob = new Blob([tsvContent], { type: "text/plain" });
+            const htmlBlob = new Blob([htmlTable], { type: "text/html" });
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    "text/plain": textBlob,
+                    "text/html": htmlBlob
+                })
+            ]);
+            copied = true;
+        } catch (_) {}
+    }
+
+    if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(tsvContent);
+            copied = true;
+        } catch (_) {}
+    }
+
+    if (!copied) {
+        try {
+            const ta = document.createElement("textarea");
+            ta.value = tsvContent;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+            copied = true;
+        } catch (_) {}
+    }
+
+    // Close export modal
+    const modal = document.getElementById("facultyExportModal");
+    if (modal) modal.style.display = "none";
+
+    // Launch Google Sheets
+    window.open("https://sheets.new", "_blank");
+
+    showToast("Master loading report copied to clipboard! In your new Google Sheet, press Ctrl+V to paste.");
+}
+
+function exportCombinedToCsv(type = "master") {
+    const filtered = getFilteredFacultyRecords();
+    if (!filtered.length) {
+        showToast("No faculty loading data available to export.");
+        return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    if (type === "master") {
+        const rows = getMasterReportRows(filtered);
+        const headers = [
+            "Faculty Member",
+            "Employee ID",
+            "Department",
+            "Course Code",
+            "Course Description",
+            "Section",
+            "Day",
+            "Time",
+            "Room",
+            "Units",
+            "Weekly Hours",
+            "Load Status",
+            "Academic Year",
+            "Semester"
+        ];
+
+        const csvLines = [headers.map(escapeCsvField).join(",")];
+        rows.forEach(r => {
+            csvLines.push([
+                r.facultyName,
+                r.employeeId,
+                r.department,
+                r.courseCode,
+                r.courseDescription,
+                r.section,
+                r.day,
+                r.time,
+                r.room,
+                r.units,
+                r.hours,
+                r.loadStatus,
+                r.academicYear,
+                r.semester
+            ].map(escapeCsvField).join(","));
+        });
+
+        // Prepend UTF-8 BOM \uFEFF for proper encoding in Excel and Google Sheets
+        const csvContent = "\uFEFF" + csvLines.join("\r\n");
+        triggerDownload(csvContent, `SLSU_Faculty_Loading_Combined_Master_${timestamp}.csv`);
+        showToast("Combined Master CSV downloaded. You can upload or import it directly into Google Sheets.");
+    } else {
+        const rows = getSummaryReportRows(filtered);
+        const headers = [
+            "Faculty Member",
+            "Employee ID",
+            "Department",
+            "Total Subjects",
+            "Total Sections",
+            "Weekly Teaching Hours",
+            "Load Status"
+        ];
+
+        const csvLines = [headers.map(escapeCsvField).join(",")];
+        rows.forEach(r => {
+            csvLines.push([
+                r.facultyName,
+                r.employeeId,
+                r.department,
+                r.totalSubjects,
+                r.totalSections,
+                r.totalHours,
+                r.loadStatus
+            ].map(escapeCsvField).join(","));
+        });
+
+        const csvContent = "\uFEFF" + csvLines.join("\r\n");
+        triggerDownload(csvContent, `SLSU_Faculty_Loading_Summary_${timestamp}.csv`);
+        showToast("Faculty Summary CSV downloaded.");
+    }
+
+    const modal = document.getElementById("facultyExportModal");
+    if (modal) modal.style.display = "none";
+}
+
+function exportCombinedToExcel() {
+    const filtered = getFilteredFacultyRecords();
+    if (!filtered.length) {
+        showToast("No faculty loading data available to export.");
+        return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    if (typeof window.XLSX !== "undefined") {
+        try {
+            const wb = window.XLSX.utils.book_new();
+
+            // Sheet 1: Master Detailed Report
+            const masterData = getMasterReportRows(filtered).map(r => ({
+                "Faculty Member": r.facultyName,
+                "Employee ID": r.employeeId,
+                "Department": r.department,
+                "Course Code": r.courseCode,
+                "Course Description": r.courseDescription,
+                "Section": r.section,
+                "Day": r.day,
+                "Time": r.time,
+                "Room": r.room,
+                "Units": r.units,
+                "Weekly Hours": r.hours,
+                "Load Status": r.loadStatus,
+                "Academic Year": r.academicYear,
+                "Semester": r.semester
+            }));
+            const wsMaster = window.XLSX.utils.json_to_sheet(masterData);
+
+            // Auto column widths
+            const colWidthsMaster = [
+                { wch: 26 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 30 },
+                { wch: 14 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 8 },
+                { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
+            ];
+            wsMaster["!cols"] = colWidthsMaster;
+            window.XLSX.utils.book_append_sheet(wb, wsMaster, "Master Loading Report");
+
+            // Sheet 2: Faculty Summary
+            const summaryData = getSummaryReportRows(filtered).map(r => ({
+                "Faculty Member": r.facultyName,
+                "Employee ID": r.employeeId,
+                "Department": r.department,
+                "Total Subjects": r.totalSubjects,
+                "Total Sections": r.totalSections,
+                "Weekly Teaching Hours": r.totalHours,
+                "Load Status": r.loadStatus
+            }));
+            const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
+            const colWidthsSummary = [
+                { wch: 26 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 14 }
+            ];
+            wsSummary["!cols"] = colWidthsSummary;
+            window.XLSX.utils.book_append_sheet(wb, wsSummary, "Faculty Summary");
+
+            window.XLSX.writeFile(wb, `SLSU_Faculty_Loading_Master_Report_${timestamp}.xlsx`);
+            showToast("Excel workbook (.xlsx) downloaded. Drag and drop into Google Drive to open in Google Sheets!");
+
+            const modal = document.getElementById("facultyExportModal");
+            if (modal) modal.style.display = "none";
+            return;
+        } catch (err) {
+            console.warn("SheetJS error, falling back to CSV:", err);
+        }
+    }
+
+    // Fallback if XLSX library is unavailable
+    exportCombinedToCsv("master");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Print Combined Faculty Loading Report                             */
+/* ------------------------------------------------------------------ */
+
+function printFacultyLoadingCombined() {
+    const filtered = getFilteredFacultyRecords();
+    if (!filtered.length) {
         showToast("No faculty loading data available to print.");
         return;
     }
@@ -1096,11 +1674,187 @@ function printFacultyLoadingSummary() {
     const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
     const nowStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
-    const totalFaculty = facultyLoadingRecords.length;
-    const assignedFaculty = facultyLoadingRecords.filter(f => f.totalHours > 0).length;
-    const totalTeachingHours = facultyLoadingRecords.reduce((sum, f) => sum + (f.totalHours || 0), 0).toFixed(1);
+    const totalFaculty = filtered.length;
+    const assignedFaculty = filtered.filter(f => f.totalHours > 0).length;
+    const totalClasses = filtered.reduce((sum, f) => sum + f.filteredClasses.length, 0);
+    const totalTeachingHours = Number(filtered.reduce((sum, f) => sum + f.totalHours, 0).toFixed(1));
+    const totalTeachingUnits = filtered.reduce((sum, f) => sum + f.filteredClasses.reduce((s, c) => s + (Number(c.units) || 0), 0), 0);
 
-    const rows = facultyLoadingRecords.map(f => `
+    const periodStr = [
+        facultyFilterYear ? `Academic Year ${facultyFilterYear}` : "",
+        facultyFilterSemester ? facultyFilterSemester : "",
+        facultyFilterDepartment ? `Department: ${facultyFilterDepartment}` : ""
+    ].filter(Boolean).join(" • ") || "All Academic Periods";
+
+    let rowsHtml = "";
+    filtered.forEach(f => {
+        const classes = f.filteredClasses || [];
+        const status = f.loadStatus;
+
+        rowsHtml += `
+            <tr style="background:#e8f5e9; font-weight:bold;">
+                <td colspan="7" style="border:1px solid #777; padding:6px 8px; color:#1b5e20;">
+                    👤 ${escapeHtml(f.name)} 
+                    <span style="font-weight:normal; color:#444; font-size:10px;">[ID: ${escapeHtml(f.employeeId || 'N/A')}]</span>
+                    <span style="font-weight:normal; margin-left:8px; font-size:10px; color:#2e7d32;">${escapeHtml(f.department || 'General')}</span>
+                    <span style="font-weight:normal; margin-left:10px; font-size:10px; color:#555;">(${classes.length} class(es) assigned)</span>
+                </td>
+                <td style="border:1px solid #777; text-align:center; padding:6px 4px; font-size:10px;">
+                    ${classes.reduce((sum, c) => sum + (Number(c.units) || 0), 0)} u
+                </td>
+                <td style="border:1px solid #777; text-align:center; padding:6px 4px; font-size:10px; font-weight:bold;">
+                    ${f.totalHours} hrs
+                </td>
+                <td style="border:1px solid #777; text-align:center; padding:6px 4px; font-size:10px; color:${status.color};">
+                    ${escapeHtml(status.text)}
+                </td>
+            </tr>
+        `;
+
+        if (classes.length > 0) {
+            classes.forEach(c => {
+                rowsHtml += `
+                    <tr>
+                        <td style="padding-left:18px; font-size:10px; border:1px solid #bbb;"><code>${escapeHtml(c.subjectCode)}</code></td>
+                        <td style="font-size:10px; border:1px solid #bbb;">${escapeHtml(c.subjectName)}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;"><strong>${escapeHtml(c.section)}</strong></td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${escapeHtml(c.day)}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${escapeHtml(c.time)}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${escapeHtml(c.room)}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${escapeHtml(c.program || f.department || "—")}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${c.units || 3}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center;">${c.hours || 3}</td>
+                        <td style="font-size:10px; border:1px solid #bbb; text-align:center; color:#666;">Active</td>
+                    </tr>
+                `;
+            });
+        } else {
+            rowsHtml += `
+                <tr>
+                    <td colspan="10" style="text-align:center; color:#777; font-style:italic; font-size:10px; padding:6px; border:1px solid #bbb;">
+                        No teaching assignments recorded for this period
+                    </td>
+                </tr>
+            `;
+        }
+    });
+
+    const html = `<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>SLSU Lucena - Combined Master Faculty Loading Report</title>
+        <style>
+            @page { size: A4 landscape; margin: 10mm 12mm; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 12px; }
+            .header-section { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px; }
+            .logo-img { width: 55px; height: 55px; }
+            .header-text { text-align: center; flex-grow: 1; }
+            .uni-name { font-size: 15px; font-weight: bold; color: #000; }
+            .dtlc-name, .campus-name { font-size: 11px; font-weight: bold; color: #222; margin-top: 1px; }
+            .city-name { font-size: 10px; color: #555; }
+            .divider { border-top: 2px solid #1b5e20; margin: 6px 0 10px 0; }
+            .report-title { text-align: center; font-size: 14px; font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+            .report-sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 10px; }
+            .summary-box { display: flex; justify-content: space-around; background: #f1f8e9; border: 1px solid #c8e6c9; border-radius: 6px; padding: 8px; margin-bottom: 12px; font-size: 11px; }
+            .summary-box strong { color: #1b5e20; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 9.5px; margin-top: 4px; }
+            th { background: #a7c7a3; color: #1b5e20; font-weight: bold; text-align: center; border: 1px solid #777; padding: 5px 4px; }
+            td { padding: 4px 5px; }
+            .signatures { display: flex; justify-content: space-between; margin-top: 30px; page-break-inside: avoid; }
+            .sign-col { text-align: center; width: 220px; font-size: 10.5px; }
+            .sign-line { border-bottom: 1px solid #333; margin-bottom: 6px; height: 32px; }
+        </style>
+    </head>
+    <body>
+        <div class="header-section">
+            <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
+            <div class="header-text">
+                <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
+                <div class="dtlc-name">Dual Training and Livelihood Center</div>
+                <div class="campus-name">LUCENA CAMPUS</div>
+                <div class="city-name">Lucena City</div>
+            </div>
+            <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="report-title">MASTER FACULTY TEACHING LOAD COMBINED REPORT</div>
+        <div class="report-sub">${escapeHtml(periodStr)} • Generated on ${escapeHtml(nowStr)}</div>
+
+        <div class="summary-box">
+            <div>Total Faculty: <strong>${totalFaculty}</strong></div>
+            <div>Assigned Faculty: <strong>${assignedFaculty}</strong></div>
+            <div>Total Classes: <strong>${totalClasses}</strong></div>
+            <div>Total Units: <strong>${totalTeachingUnits}</strong></div>
+            <div>Total Teaching Hours: <strong>${totalTeachingHours} hrs/wk</strong></div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:11%;">Course Code</th>
+                    <th style="width:25%;">Course Description</th>
+                    <th style="width:10%;">Section</th>
+                    <th style="width:6%;">Day</th>
+                    <th style="width:14%;">Time</th>
+                    <th style="width:8%;">Room</th>
+                    <th style="width:10%;">Program</th>
+                    <th style="width:5%;">Units</th>
+                    <th style="width:5%;">Hours</th>
+                    <th style="width:6%;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+                <tr style="background:#f1f8e9; border:2px solid #2e7d32; font-weight:bold; font-size:10px;">
+                    <td colspan="7" style="padding:6px; color:#1b5e20;">GRAND TOTALS (${totalFaculty} Instructors • ${totalClasses} Classes)</td>
+                    <td style="text-align:center; color:#1b5e20; border:1px solid #777;">${totalTeachingUnits}</td>
+                    <td style="text-align:center; color:#1b5e20; border:1px solid #777;">${totalTeachingHours}</td>
+                    <td style="text-align:center; color:#1b5e20; border:1px solid #777;">${assignedFaculty} Active</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="signatures">
+            <div class="sign-col">
+                <div class="sign-line"></div>
+                <strong>Prepared by:</strong><br>
+                Department Chairperson
+            </div>
+            <div class="sign-col">
+                <div class="sign-line"></div>
+                <strong>Verified by:</strong><br>
+                Academic Program Head
+            </div>
+            <div class="sign-col">
+                <div class="sign-line"></div>
+                <strong>Approved by:</strong><br>
+                Campus Director
+            </div>
+        </div>
+    </body>
+    </html>`;
+
+    openPrintWindow(html);
+}
+
+function printFacultyLoadingSummary() {
+    const filtered = getFilteredFacultyRecords();
+    if (!filtered.length) {
+        showToast("No faculty loading data available to print.");
+        return;
+    }
+
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
+    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+    const nowStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+    const totalFaculty = filtered.length;
+    const assignedFaculty = filtered.filter(f => f.totalHours > 0).length;
+    const totalTeachingHours = filtered.reduce((sum, f) => sum + (f.totalHours || 0), 0).toFixed(1);
+
+    const rows = filtered.map(f => `
         <tr>
             <td><strong>${escapeHtml(f.name)}</strong></td>
             <td>${escapeHtml(f.employeeId || "—")}</td>
@@ -1333,11 +2087,78 @@ function printFacultyIndividualLoad(facultyUid) {
     openPrintWindow(html);
 }
 
+// Filter listeners
+document.getElementById("facultyLoadingAcademicYear")?.addEventListener("change", event => {
+    facultyFilterYear = event.target.value;
+    renderFacultyLoadingTable();
+});
+
+document.getElementById("facultyLoadingSemester")?.addEventListener("change", event => {
+    facultyFilterSemester = event.target.value;
+    renderFacultyLoadingTable();
+});
+
+document.getElementById("facultyLoadingDepartment")?.addEventListener("change", event => {
+    facultyFilterDepartment = event.target.value;
+    renderFacultyLoadingTable();
+});
+
 document.getElementById("facultyLoadingSearch")?.addEventListener("input", event => {
     facultyLoadingSearch = event.target.value;
     renderFacultyLoadingTable();
 });
 
+// View Mode toggle listeners
+document.getElementById("facultyViewCombinedBtn")?.addEventListener("click", () => {
+    facultyViewMode = "combined";
+    const combinedBtn = document.getElementById("facultyViewCombinedBtn");
+    const summaryBtn = document.getElementById("facultyViewSummaryBtn");
+    if (combinedBtn) {
+        combinedBtn.classList.add("active");
+        combinedBtn.style.background = "#2e7d32";
+        combinedBtn.style.color = "#fff";
+    }
+    if (summaryBtn) {
+        summaryBtn.classList.remove("active");
+        summaryBtn.style.background = "transparent";
+        summaryBtn.style.color = "#2e7d32";
+    }
+    renderFacultyLoadingTable();
+});
+
+document.getElementById("facultyViewSummaryBtn")?.addEventListener("click", () => {
+    facultyViewMode = "summary";
+    const combinedBtn = document.getElementById("facultyViewCombinedBtn");
+    const summaryBtn = document.getElementById("facultyViewSummaryBtn");
+    if (summaryBtn) {
+        summaryBtn.classList.add("active");
+        summaryBtn.style.background = "#2e7d32";
+        summaryBtn.style.color = "#fff";
+    }
+    if (combinedBtn) {
+        combinedBtn.classList.remove("active");
+        combinedBtn.style.background = "transparent";
+        combinedBtn.style.color = "#2e7d32";
+    }
+    renderFacultyLoadingTable();
+});
+
+// Export Modal & Action listeners
+const facultyExportModal = document.getElementById("facultyExportModal");
+document.getElementById("exportFacultyLoadingBtn")?.addEventListener("click", () => {
+    if (facultyExportModal) facultyExportModal.style.display = "flex";
+});
+
+document.getElementById("facultyExportModalClose")?.addEventListener("click", () => {
+    if (facultyExportModal) facultyExportModal.style.display = "none";
+});
+
+document.getElementById("exportToSheetsWebBtn")?.addEventListener("click", exportCombinedToGoogleSheets);
+document.getElementById("exportToExcelBtn")?.addEventListener("click", exportCombinedToExcel);
+document.getElementById("exportToCsvMasterBtn")?.addEventListener("click", () => exportCombinedToCsv("master"));
+document.getElementById("exportToCsvSummaryBtn")?.addEventListener("click", () => exportCombinedToCsv("summary"));
+
+document.getElementById("printCombinedFacultyLoadingBtn")?.addEventListener("click", printFacultyLoadingCombined);
 document.getElementById("printAllFacultyLoadingBtn")?.addEventListener("click", printFacultyLoadingSummary);
 
 /* ------------------------------------------------------------------ */
@@ -1440,20 +2261,26 @@ document.addEventListener("click", async event => {
         renderExamArchive();
     }
 
-    // Close calendar modals on backdrop click
+    // Close modals on backdrop click
     if (event.target.id === "examCalendarModal") {
         closeCalendarModal();
     }
     if (event.target.id === "classCalendarModal") {
         closeClassCalendarModal();
     }
+    if (event.target.id === "facultyExportModal") {
+        const modal = document.getElementById("facultyExportModal");
+        if (modal) modal.style.display = "none";
+    }
 });
 
-// Escape key to close both modals
+// Escape key to close all modals
 document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
         closeCalendarModal();
         closeClassCalendarModal();
+        const exportModal = document.getElementById("facultyExportModal");
+        if (exportModal) exportModal.style.display = "none";
     }
 });
 

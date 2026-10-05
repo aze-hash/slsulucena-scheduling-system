@@ -326,7 +326,7 @@ function detectConflicts(bookings) {
 
         // --- Room conflict: same room, overlapping times, different sections ---
         if (a.room && b.room && a.room === b.room && a.section !== b.section) {
-          const isGym = /gym/i.test(a.room);
+          const isGym = /gym|court|activity/i.test(a.room);
           if (isGym) {
             // Gyms may be shared by up to 2 sections in the same slot.
             const sharers = list.filter(

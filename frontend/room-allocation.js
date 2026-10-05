@@ -198,6 +198,37 @@ function timesOverlap(time1, time2) {
     return r1.start < r2.end && r2.start < r1.end;
 }
 
+function isActivityGymOrCourtRoom(roomVal) {
+    if (!roomVal) return false;
+    const norm = String(roomVal).toLowerCase().trim();
+    if (/covered\s*court|court|gym|gymnasium|activity/i.test(norm)) return true;
+    if (typeof allRooms !== "undefined" && Array.isArray(allRooms)) {
+        const match = allRooms.find(r =>
+            normaliseRoom(r.roomName) === norm ||
+            normaliseRoom(r.roomCode) === norm
+        );
+        if (match) {
+            const cat = (match.category || "").toLowerCase();
+            const type = (match.roomType || "").toLowerCase();
+            if (cat === "gymnasium" || /gym|court|activity/i.test(type) || /gym|court|activity/i.test(match.roomName)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function sameFaculty(f1, f2, uid1, uid2) {
+    if (uid1 && uid2 && uid1 === uid2) return true;
+    if (!f1 || !f2) return false;
+    const n1 = String(f1).trim().replace(/\s+/g, " ").toLowerCase();
+    const n2 = String(f2).trim().replace(/\s+/g, " ").toLowerCase();
+    if (!n1 || !n2 || n1 === "unassigned" || n2 === "unassigned" || n1 === "tba" || n2 === "tba") return false;
+    if (n1 === n2) return true;
+    const stripInitial = s => s.replace(/\s+[a-z]\.?$/i, "").replace(/,\s*/g, " ").trim();
+    return stripInitial(n1) === stripInitial(n2);
+}
+
 /* ---------------- Data Loading ---------------- */
 
 async function loadRooms() {
@@ -576,6 +607,7 @@ function entriesForSelectedRoom() {
 
 function detectClassConflicts(classes) {
     const conflictKeys = new Set();
+    const conflictTypes = new Map();
     const conflictList = [];
 
     const byDay = new Map();
@@ -586,40 +618,95 @@ function detectClassConflicts(classes) {
     });
 
     byDay.forEach((dayEntries, day) => {
+        const isSharedRoom = isActivityGymOrCourtRoom(selectedRoom);
+
+        // 1. Capacity check for Activity / Gymnasium / Covered Court (max 2 sections)
+        if (isSharedRoom) {
+            for (let i = 0; i < dayEntries.length; i++) {
+                const a = dayEntries[i];
+                const keyA = `${a.scheduleId}::${a.code}::${a.day}::${a.time}::${a.section}`;
+                const overlapping = dayEntries.filter((b, j) => {
+                    if (i === j) return false;
+                    if (a.scheduleId === b.scheduleId && a.code === b.code && a.section === b.section && a.time === b.time) return false;
+                    return timesOverlap(a.time, b.time);
+                });
+                const distinctSections = new Set([a.section, ...overlapping.map(o => o.section)].filter(Boolean));
+                if (distinctSections.size > 2) {
+                    conflictKeys.add(keyA);
+                    conflictTypes.set(keyA, "CAPACITY_CONFLICT");
+                    const secArray = Array.from(distinctSections);
+                    const conflictId = `CAP_${day}_${a.time}_${secArray.sort().join("_")}`;
+                    if (!conflictList.some(c => c.id === conflictId)) {
+                        conflictList.push({
+                            id: conflictId,
+                            day,
+                            time: a.time,
+                            type: "CAPACITY_CONFLICT",
+                            sections: secArray,
+                            classA: a,
+                            classB: overlapping[0]
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. Pairwise checks (Faculty conflict for shared rooms; Room conflict for regular rooms)
         for (let i = 0; i < dayEntries.length; i++) {
             for (let j = i + 1; j < dayEntries.length; j++) {
                 const a = dayEntries[i];
                 const b = dayEntries[j];
 
-                // Skip identical entry or duplicates of exact same schedule/subject/section
                 if (a.scheduleId === b.scheduleId && a.code === b.code && a.section === b.section && a.time === b.time) {
                     continue;
                 }
 
                 if (timesOverlap(a.time, b.time)) {
-                    // Check gymnasium capacity (gymnasium allows up to 2 sections)
-                    const isGym = normaliseRoom(a.room).includes("gym") || normaliseRoom(b.room).includes("gym");
-                    if (isGym) {
-                        continue;
-                    }
-
                     const keyA = `${a.scheduleId}::${a.code}::${a.day}::${a.time}::${a.section}`;
                     const keyB = `${b.scheduleId}::${b.code}::${b.day}::${b.time}::${b.section}`;
-                    conflictKeys.add(keyA);
-                    conflictKeys.add(keyB);
+                    const isShared = isActivityGymOrCourtRoom(a.room || selectedRoom) && isActivityGymOrCourtRoom(b.room || selectedRoom);
 
-                    conflictList.push({
-                        day,
-                        time: a.time,
-                        classA: a,
-                        classB: b
-                    });
+                    if (isShared) {
+                        // In Activity / Gymnasium / Covered Court:
+                        // ONLY marked as conflict if same faculty member is assigned on both sections
+                        if (a.faculty && b.faculty && sameFaculty(a.faculty, b.faculty, a.facultyUid, b.facultyUid)) {
+                            conflictKeys.add(keyA);
+                            conflictKeys.add(keyB);
+                            conflictTypes.set(keyA, "FACULTY_CONFLICT");
+                            conflictTypes.set(keyB, "FACULTY_CONFLICT");
+
+                            conflictList.push({
+                                id: `FAC_${day}_${[a.section, b.section].sort().join("_")}_${a.time}`,
+                                day,
+                                time: a.time,
+                                type: "FACULTY_CONFLICT",
+                                faculty: a.faculty,
+                                classA: a,
+                                classB: b
+                            });
+                        }
+                    } else {
+                        // Regular single-section rooms (Lecture Room, Laboratory, etc.)
+                        conflictKeys.add(keyA);
+                        conflictKeys.add(keyB);
+                        conflictTypes.set(keyA, "ROOM_CONFLICT");
+                        conflictTypes.set(keyB, "ROOM_CONFLICT");
+
+                        conflictList.push({
+                            id: `ROOM_${day}_${[keyA, keyB].sort().join("___")}`,
+                            day,
+                            time: a.time,
+                            type: "ROOM_CONFLICT",
+                            classA: a,
+                            classB: b
+                        });
+                    }
                 }
             }
         }
     });
 
-    return { conflictKeys, conflictList };
+    return { conflictKeys, conflictTypes, conflictList };
 }
 
 function examConflictGroupKey(exam) {
@@ -703,7 +790,7 @@ function buildTimeLabels() {
 /**
  * Builds positioned blocks for Class Schedule in a day column.
  */
-function buildClassDayBlocks(classes, day, colorMap, conflictKeys) {
+function buildClassDayBlocks(classes, day, colorMap, conflictKeys, conflictTypes) {
     const dayBlocks = [];
     classes.forEach(c => {
         if (String(c.day || "").trim().toLowerCase() !== day.toLowerCase()) return;
@@ -738,6 +825,13 @@ function buildClassDayBlocks(classes, day, colorMap, conflictKeys) {
 
             const blockKey = `${block.scheduleId}::${block.code}::${block.day}::${block.time}::${block.section}`;
             const isConflict = conflictKeys.has(blockKey);
+            const conflictType = conflictTypes ? conflictTypes.get(blockKey) : (isConflict ? "ROOM_CONFLICT" : null);
+            let conflictChipText = "Room conflict";
+            if (conflictType === "FACULTY_CONFLICT") {
+                conflictChipText = "Faculty conflict";
+            } else if (conflictType === "CAPACITY_CONFLICT") {
+                conflictChipText = "Capacity conflict";
+            }
             const subjectKey = String(block.code || block.name || "").trim().toUpperCase();
             const colorClass = colorMap.get(subjectKey) || `cal-block-color-${(colIndex % TOTAL_CALENDAR_COLORS) + 1}`;
 
@@ -750,7 +844,7 @@ function buildClassDayBlocks(classes, day, colorMap, conflictKeys) {
 
             html += `
 <div class="cal-block${isConflict ? " ra-conflict-card" : ""}${expandUp ? " ra-expand-up" : ""} ${colorClass}" style="top:${top.toFixed(1)}px;height:${height.toFixed(1)}px;width:calc(${widthPct.toFixed(1)}% - 4px);left:calc(${leftPct.toFixed(1)}% + 2px);--ra-grow:${growDelta.toFixed(1)}px;" title="${escapeHtml(block.code)} — ${escapeHtml(block.name)}&#10;Section: ${escapeHtml(block.section)} | ${escapeHtml(block.day)} | ${formatTimeDisplay(block.time)} | Room: ${escapeHtml(block.room)} | Faculty: ${facultyLabel}">
-  ${isConflict ? `<span class="ra-conflict-chip">Room conflict</span>` : ""}
+  ${isConflict ? `<span class="ra-conflict-chip">${conflictChipText}</span>` : ""}
   <div class="ra-card-section">${escapeHtml(block.section || "—")}</div>
   <div class="ra-card-subject">${escapeHtml(block.name || block.code || "—")}${block.code ? ` <span class="ra-card-code">(${escapeHtml(block.code)})</span>` : ""}</div>
   <span class="ra-examtype-badge" style="${block.status === 'published' ? 'background:#e8f5e9;color:#1b5e20;' : 'background:#eceff1;color:#455a64;'}">${escapeHtml(statusLabel)}</span>
@@ -902,7 +996,7 @@ function renderCalendar() {
 
     const dayColumnsHtml = WEEKDAYS.map(day => {
         const blocks = isClass
-            ? buildClassDayBlocks(entries, day, colorMap, foundConflicts.conflictKeys)
+            ? buildClassDayBlocks(entries, day, colorMap, foundConflicts.conflictKeys, foundConflicts.conflictTypes)
             : buildExamDayBlocks(entries, day, colorMap, foundConflicts.conflictKeys);
 
         placedCount += blocks.count;
@@ -948,10 +1042,17 @@ function renderCalendar() {
             let items = "";
             if (isClass) {
                 foundConflicts.conflictList.slice(0, 8).forEach(c => {
-                    items += `<li><strong>${escapeHtml(c.day)}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — ${escapeHtml(c.classA.section)} (${escapeHtml(c.classA.code)}) clashes with ${escapeHtml(c.classB.section)} (${escapeHtml(c.classB.code)})</li>`;
+                    if (c.type === "FACULTY_CONFLICT") {
+                        items += `<li><strong>${escapeHtml(c.day)}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — Faculty conflict: <strong>${escapeHtml(c.faculty || "Faculty")}</strong> is double-booked between ${escapeHtml(c.classA.section)} (${escapeHtml(c.classA.code)}) and ${escapeHtml(c.classB.section)} (${escapeHtml(c.classB.code)})</li>`;
+                    } else if (c.type === "CAPACITY_CONFLICT") {
+                        const secList = (c.sections || []).map(escapeHtml).join(", ");
+                        items += `<li><strong>${escapeHtml(c.day)}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — Room capacity exceeded: ${c.sections ? c.sections.length : 3} sections (${secList}) scheduled simultaneously (maximum allowed: 2)</li>`;
+                    } else {
+                        items += `<li><strong>${escapeHtml(c.day)}</strong> at <strong>${formatTimeDisplay(c.time)}</strong> — ${escapeHtml(c.classA.section)} (${escapeHtml(c.classA.code)}) clashes with ${escapeHtml(c.classB.section)} (${escapeHtml(c.classB.code)})</li>`;
+                    }
                 });
                 if (foundConflicts.conflictList.length > 8) items += `<li>...and ${foundConflicts.conflictList.length - 8} more.</li>`;
-                banner.innerHTML = `<span class="ra-cb-icon">!</span><div><div class="ra-cb-title">Room conflict in ${escapeHtml(selectedRoom)} — resolve on <a href="class.html" style="color:#b71c1c; text-decoration:underline; font-weight:bold;">Class Scheduling</a> page.</div><ul class="ra-cb-list">${items}</ul></div>`;
+                banner.innerHTML = `<span class="ra-cb-icon">!</span><div><div class="ra-cb-title">Schedule conflict in ${escapeHtml(selectedRoom)} — resolve on <a href="class.html" style="color:#b71c1c; text-decoration:underline; font-weight:bold;">Class Scheduling</a> page.</div><ul class="ra-cb-list">${items}</ul></div>`;
             } else {
                 foundConflicts.conflictList.slice(0, 8).forEach(c => {
                     const sections = [...new Set(c.exams.map(e => e.section))].map(escapeHtml).join(", ");

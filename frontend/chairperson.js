@@ -51,12 +51,16 @@ onAuthStateChanged(auth, async user => {
     initScheduleOverviewChart();
 });
 
+let classScheduleCountState = 0;
+
 function watchClassSchedules() {
     onSnapshot(
         collection(db, "classSchedules"),
         snapshot => {
+            classScheduleCountState = snapshot.size;
             const countEl = document.getElementById("classScheduleCount");
-            if (countEl) countEl.textContent = snapshot.size;
+            if (countEl) countEl.textContent = classScheduleCountState;
+            updateDashboardNotice();
         },
         error => console.error("watchClassSchedules error:", error)
     );
@@ -132,13 +136,24 @@ function updateDashboardNotice() {
     const noticeEl = document.getElementById("dashboardNotice");
     if (!noticeEl) return;
     const { total, published } = examScheduleStats;
+    const classCount = classScheduleCountState;
 
-    if (!total) {
-        noticeEl.innerHTML = "Your dashboard is live. No examination schedules have been generated yet.";
+    if (!total && !classCount) {
+        noticeEl.innerHTML = "Your dashboard is live. No class or examination schedules have been generated yet.";
         return;
     }
 
-    noticeEl.innerHTML = `Your dashboard is live. <strong>${total}</strong> total examination schedule${total === 1 ? "" : "s"} (${published} published) saved in Firestore.`;
+    const parts = [];
+    if (classCount > 0) {
+        parts.push(`<strong>${classCount}</strong> class schedule${classCount === 1 ? "" : "s"}`);
+    }
+    if (total > 0) {
+        parts.push(`<strong>${total}</strong> exam schedule${total === 1 ? "" : "s"} (${published} published)`);
+    } else {
+        parts.push("no examination schedules generated yet");
+    }
+
+    noticeEl.innerHTML = `Your dashboard is live. ${parts.join(" and ")} saved in Firestore.`;
 }
 
 function watchRescheduleRequests() {
@@ -835,6 +850,7 @@ document.getElementById("requestModal")?.addEventListener("click", event => {
 
 let roomChartInstance = null;
 let cachedRoomExamSchedules = []; // examSchedules documents from Firestore
+let cachedRoomClassSchedules = []; // classSchedules documents from Firestore
 
 function initRoomAssignmentChart() {
     try {
@@ -845,7 +861,19 @@ function initRoomAssignmentChart() {
             });
         }
 
-        // Listen in real-time to the same examSchedules collection used by the dashboard
+        // Listen in real-time to classSchedules
+        onSnapshot(
+            collection(db, "classSchedules"),
+            snapshot => {
+                cachedRoomClassSchedules = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderRoomAssignmentChart();
+            },
+            error => {
+                console.error("Error watching class schedules for room assignments:", error);
+            }
+        );
+
+        // Listen in real-time to examSchedules
         onSnapshot(
             collection(db, "examSchedules"),
             snapshot => {
@@ -863,29 +891,54 @@ function initRoomAssignmentChart() {
     }
 }
 
-// Aggregates the number of assigned examinations per room from the
-// existing examSchedules documents (each schedule has an exams array
-// where every exam entry carries the room it was assigned to).
+// Aggregates the number of assigned schedules per room from both
+// classSchedules (room field on each document) and examSchedules
+// (rooms nested inside the exams array of each document).
 function collectRoomAssignmentCounts() {
     const filterSelect = document.getElementById("roomChartFilter");
-    const filterVal = filterSelect ? filterSelect.value : "this_semester";
+    const filterVal = filterSelect ? filterSelect.value : "all";
 
-    const filteredSchedules = cachedRoomExamSchedules.filter(s =>
+    const roomStats = new Map(); // room => { classCount, examCount }
+
+    // --- Class Schedules: room stored directly on the document ---
+    const filteredClass = cachedRoomClassSchedules.filter(s =>
         matchSemesterFilter(s.semester, filterVal)
     );
+    filteredClass.forEach(schedule => {
+        const room = String(schedule.room || "").trim();
+        if (!room || room.toLowerCase() === "tba") return;
+        // A class schedule may list multiple rooms separated by " / " or "/"
+        room.split(/\s*\/\s*/).forEach(r => {
+            const rTrimmed = r.trim();
+            if (!rTrimmed || rTrimmed.toLowerCase() === "tba") return;
+            const current = roomStats.get(rTrimmed) || { classCount: 0, examCount: 0 };
+            current.classCount += 1;
+            roomStats.set(rTrimmed, current);
+        });
+    });
 
-    const roomCounts = new Map();
-    filteredSchedules.forEach(schedule => {
+    // --- Exam Schedules: rooms inside the exams array ---
+    const filteredExam = cachedRoomExamSchedules.filter(s =>
+        matchSemesterFilter(s.semester, filterVal)
+    );
+    filteredExam.forEach(schedule => {
         const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
         exams.forEach(exam => {
             const room = String(exam.room || "").trim();
             if (!room || room.toLowerCase() === "tba") return;
-            roomCounts.set(room, (roomCounts.get(room) || 0) + 1);
+            const current = roomStats.get(room) || { classCount: 0, examCount: 0 };
+            current.examCount += 1;
+            roomStats.set(room, current);
         });
     });
 
-    return Array.from(roomCounts.entries())
-        .map(([room, count]) => ({ room, count }))
+    return Array.from(roomStats.entries())
+        .map(([room, data]) => ({
+            room,
+            count: data.classCount + data.examCount,
+            classCount: data.classCount,
+            examCount: data.examCount
+        }))
         .sort((a, b) => b.count - a.count || a.room.localeCompare(b.room));
 }
 
@@ -934,7 +987,7 @@ function renderRoomAssignmentChart() {
         return;
     }
 
-    // Draws the examination count on top of each vertical bar
+    // Draws the schedule count on top of each vertical bar
     const topOfBarValuesPlugin = {
         id: "topOfBarValues",
         afterDatasetsDraw(chart) {
@@ -962,7 +1015,7 @@ function renderRoomAssignmentChart() {
         data: {
             labels: labels,
             datasets: [{
-                label: "Assigned Examinations",
+                label: "Assigned Schedules",
                 data: dataValues,
                 backgroundColor: "rgba(46, 125, 50, 0.85)",
                 borderColor: "#2e7d32",
@@ -990,7 +1043,22 @@ function renderRoomAssignmentChart() {
                     cornerRadius: 8,
                     displayColors: false,
                     callbacks: {
-                        label: context => ` ${context.parsed.y} assigned examination${context.parsed.y === 1 ? "" : "s"}`
+                        label: context => {
+                            const idx = context.dataIndex;
+                            const item = roomData[idx];
+                            if (!item) {
+                                return ` ${context.parsed.y} assigned schedule${context.parsed.y === 1 ? "" : "s"}`;
+                            }
+                            const breakdown = [];
+                            if (item.classCount > 0) {
+                                breakdown.push(`${item.classCount} class${item.classCount === 1 ? "" : "es"}`);
+                            }
+                            if (item.examCount > 0) {
+                                breakdown.push(`${item.examCount} exam${item.examCount === 1 ? "" : "s"}`);
+                            }
+                            const detail = breakdown.length ? ` (${breakdown.join(", ")})` : "";
+                            return ` ${item.count} assigned schedule${item.count === 1 ? "" : "s"}${detail}`;
+                        }
                     }
                 }
             },
@@ -1020,7 +1088,7 @@ function renderRoomAssignmentChart() {
                     },
                     title: {
                         display: true,
-                        text: "Number of Assigned Examinations",
+                        text: "Number of Assigned Schedules",
                         color: "#666",
                         font: { size: 11, weight: "bold" }
                     }
@@ -1041,6 +1109,7 @@ function renderRoomAssignmentChart() {
 
 let scheduleOverviewChartInstance = null;
 let rawExamSchedules = [];
+let rawClassSchedulesOverview = [];
 let rawRescheduleRequests = [];
 
 function initScheduleOverviewChart() {
@@ -1051,6 +1120,12 @@ function initScheduleOverviewChart() {
                 renderScheduleOverviewChart();
             });
         }
+
+        // Real-time watcher for class schedules
+        onSnapshot(collection(db, "classSchedules"), snapshot => {
+            rawClassSchedulesOverview = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderScheduleOverviewChart();
+        }, err => console.warn("Chart classSchedules watch error:", err));
 
         // Real-time watchers for exam schedules and reschedule requests
         onSnapshot(collection(db, "examSchedules"), snapshot => {
@@ -1108,6 +1183,13 @@ function showScheduleOverviewEmptyState(message) {
         legendEl.innerHTML = `
             <div class="legend-row">
                 <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#6a1b9a;"></span>
+                    <span class="legend-name">Class Schedules</span>
+                </div>
+                <div class="legend-values"><span class="legend-count">0</span><span class="legend-pct">0.0%</span></div>
+            </div>
+            <div class="legend-row">
+                <div class="legend-label-group">
                     <span class="legend-color-dot" style="background:#2e7d32;"></span>
                     <span class="legend-name">Preliminary</span>
                 </div>
@@ -1147,23 +1229,39 @@ function renderScheduleOverviewChart() {
 
     const filterVal = filterSelect ? filterSelect.value : "this_semester";
 
+    // Class schedules count (filtered by semester)
+    const filteredClass = rawClassSchedulesOverview.filter(s => matchSemesterFilter(s.semester, filterVal));
+    const classCount = filteredClass.length;
+
+    // Exam schedule counts
     const filtered = rawExamSchedules.filter(s => matchSemesterFilter(s.semester, filterVal));
     const prelimCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("prelim")).length;
     const midtermCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("midterm")).length;
     const finalCount = filtered.filter(s => String(s.examType || "").toLowerCase().includes("final")).length;
 
-    const totalCount = prelimCount + midtermCount + finalCount;
+    const totalCount = classCount + prelimCount + midtermCount + finalCount;
 
     if (totalCountEl) {
         totalCountEl.textContent = totalCount;
     }
 
-    const prelimPct = totalCount > 0 ? ((prelimCount / totalCount) * 100).toFixed(1) : "0.0";
-    const midtermPct = totalCount > 0 ? ((midtermCount / totalCount) * 100).toFixed(1) : "0.0";
-    const finalPct = totalCount > 0 ? ((finalCount / totalCount) * 100).toFixed(1) : "0.0";
+    const classPct    = totalCount > 0 ? ((classCount   / totalCount) * 100).toFixed(1) : "0.0";
+    const prelimPct   = totalCount > 0 ? ((prelimCount  / totalCount) * 100).toFixed(1) : "0.0";
+    const midtermPct  = totalCount > 0 ? ((midtermCount / totalCount) * 100).toFixed(1) : "0.0";
+    const finalPct    = totalCount > 0 ? ((finalCount   / totalCount) * 100).toFixed(1) : "0.0";
 
     if (legendEl) {
         legendEl.innerHTML = `
+            <div class="legend-row">
+                <div class="legend-label-group">
+                    <span class="legend-color-dot" style="background:#6a1b9a;"></span>
+                    <span class="legend-name">Class Schedules</span>
+                </div>
+                <div class="legend-values">
+                    <span class="legend-count">${classCount}</span>
+                    <span class="legend-pct">${classPct}%</span>
+                </div>
+            </div>
             <div class="legend-row">
                 <div class="legend-label-group">
                     <span class="legend-color-dot" style="background:#2e7d32;"></span>
@@ -1198,7 +1296,7 @@ function renderScheduleOverviewChart() {
     }
 
     if (totalCount === 0) {
-        showScheduleOverviewEmptyState("No examination schedule data available.");
+        showScheduleOverviewEmptyState("No schedule data available.");
         return;
     }
 
@@ -1217,10 +1315,11 @@ function renderScheduleOverviewChart() {
     scheduleOverviewChartInstance = new Chart(canvas, {
         type: "doughnut",
         data: {
-            labels: ["Preliminary Exams", "Midterm Exams", "Final Exams"],
+            labels: ["Class Schedules", "Preliminary Exams", "Midterm Exams", "Final Exams"],
             datasets: [{
-                data: [prelimCount, midtermCount, finalCount],
+                data: [classCount, prelimCount, midtermCount, finalCount],
                 backgroundColor: [
+                    "#6a1b9a",
                     "#2e7d32",
                     "#1565c0",
                     "#e65100"
