@@ -546,9 +546,23 @@ export function renderClassCalendar(schedule) {
     }).join("");
 
     // Build details table rows with matching subject color dots
+    const canEdit = Boolean(schedule.showEditAction);
     const tableRows = entries.map(entry => {
         const subjectKey = String(entry.code || entry.subjectCode || entry.name || entry.subjectName || "").trim().toUpperCase();
         const colorClass = subjectColorMap.get(subjectKey) || "cal-block-color-1";
+        const editCell = canEdit ? `
+            <td style="border:1px solid #d0ccbf; padding:8px 10px; text-align:center;">
+                <button type="button" class="cal-edit-schedule-btn"
+                    data-sched-id="${esc(entry.scheduleId || '')}"
+                    data-entry-idx="${entry.entryIndex ?? ''}"
+                    data-multi-idx="${entry.multiIndex ?? 0}"
+                    title="Edit Day, Time, or Room for this class assignment"
+                    style="background:#2e7d32; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 1px 3px rgba(0,0,0,0.12); transition:all 0.2s;"
+                    onmouseover="this.style.background='#1b5e20'"
+                    onmouseout="this.style.background='#2e7d32'">
+                    <span>✏️</span> Edit
+                </button>
+            </td>` : "";
 
         return `
         <tr>
@@ -562,6 +576,7 @@ export function renderClassCalendar(schedule) {
             <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:600;">${esc(entry.time || "—")}</td>
             <td style="border:1px solid #d0ccbf; padding:8px 10px;">${esc(entry.room || "—")}</td>
             <td style="border:1px solid #d0ccbf; padding:8px 10px; font-weight:600; color:#1b5e20;">${esc(isFac ? (entry.section || "—") : (entry.proctor || entry.facultyName || "TBA"))}</td>
+            ${editCell}
         </tr>`;
     }).join("");
 
@@ -592,6 +607,7 @@ export function renderClassCalendar(schedule) {
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Time</th>
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">Room</th>
                         <th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:left;">${isFac ? "Section" : "Instructor"}</th>
+                        ${canEdit ? `<th style="border:1px solid #d0ccbf; padding:9px 10px; text-align:center;">Action</th>` : ""}
                     </tr>
                 </thead>
                 <tbody>

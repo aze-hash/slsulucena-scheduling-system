@@ -104,7 +104,7 @@ let currentGeneratedSchedules = [];
 let currentGeneratedSectionIndex = 0;
 let allSections = [];
 
-const PROGRAM_MAJORS = {
+let PROGRAM_MAJORS = {
     "BIT": ["CPT"],
     "BINDTECH": ["CPT"],
     "BTVTED": ["MT", "AT", "CP", "FSM", "CT", "ELT", "ELX"]
@@ -372,7 +372,32 @@ function initMultiSelectDropdowns() {
 
 async function loadSectionsFromFirestore() {
     try {
-        const snap = await getDocs(collection(db, "sections"));
+        const [snap, progSnap, majorSnap] = await Promise.all([
+            getDocs(collection(db, "sections")),
+            getDocs(collection(db, "programs")).catch(() => ({ docs: [] })),
+            getDocs(collection(db, "majors")).catch(() => ({ docs: [] }))
+        ]);
+
+        progSnap.docs.forEach(d => {
+            const data = d.data();
+            const code = String(data.programCode || data.courseCode || d.id).trim().toUpperCase();
+            if (code && !PROGRAM_MAJORS[code]) {
+                PROGRAM_MAJORS[code] = [];
+            }
+        });
+
+        majorSnap.docs.forEach(d => {
+            const data = d.data();
+            const prog = String(data.program || data.programCode || "").trim().toUpperCase();
+            const major = String(data.majorCode || "").trim().toUpperCase();
+            if (prog && major) {
+                if (!PROGRAM_MAJORS[prog]) PROGRAM_MAJORS[prog] = [];
+                if (!PROGRAM_MAJORS[prog].includes(major)) {
+                    PROGRAM_MAJORS[prog].push(major);
+                }
+            }
+        });
+
         allSections = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         renderAllDropdowns();
     } catch (err) {
@@ -435,11 +460,21 @@ function setSavedSchedules(schedules) {
 }
 
 let allFacultyMembers = [];
+let allRooms = [];
 let facultyAssignmentsMap = new Map();
 let subjectGroups = [];
 let allLoadedSubjects = [];
 let currentSubjectGroupIndex = 0;
 const subjectFacultySelections = new Map();
+
+async function loadRooms() {
+    try {
+        const roomSnapshot = await getDocs(collection(db, "rooms"));
+        allRooms = roomSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+        console.warn("Could not load rooms:", error);
+    }
+}
 
 function sameFaculty(f1, f2) {
     if (!f1 || !f2) return false;
@@ -2274,6 +2309,7 @@ async function loadSubjects() {
         const matchingSubjects = [];
         snapshot.forEach(docSnap => {
             const subject = docSnap.data();
+            if (subject.status === "Inactive") return;
             if (subject.subjectCode && subject.subjectCode.includes("NSTP")) return;
             if (!programs.includes(subject.programCode)) return;
             if (!majors.includes(subject.majorCode)) return;
@@ -3474,6 +3510,7 @@ async function generateSchedule() {
                 const fetched = [];
                 snapshot.forEach(docSnap => {
                     const subject = docSnap.data();
+                    if (subject.status === "Inactive") return;
                     if (subject.subjectCode && subject.subjectCode.includes("NSTP")) return;
                     const key = `${subject.programCode}-${subject.majorCode}-${subject.yearLevel}`;
                     if (neededKeys.has(key)) {
@@ -3935,6 +3972,8 @@ function validateScheduleEdits(updatedEntries, schedule) {
 
             slots.push({
                 rowIdx,
+                slotIdx: i,
+                totalSlots: maxLen,
                 code: entry.code,
                 name: entry.name,
                 day,
@@ -3942,10 +3981,13 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 room,
                 faculty: entry.faculty || "",
                 facultyUid: entry.facultyUid || "",
-                section: schedule.section || schedule.name || ""
+                section: schedule.section || schedule.name || "",
+                entry
             });
         }
     });
+
+    const detailedConflicts = [];
 
     // 1. Validate time format & range
     slots.forEach(slot => {
@@ -3953,6 +3995,12 @@ function validateScheduleEdits(updatedEntries, schedule) {
         if (!range) {
             conflicts.push(`Invalid Time Format for <strong>${escapeHtml(slot.code)}</strong>: "<em>${escapeHtml(slot.time)}</em>". Please use a valid time format like <strong>7:30-9:00</strong> or <strong>7:30 AM - 9:00 AM</strong> with start time before end time.`);
             conflictRowIndices.add(slot.rowIdx);
+            detailedConflicts.push({
+                type: "INVALID_TIME",
+                rowIdx: slot.rowIdx,
+                slotIdx: slot.slotIdx,
+                slot
+            });
         }
     });
 
@@ -3966,6 +4014,20 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 conflicts.push(`Section Conflict on <strong>${escapeHtml(a.day)}</strong>: <strong>${escapeHtml(a.code)}</strong> (${escapeHtml(a.time)}) overlaps with <strong>${escapeHtml(b.code)}</strong> (${escapeHtml(b.time)}).`);
                 conflictRowIndices.add(a.rowIdx);
                 conflictRowIndices.add(b.rowIdx);
+                detailedConflicts.push({
+                    type: "SECTION_CONFLICT",
+                    rowIdx: a.rowIdx,
+                    slotIdx: a.slotIdx,
+                    slot: a,
+                    otherSlot: b
+                });
+                detailedConflicts.push({
+                    type: "SECTION_CONFLICT",
+                    rowIdx: b.rowIdx,
+                    slotIdx: b.slotIdx,
+                    slot: b,
+                    otherSlot: a
+                });
             }
         }
     }
@@ -3984,6 +4046,22 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 conflicts.push(`Room Double-Booking on <strong>${escapeHtml(a.day)}</strong>: Both <strong>${escapeHtml(a.code)}</strong> and <strong>${escapeHtml(b.code)}</strong> are assigned to <strong>${escapeHtml(a.room)}</strong> at overlapping times.`);
                 conflictRowIndices.add(a.rowIdx);
                 conflictRowIndices.add(b.rowIdx);
+                detailedConflicts.push({
+                    type: "ROOM_CONFLICT",
+                    rowIdx: a.rowIdx,
+                    slotIdx: a.slotIdx,
+                    slot: a,
+                    otherSlot: b,
+                    room: a.room
+                });
+                detailedConflicts.push({
+                    type: "ROOM_CONFLICT",
+                    rowIdx: b.rowIdx,
+                    slotIdx: b.slotIdx,
+                    slot: b,
+                    otherSlot: a,
+                    room: b.room
+                });
             }
         }
     }
@@ -4010,11 +4088,27 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 const bookedSections = [...new Set(matching.map(b => b.section || "Another section"))].join(", ");
                 conflicts.push(`Capacity Exceeded in ${escapeHtml(slot.room)} on <strong>${escapeHtml(slot.day)}</strong> (${escapeHtml(slot.time)}): Already booked by 2 sections (<strong>${escapeHtml(bookedSections)}</strong>).`);
                 conflictRowIndices.add(slot.rowIdx);
+                detailedConflicts.push({
+                    type: "ROOM_CONFLICT",
+                    rowIdx: slot.rowIdx,
+                    slotIdx: slot.slotIdx,
+                    slot,
+                    room: slot.room,
+                    bookedBy: bookedSections
+                });
             }
         } else if (matching.length > 0) {
             const bookedSections = [...new Set(matching.map(b => b.section || "Another section"))].join(", ");
             conflicts.push(`Room Conflict on <strong>${escapeHtml(slot.day)}</strong>: <strong>${escapeHtml(slot.room)}</strong> is already booked by <strong>${escapeHtml(bookedSections)}</strong> during <strong>${escapeHtml(slot.time)}</strong> (for ${escapeHtml(slot.code)}).`);
             conflictRowIndices.add(slot.rowIdx);
+            detailedConflicts.push({
+                type: "ROOM_CONFLICT",
+                rowIdx: slot.rowIdx,
+                slotIdx: slot.slotIdx,
+                slot,
+                room: slot.room,
+                bookedBy: bookedSections
+            });
         }
     });
 
@@ -4027,6 +4121,22 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 conflicts.push(`Faculty Conflict on <strong>${escapeHtml(a.day)}</strong>: <strong>${escapeHtml(a.faculty)}</strong> is assigned to two overlapping classes (<strong>${escapeHtml(a.code)}</strong> and <strong>${escapeHtml(b.code)}</strong>).`);
                 conflictRowIndices.add(a.rowIdx);
                 conflictRowIndices.add(b.rowIdx);
+                detailedConflicts.push({
+                    type: "FACULTY_CONFLICT",
+                    rowIdx: a.rowIdx,
+                    slotIdx: a.slotIdx,
+                    slot: a,
+                    otherSlot: b,
+                    faculty: a.faculty
+                });
+                detailedConflicts.push({
+                    type: "FACULTY_CONFLICT",
+                    rowIdx: b.rowIdx,
+                    slotIdx: b.slotIdx,
+                    slot: b,
+                    otherSlot: a,
+                    faculty: b.faculty
+                });
             }
         }
     }
@@ -4043,13 +4153,24 @@ function validateScheduleEdits(updatedEntries, schedule) {
             const bookedSecs = [...new Set(matchingFac.map(b => `${b.section || "Another section"} (${b.code || ""})`))].join(", ");
             conflicts.push(`Faculty Conflict on <strong>${escapeHtml(slot.day)}</strong>: <strong>${escapeHtml(slot.faculty)}</strong> is already assigned to <strong>${escapeHtml(bookedSecs)}</strong> during <strong>${escapeHtml(slot.time)}</strong>.`);
             conflictRowIndices.add(slot.rowIdx);
+            detailedConflicts.push({
+                type: "FACULTY_CONFLICT",
+                rowIdx: slot.rowIdx,
+                slotIdx: slot.slotIdx,
+                slot,
+                faculty: slot.faculty,
+                bookedBy: bookedSecs
+            });
         }
     });
 
     return {
         isValid: conflicts.length === 0,
         conflicts: [...new Set(conflicts)],
-        conflictRowIndices
+        conflictRowIndices,
+        detailedConflicts,
+        slots,
+        updatedEntries
     };
 }
 
@@ -4064,6 +4185,692 @@ function clearEditScheduleConflicts() {
         });
     }
 }
+
+/**
+ * Normalizes day string into clean standard capitalization
+ */
+function normalizeDayName(d) {
+    if (!d) return "";
+    const clean = String(d).trim().toLowerCase();
+    const map = {
+        mon: "Monday", monday: "Monday",
+        tue: "Tuesday", tues: "Tuesday", tuesday: "Tuesday",
+        wed: "Wednesday", wednesday: "Wednesday",
+        thu: "Thursday", thur: "Thursday", thurs: "Thursday", thursday: "Thursday",
+        fri: "Friday", friday: "Friday"
+    };
+    return map[clean] || (clean.charAt(0).toUpperCase() + clean.slice(1));
+}
+
+/**
+ * Checks whether a proposed single slot for rowIdx creates any conflict against:
+ * 1. other rows within this edited schedule
+ * 2. other saved active schedules for the same Academic Year & Semester
+ */
+function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, proposedFaculty, rowIdx, slotIdx, schedule, currentRows) {
+    const pDay = normalizeDayName(proposedDay);
+    const pTime = proposedTime ? proposedTime.trim() : "";
+    const pRoom = proposedRoom ? proposedRoom.trim() : "";
+    const pFaculty = proposedFaculty ? proposedFaculty.trim() : "";
+
+    const timeRange = parseTimeRange(pTime);
+    if (!timeRange) return false;
+
+    // Check against other entries in the edited schedule
+    for (let r = 0; r < currentRows.length; r++) {
+        const row = currentRows[r];
+        const rDays = String(row.day || "").split(" / ").map(d => normalizeDayName(d)).filter(Boolean);
+        const rTimes = String(row.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+        const rRooms = String(row.room || "").split(" / ").map(rm => rm.trim()).filter(Boolean);
+        const maxLen = Math.max(rDays.length, rTimes.length, rRooms.length, 1);
+
+        for (let s = 0; s < maxLen; s++) {
+            if (r === rowIdx && s === slotIdx) continue; // Skip itself
+
+            const day = rDays[s] || rDays[0] || normalizeDayName(row.day);
+            const time = rTimes[s] || rTimes[0] || row.time;
+            const room = rRooms[s] || rRooms[0] || row.room;
+            const faculty = row.faculty || "";
+
+            if (day.toLowerCase() === pDay.toLowerCase() && timesOverlap(time, pTime)) {
+                // Section time overlap (same section has 2 classes at once)
+                if (r !== rowIdx) return false;
+
+                // Room double-booking within this section
+                const isGym = isActivityGymOrCourtRoom(pRoom);
+                if (!isGym && pRoom && room && pRoom.toLowerCase() === room.toLowerCase()) {
+                    return false;
+                }
+
+                // Faculty double-booking within this section
+                if (pFaculty && faculty && sameFaculty(pFaculty, faculty)) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Check against other active schedules in the same AY & Semester
+    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(
+        b => (b.section || "").trim().toLowerCase() !== (schedule.section || "").trim().toLowerCase()
+    );
+
+    for (const b of otherBookings) {
+        if (!b.day || normalizeDayName(b.day).toLowerCase() !== pDay.toLowerCase()) continue;
+        if (!b.time || !timesOverlap(b.time, pTime)) continue;
+
+        // Room conflict
+        const isGym = isActivityGymOrCourtRoom(pRoom);
+        if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
+            if (isGym) {
+                const count = otherBookings.filter(ob =>
+                    normalizeDayName(ob.day).toLowerCase() === pDay.toLowerCase() &&
+                    (ob.room || "").toLowerCase() === pRoom.toLowerCase() &&
+                    timesOverlap(ob.time, pTime)
+                ).length;
+                if (count >= 2) return false;
+            } else {
+                return false;
+            }
+        }
+
+        // Faculty conflict
+        if (pFaculty && b.faculty && sameFaculty(pFaculty, b.faculty)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Generates Conflict Resolution suggestions across four categories:
+ * 1. Faculty Suggestions
+ * 2. Time Slot Suggestions
+ * 3. Room Suggestions
+ * 4. Combined Solution
+ */
+function generateConflictResolutions(validation, schedule, currentRows) {
+    const { detailedConflicts, slots } = validation;
+    const recommendations = {
+        faculty: [],
+        time: [],
+        room: [],
+        combined: []
+    };
+
+    if (!detailedConflicts || !detailedConflicts.length) return recommendations;
+
+    const handledFacultyPairs = new Set();
+    const handledTimeSlots = new Set();
+    const handledRoomSlots = new Set();
+
+    // 1. FACULTY SUGGESTIONS
+    const facultyConflicts = detailedConflicts.filter(c => c.type === "FACULTY_CONFLICT");
+    for (const fc of facultyConflicts) {
+        const slot = fc.slot;
+        const pairKey = `${slot.rowIdx}_${slot.slotIdx}_${slot.code}`;
+        if (handledFacultyPairs.has(pairKey)) continue;
+        handledFacultyPairs.add(pairKey);
+
+        const entryCriteria = {
+            subjectCode: slot.code || "",
+            programCode: schedule.program || "",
+            majorCode: schedule.major || "",
+            yearLevel: schedule.yearLevel || "",
+            semester: schedule.semester || "",
+            section: schedule.section || schedule.name || ""
+        };
+
+        const eligibleFaculty = allFacultyMembers.filter(f => {
+            const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+            return handled.length > 0 && isFacultyEligibleForSubject(handled, entryCriteria);
+        });
+
+        for (const candidate of eligibleFaculty) {
+            if (sameFaculty(candidate.name, slot.faculty)) continue;
+
+            const isFree = testProposedSlotValidity(
+                slot.day,
+                slot.time,
+                slot.room,
+                candidate.name,
+                slot.rowIdx,
+                slot.slotIdx,
+                schedule,
+                currentRows
+            );
+
+            if (isFree) {
+                const handledList = facultyAssignmentsMap.get(candidate.uid) || facultyAssignmentsMap.get(candidate.id) || [];
+                const parsedSubjects = handledList.map(h => {
+                    const p = parseHandledSubject(h);
+                    return p ? p.subjectCode : "";
+                }).filter(Boolean);
+                const qualText = parsedSubjects.length > 0
+                    ? `Qualified for ${parsedSubjects.slice(0, 3).join(", ")}${parsedSubjects.length > 3 ? "..." : ""}`
+                    : `Assigned handled subject`;
+
+                recommendations.faculty.push({
+                    rowIdx: slot.rowIdx,
+                    slotIdx: slot.slotIdx,
+                    subjectCode: slot.code,
+                    subjectName: slot.name,
+                    facultyName: candidate.name,
+                    facultyUid: candidate.uid || "",
+                    facultyEmployeeId: candidate.employeeId || "",
+                    day: slot.day,
+                    time: slot.time,
+                    room: slot.room,
+                    statusText: "Available & Eligible",
+                    explanation: `${candidate.name} is qualified to teach ${slot.code} (${qualText}) and has no conflicting classes on ${slot.day} (${slot.time}).`
+                });
+
+                if (recommendations.faculty.length >= 4) break;
+            }
+        }
+    }
+
+    // 2. TIME SLOT SUGGESTIONS
+    const timeConflicts = detailedConflicts.filter(c =>
+        c.type === "SECTION_CONFLICT" || c.type === "INVALID_TIME" || c.type === "FACULTY_CONFLICT" || c.type === "ROOM_CONFLICT"
+    );
+
+    for (const tc of timeConflicts) {
+        const slot = tc.slot;
+        const key = `${slot.rowIdx}_${slot.slotIdx}`;
+        if (handledTimeSlots.has(key)) continue;
+        handledTimeSlots.add(key);
+
+        const isActivity = isActivityEntry(slot) || isActivityGymOrCourtRoom(slot.room);
+        const slotList = isActivity ? activitySlots : (minorSlots.includes(slot.time) ? minorSlots : majorSlots);
+
+        for (const candDay of days) {
+            for (const candTime of slotList) {
+                if (candDay.toLowerCase() === slot.day.toLowerCase() && candTime === slot.time) continue;
+
+                const isAvailable = testProposedSlotValidity(
+                    candDay,
+                    candTime,
+                    slot.room,
+                    slot.faculty,
+                    slot.rowIdx,
+                    slot.slotIdx,
+                    schedule,
+                    currentRows
+                );
+
+                if (isAvailable) {
+                    recommendations.time.push({
+                        rowIdx: slot.rowIdx,
+                        slotIdx: slot.slotIdx,
+                        subjectCode: slot.code,
+                        subjectName: slot.name,
+                        proposedDay: candDay,
+                        proposedTime: candTime,
+                        room: slot.room,
+                        faculty: slot.faculty,
+                        statusText: "No Conflict Detected",
+                        explanation: `Slot on ${candDay} at ${candTime} is free for section ${schedule.section || ""}, assigned faculty ${slot.faculty || "Faculty"}, and room ${slot.room}.`
+                    });
+                    if (recommendations.time.length >= 4) break;
+                }
+            }
+            if (recommendations.time.length >= 4) break;
+        }
+    }
+
+    // 3. ROOM SUGGESTIONS
+    const roomConflicts = detailedConflicts.filter(c => c.type === "ROOM_CONFLICT");
+    for (const rc of roomConflicts) {
+        const slot = rc.slot;
+        const key = `${slot.rowIdx}_${slot.slotIdx}`;
+        if (handledRoomSlots.has(key)) continue;
+        handledRoomSlots.add(key);
+
+        const currentRoomObj = allRooms.find(r =>
+            (r.roomName || "").trim().toLowerCase() === (slot.room || "").trim().toLowerCase() ||
+            (r.roomCode || "").trim().toLowerCase() === (slot.room || "").trim().toLowerCase()
+        );
+        const targetType = currentRoomObj?.roomType || (isActivityEntry(slot) ? "Gymnasium" : "Lecture Room");
+        const isTargetLab = isLabRoomType(targetType);
+
+        const candidateRooms = allRooms.filter(r => {
+            const rName = (r.roomName || r.roomCode || "").trim();
+            if (rName.toLowerCase() === slot.room.trim().toLowerCase()) return false;
+            if (targetType === "Gymnasium") {
+                return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(rName);
+            }
+            if (isTargetLab) {
+                return r.roomType === targetType || isLabRoomType(r.roomType);
+            }
+            return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
+        });
+
+        for (const cr of candidateRooms) {
+            const candRoomName = cr.roomName || cr.roomCode;
+            const isFree = testProposedSlotValidity(
+                slot.day,
+                slot.time,
+                candRoomName,
+                slot.faculty,
+                slot.rowIdx,
+                slot.slotIdx,
+                schedule,
+                currentRows
+            );
+
+            if (isFree) {
+                const capText = cr.capacity ? `Capacity: ${cr.capacity} seats` : "Standard capacity";
+                recommendations.room.push({
+                    rowIdx: slot.rowIdx,
+                    slotIdx: slot.slotIdx,
+                    subjectCode: slot.code,
+                    subjectName: slot.name,
+                    proposedRoom: candRoomName,
+                    roomType: cr.roomType || "Classroom",
+                    capacity: cr.capacity || null,
+                    day: slot.day,
+                    time: slot.time,
+                    faculty: slot.faculty,
+                    statusText: "Unoccupied & Suitable",
+                    explanation: `${candRoomName} (${cr.roomType || "Room"}, ${capText}) is unoccupied on ${slot.day} (${slot.time}) and accommodates section requirements.`
+                });
+                if (recommendations.room.length >= 4) break;
+            }
+        }
+    }
+
+    // 4. COMBINED SOLUTION
+    // Find a comprehensive solution that resolves all conflicts with fewest changes
+    const uniqueConflictedRowIndices = [...new Set(detailedConflicts.map(c => c.rowIdx))];
+    if (uniqueConflictedRowIndices.length > 0) {
+        const targetRowIdx = uniqueConflictedRowIndices[0];
+        const targetRow = currentRows[targetRowIdx];
+
+        if (targetRow) {
+            const targetDays = String(targetRow.day || "").split(" / ").map(d => normalizeDayName(d)).filter(Boolean);
+            const targetTimes = String(targetRow.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+            const targetRooms = String(targetRow.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+            const slotIdx = 0;
+
+            const curDay = targetDays[slotIdx] || targetDays[0] || normalizeDayName(targetRow.day);
+            const curTime = targetTimes[slotIdx] || targetTimes[0] || targetRow.time;
+            const curRoom = targetRooms[slotIdx] || targetRooms[0] || targetRow.room;
+            const curFaculty = targetRow.faculty || "Unassigned";
+
+            const entryCriteria = {
+                subjectCode: targetRow.code || "",
+                programCode: schedule.program || "",
+                majorCode: schedule.major || "",
+                yearLevel: schedule.yearLevel || "",
+                semester: schedule.semester || "",
+                section: schedule.section || schedule.name || ""
+            };
+
+            const eligibleFaculty = allFacultyMembers.filter(f => {
+                const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+                return handled.length > 0 && isFacultyEligibleForSubject(handled, entryCriteria);
+            });
+
+            const facultyOptions = [
+                ...(curFaculty && curFaculty !== "Unassigned" ? [{ name: curFaculty, uid: targetRow.facultyUid || "" }] : []),
+                ...eligibleFaculty
+            ];
+
+            const currentRoomObj = allRooms.find(r =>
+                (r.roomName || "").trim().toLowerCase() === curRoom.trim().toLowerCase()
+            );
+            const targetType = currentRoomObj?.roomType || (isActivityEntry(targetRow) ? "Gymnasium" : "Lecture Room");
+            const suitableRooms = allRooms.filter(r => {
+                if (targetType === "Gymnasium") return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(r.roomName);
+                if (isLabRoomType(targetType)) return r.roomType === targetType || isLabRoomType(r.roomType);
+                return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
+            });
+            const roomOptions = [
+                ...(curRoom ? [{ roomName: curRoom }] : []),
+                ...suitableRooms
+            ];
+
+            const isActivity = isActivityEntry(targetRow) || isActivityGymOrCourtRoom(curRoom);
+            const slotList = isActivity ? activitySlots : (minorSlots.includes(curTime) ? minorSlots : majorSlots);
+
+            let bestCombined = null;
+            let fewestChanges = Infinity;
+
+            for (const candFac of facultyOptions) {
+                for (const candDay of [curDay, ...days.filter(d => d !== curDay)]) {
+                    for (const candTime of [curTime, ...slotList.filter(t => t !== curTime)]) {
+                        for (const candRm of roomOptions) {
+                            const rName = candRm.roomName || candRm.roomCode || "";
+                            if (!rName) continue;
+
+                            const isValid = testProposedSlotValidity(
+                                candDay,
+                                candTime,
+                                rName,
+                                candFac.name,
+                                targetRowIdx,
+                                slotIdx,
+                                schedule,
+                                currentRows
+                            );
+
+                            if (isValid) {
+                                let changeCount = 0;
+                                const changes = [];
+                                if (candDay !== curDay || candTime !== curTime) {
+                                    changeCount += (candDay !== curDay ? 1 : 0) + (candTime !== curTime ? 1 : 0);
+                                    changes.push(`Schedule: ${candDay} (${candTime})`);
+                                }
+                                if (rName.toLowerCase() !== curRoom.toLowerCase()) {
+                                    changeCount += 1;
+                                    changes.push(`Room: ${rName}`);
+                                }
+                                if (!sameFaculty(candFac.name, curFaculty)) {
+                                    changeCount += 1;
+                                    changes.push(`Faculty: ${candFac.name}`);
+                                }
+
+                                if (changeCount > 0 && changeCount < fewestChanges) {
+                                    fewestChanges = changeCount;
+                                    bestCombined = {
+                                        rowIdx: targetRowIdx,
+                                        slotIdx,
+                                        subjectCode: targetRow.code,
+                                        subjectName: targetRow.name,
+                                        proposedDay: candDay,
+                                        proposedTime: candTime,
+                                        proposedRoom: rName,
+                                        proposedFaculty: candFac.name,
+                                        facultyUid: candFac.uid || "",
+                                        changesSummary: changes.join(" • "),
+                                        statusText: "Fully Resolved (0 Conflicts)",
+                                        explanation: `Adjusts ${changes.join(", ")} to eliminate all blocking conflicts while maintaining curriculum and room rules.`
+                                    };
+                                }
+                            }
+                        }
+                        if (bestCombined && fewestChanges <= 1) break;
+                    }
+                    if (bestCombined && fewestChanges <= 1) break;
+                }
+                if (bestCombined && fewestChanges <= 1) break;
+            }
+
+            if (bestCombined) {
+                recommendations.combined.push(bestCombined);
+            }
+        }
+    }
+
+    return recommendations;
+}
+
+/**
+ * Builds the interactive Suggested Conflict Resolutions container HTML
+ */
+function renderConflictResolutionsUI(recommendations) {
+    const { faculty, time, room, combined } = recommendations;
+    const hasAny = faculty.length > 0 || time.length > 0 || room.length > 0 || combined.length > 0;
+
+    let html = `
+        <div class="suggested-resolutions-container">
+            <div class="suggested-resolutions-header">
+                <h4><span>💡</span> Suggested Conflict Resolutions</h4>
+                <p>Select a recommended alternative below to automatically resolve blocking scheduling conflicts.</p>
+            </div>
+    `;
+
+    if (!hasAny) {
+        html += `
+            <div class="suggestion-empty-state">
+                No automatic alternatives could resolve the current conflict. Please manually adjust the subject's day, time, room, or assigned faculty.
+            </div>
+        </div>`;
+        return html;
+    }
+
+    // 1. Faculty Suggestions
+    html += `
+        <div class="suggestion-category-block">
+            <div class="suggestion-category-title">
+                <span>👤</span> Faculty Suggestions
+            </div>
+            ${faculty.length > 0 ? `
+                <div class="suggestion-cards-grid">
+                    ${faculty.map((f, idx) => `
+                        <div class="suggestion-card">
+                            <div class="suggestion-card-header">
+                                <div>
+                                    <span class="suggestion-card-subject-tag">${escapeHtml(f.subjectCode)}</span>
+                                    <div class="suggestion-card-title">${escapeHtml(f.facultyName)}</div>
+                                </div>
+                                <span class="suggestion-badge-available">✓ ${escapeHtml(f.statusText)}</span>
+                            </div>
+                            <div class="suggestion-card-desc">${escapeHtml(f.explanation)}</div>
+                            <div class="suggestion-card-meta">
+                                <strong>For:</strong> ${escapeHtml(f.day)} • ${escapeHtml(f.time)} • ${escapeHtml(f.room)}
+                            </div>
+                            <button type="button" class="suggestion-apply-btn apply-faculty-btn"
+                                data-row-idx="${f.rowIdx}"
+                                data-slot-idx="${f.slotIdx}"
+                                data-faculty-name="${escapeHtml(f.facultyName)}"
+                                data-faculty-uid="${escapeHtml(f.facultyUid || '')}">
+                                <span>✓</span> Use This Faculty
+                            </button>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : `
+                <div class="suggestion-empty-state">No alternative qualified faculty are currently free at this time slot.</div>
+            `}
+        </div>
+    `;
+
+    // 2. Time Slot Suggestions
+    html += `
+        <div class="suggestion-category-block">
+            <div class="suggestion-category-title">
+                <span>🕒</span> Time Slot Suggestions
+            </div>
+            ${time.length > 0 ? `
+                <div class="suggestion-cards-grid">
+                    ${time.map((t, idx) => `
+                        <div class="suggestion-card">
+                            <div class="suggestion-card-header">
+                                <div>
+                                    <span class="suggestion-card-subject-tag">${escapeHtml(t.subjectCode)}</span>
+                                    <div class="suggestion-card-title">${escapeHtml(t.proposedDay)} • ${escapeHtml(t.proposedTime)}</div>
+                                </div>
+                                <span class="suggestion-badge-available">✓ ${escapeHtml(t.statusText)}</span>
+                            </div>
+                            <div class="suggestion-card-desc">${escapeHtml(t.explanation)}</div>
+                            <div class="suggestion-card-meta">
+                                <strong>Room & Faculty:</strong> ${escapeHtml(t.room)} • ${escapeHtml(t.faculty || "Unassigned")}
+                            </div>
+                            <button type="button" class="suggestion-apply-btn apply-time-btn"
+                                data-row-idx="${t.rowIdx}"
+                                data-slot-idx="${t.slotIdx}"
+                                data-day="${escapeHtml(t.proposedDay)}"
+                                data-time="${escapeHtml(t.proposedTime)}">
+                                <span>📅</span> Apply This Time
+                            </button>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : `
+                <div class="suggestion-empty-state">No alternative vacant time slots found for the current room and faculty.</div>
+            `}
+        </div>
+    `;
+
+    // 3. Room Suggestions
+    html += `
+        <div class="suggestion-category-block">
+            <div class="suggestion-category-title">
+                <span>🏫</span> Room Suggestions
+            </div>
+            ${room.length > 0 ? `
+                <div class="suggestion-cards-grid">
+                    ${room.map((r, idx) => `
+                        <div class="suggestion-card">
+                            <div class="suggestion-card-header">
+                                <div>
+                                    <span class="suggestion-card-subject-tag">${escapeHtml(r.subjectCode)}</span>
+                                    <div class="suggestion-card-title">${escapeHtml(r.proposedRoom)}</div>
+                                </div>
+                                <span class="suggestion-badge-available">✓ ${escapeHtml(r.statusText)}</span>
+                            </div>
+                            <div class="suggestion-card-desc">${escapeHtml(r.explanation)}</div>
+                            <div class="suggestion-card-meta">
+                                <strong>Time:</strong> ${escapeHtml(r.day)} • ${escapeHtml(r.time)}
+                            </div>
+                            <button type="button" class="suggestion-apply-btn apply-room-btn"
+                                data-row-idx="${r.rowIdx}"
+                                data-slot-idx="${r.slotIdx}"
+                                data-room="${escapeHtml(r.proposedRoom)}">
+                                <span>🏫</span> Apply This Room
+                            </button>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : `
+                <div class="suggestion-empty-state">No other suitable rooms of matching capacity and type are vacant on this day and time.</div>
+            `}
+        </div>
+    `;
+
+    // 4. Combined Solution
+    html += `
+        <div class="suggestion-category-block">
+            <div class="suggestion-category-title">
+                <span>⚡</span> Combined Solution
+            </div>
+            ${combined.length > 0 ? `
+                <div class="suggestion-cards-grid">
+                    ${combined.map((c, idx) => `
+                        <div class="suggestion-card" style="border-color:#2e7d32; background:#f4f9f4;">
+                            <div class="suggestion-card-header">
+                                <div>
+                                    <span class="suggestion-card-subject-tag">${escapeHtml(c.subjectCode)}</span>
+                                    <div class="suggestion-card-title">${escapeHtml(c.proposedDay)} ${escapeHtml(c.proposedTime)} — ${escapeHtml(c.proposedRoom)}</div>
+                                </div>
+                                <span class="suggestion-badge-available">★ ${escapeHtml(c.statusText)}</span>
+                            </div>
+                            <div class="suggestion-card-desc">${escapeHtml(c.explanation)}</div>
+                            <div class="suggestion-card-meta" style="background:#e8f5e9;">
+                                <strong>Will Update:</strong> ${escapeHtml(c.changesSummary)}<br>
+                                <strong>Assigned Faculty:</strong> ${escapeHtml(c.proposedFaculty || "Unassigned")}
+                            </div>
+                            <button type="button" class="suggestion-apply-btn combined-btn apply-combined-btn"
+                                data-row-idx="${c.rowIdx}"
+                                data-slot-idx="${c.slotIdx}"
+                                data-day="${escapeHtml(c.proposedDay)}"
+                                data-time="${escapeHtml(c.proposedTime)}"
+                                data-room="${escapeHtml(c.proposedRoom)}"
+                                data-faculty-name="${escapeHtml(c.proposedFaculty)}"
+                                data-faculty-uid="${escapeHtml(c.facultyUid || '')}">
+                                <span>⚡</span> Apply This Combination
+                            </button>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : `
+                <div class="suggestion-empty-state">No multi-attribute combined recommendation found. Try applying an individual suggestion above.</div>
+            `}
+        </div>
+    `;
+
+    html += `</div>`;
+    return html;
+}
+
+/**
+ * Re-reads values from the Edit Class Schedule modal table rows
+ */
+function readCurrentEditScheduleRows() {
+    if (!editScheduleTableBody) return [];
+    const rows = editScheduleTableBody.querySelectorAll("tr");
+    const currentRows = [];
+
+    rows.forEach((row, idx) => {
+        const code = (row.querySelector(".edit-code-input")?.value || "").trim();
+        const name = (row.querySelector(".edit-name-input")?.value || "").trim();
+        const units = (row.querySelector(".edit-units-input")?.value || "").trim();
+        const day = (row.querySelector(".edit-day-input")?.value || "").trim();
+        const time = (row.querySelector(".edit-time-input")?.value || "").trim();
+        const room = (row.querySelector(".edit-room-input")?.value || "").trim();
+        const facultySelect = row.querySelector(".edit-faculty-select");
+        const faculty = (facultySelect?.value || "").trim();
+        const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || "").trim();
+        const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || "").trim();
+
+        currentRows.push({
+            rowIdx: idx,
+            code,
+            name,
+            units: Number(units) || units,
+            day,
+            time,
+            room,
+            faculty: faculty || "Unassigned",
+            facultyUid,
+            facultyId
+        });
+    });
+
+    return currentRows;
+}
+
+/**
+ * Reruns conflict detection on the current modal inputs and updates warnings + suggestions
+ */
+function runLiveEditConflictCheck() {
+    if (!currentEditingScheduleId) return;
+
+    const schedules = getSavedSchedules();
+    const schedule = schedules.find(item => item.id === currentEditingScheduleId || scheduleDocId(item) === currentEditingScheduleId);
+    if (!schedule) return;
+
+    const currentRows = readCurrentEditScheduleRows();
+    const rows = editScheduleTableBody ? editScheduleTableBody.querySelectorAll("tr") : [];
+
+    const validation = validateScheduleEdits(currentRows, schedule);
+
+    if (validation.isValid) {
+        clearEditScheduleConflicts();
+        return;
+    }
+
+    // Highlight conflicting rows
+    rows.forEach((row, idx) => {
+        if (validation.conflictRowIndices.has(idx)) {
+            row.classList.add("has-conflict");
+        } else {
+            row.classList.remove("has-conflict");
+        }
+    });
+
+    // Generate recommendations
+    const recommendations = generateConflictResolutions(validation, schedule, currentRows);
+    const resolutionsHtml = renderConflictResolutionsUI(recommendations);
+
+    if (editScheduleConflicts) {
+        editScheduleConflicts.innerHTML = `
+            <div class="edit-conflict-banner">
+                <h4>⚠️ Scheduling Conflicts Detected (${validation.conflicts.length})</h4>
+                <ul class="edit-conflict-list">
+                    ${validation.conflicts.map(c => `<li>${c}</li>`).join("")}
+                </ul>
+                <p style="margin:8px 0 0 0; font-size:12px; opacity:0.9;">Please resolve the conflicts above before saving changes.</p>
+            </div>
+            ${resolutionsHtml}
+        `;
+        editScheduleConflicts.style.display = "block";
+    }
+}
+
 
 function openEditScheduleModal(scheduleId) {
     const schedules = getSavedSchedules();
@@ -4163,17 +4970,186 @@ function closeEditScheduleModal() {
 }
 
 if (editScheduleTableBody) {
-    // Clear conflict highlight on input when user edits
+    // Refresh conflict check and suggestions on input/change
+    let editConflictDebounceTimer = null;
+    const triggerLiveCheck = () => {
+        if (editConflictDebounceTimer) clearTimeout(editConflictDebounceTimer);
+        editConflictDebounceTimer = setTimeout(() => {
+            if (editScheduleConflicts && editScheduleConflicts.style.display !== "none") {
+                runLiveEditConflictCheck();
+            }
+        }, 250);
+    };
+
     editScheduleTableBody.addEventListener("input", (e) => {
         const row = e.target.closest("tr");
         if (row) {
             row.classList.remove("has-conflict");
         }
-        if (editScheduleConflicts && editScheduleTableBody.querySelectorAll(".has-conflict").length === 0) {
-            editScheduleConflicts.style.display = "none";
+        triggerLiveCheck();
+    });
+
+    editScheduleTableBody.addEventListener("change", (e) => {
+        triggerLiveCheck();
+    });
+}
+
+// Click handlers for Suggested Conflict Resolutions action buttons
+if (editScheduleConflicts) {
+    editScheduleConflicts.addEventListener("click", (e) => {
+        // 1. Apply Faculty
+        const facBtn = e.target.closest(".apply-faculty-btn");
+        if (facBtn) {
+            const rowIdx = parseInt(facBtn.dataset.rowIdx, 10);
+            const facultyName = facBtn.dataset.facultyName || "";
+            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            if (row) {
+                const facSelect = row.querySelector(".edit-faculty-select");
+                if (facSelect) {
+                    let matchedOpt = [...facSelect.options].find(opt => sameFaculty(opt.value, facultyName));
+                    if (!matchedOpt) {
+                        const opt = document.createElement("option");
+                        opt.value = facultyName;
+                        opt.textContent = facultyName;
+                        if (facBtn.dataset.facultyUid) opt.dataset.uid = facBtn.dataset.facultyUid;
+                        facSelect.appendChild(opt);
+                        matchedOpt = opt;
+                    }
+                    if (matchedOpt) {
+                        facSelect.value = matchedOpt.value;
+                    }
+                    runLiveEditConflictCheck();
+                }
+            }
+            return;
+        }
+
+        // 2. Apply Time
+        const timeBtn = e.target.closest(".apply-time-btn");
+        if (timeBtn) {
+            const rowIdx = parseInt(timeBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(timeBtn.dataset.slotIdx, 10) || 0;
+            const newDay = timeBtn.dataset.day || "";
+            const newTime = timeBtn.dataset.time || "";
+            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            if (row) {
+                const dayInput = row.querySelector(".edit-day-input");
+                const timeInput = row.querySelector(".edit-time-input");
+                if (dayInput && timeInput) {
+                    const daysArr = dayInput.value.split(" / ").map(d => d.trim()).filter(Boolean);
+                    const timesArr = timeInput.value.split(" / ").map(t => t.trim()).filter(Boolean);
+
+                    if (daysArr.length > 1 && slotIdx < daysArr.length) {
+                        daysArr[slotIdx] = newDay;
+                        dayInput.value = daysArr.join(" / ");
+                    } else {
+                        dayInput.value = newDay;
+                    }
+
+                    if (timesArr.length > 1 && slotIdx < timesArr.length) {
+                        timesArr[slotIdx] = newTime;
+                        timeInput.value = timesArr.join(" / ");
+                    } else {
+                        timeInput.value = newTime;
+                    }
+
+                    runLiveEditConflictCheck();
+                }
+            }
+            return;
+        }
+
+        // 3. Apply Room
+        const roomBtn = e.target.closest(".apply-room-btn");
+        if (roomBtn) {
+            const rowIdx = parseInt(roomBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(roomBtn.dataset.slotIdx, 10) || 0;
+            const newRoom = roomBtn.dataset.room || "";
+            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            if (row) {
+                const roomInput = row.querySelector(".edit-room-input");
+                if (roomInput) {
+                    const roomsArr = roomInput.value.split(" / ").map(r => r.trim()).filter(Boolean);
+                    if (roomsArr.length > 1 && slotIdx < roomsArr.length) {
+                        roomsArr[slotIdx] = newRoom;
+                        roomInput.value = roomsArr.join(" / ");
+                    } else {
+                        roomInput.value = newRoom;
+                    }
+                    runLiveEditConflictCheck();
+                }
+            }
+            return;
+        }
+
+        // 4. Apply Combined
+        const combinedBtn = e.target.closest(".apply-combined-btn");
+        if (combinedBtn) {
+            const rowIdx = parseInt(combinedBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(combinedBtn.dataset.slotIdx, 10) || 0;
+            const newDay = combinedBtn.dataset.day || "";
+            const newTime = combinedBtn.dataset.time || "";
+            const newRoom = combinedBtn.dataset.room || "";
+            const newFaculty = combinedBtn.dataset.facultyName || "";
+            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            if (row) {
+                const dayInput = row.querySelector(".edit-day-input");
+                const timeInput = row.querySelector(".edit-time-input");
+                const roomInput = row.querySelector(".edit-room-input");
+                const facSelect = row.querySelector(".edit-faculty-select");
+
+                if (dayInput) {
+                    const daysArr = dayInput.value.split(" / ").map(d => d.trim()).filter(Boolean);
+                    if (daysArr.length > 1 && slotIdx < daysArr.length) {
+                        daysArr[slotIdx] = newDay;
+                        dayInput.value = daysArr.join(" / ");
+                    } else {
+                        dayInput.value = newDay;
+                    }
+                }
+
+                if (timeInput) {
+                    const timesArr = timeInput.value.split(" / ").map(t => t.trim()).filter(Boolean);
+                    if (timesArr.length > 1 && slotIdx < timesArr.length) {
+                        timesArr[slotIdx] = newTime;
+                        timeInput.value = timesArr.join(" / ");
+                    } else {
+                        timeInput.value = newTime;
+                    }
+                }
+
+                if (roomInput) {
+                    const roomsArr = roomInput.value.split(" / ").map(r => r.trim()).filter(Boolean);
+                    if (roomsArr.length > 1 && slotIdx < roomsArr.length) {
+                        roomsArr[slotIdx] = newRoom;
+                        roomInput.value = roomsArr.join(" / ");
+                    } else {
+                        roomInput.value = newRoom;
+                    }
+                }
+
+                if (facSelect && newFaculty) {
+                    let matchedOpt = [...facSelect.options].find(opt => sameFaculty(opt.value, newFaculty));
+                    if (!matchedOpt) {
+                        const opt = document.createElement("option");
+                        opt.value = newFaculty;
+                        opt.textContent = newFaculty;
+                        if (combinedBtn.dataset.facultyUid) opt.dataset.uid = combinedBtn.dataset.facultyUid;
+                        facSelect.appendChild(opt);
+                        matchedOpt = opt;
+                    }
+                    if (matchedOpt) {
+                        facSelect.value = matchedOpt.value;
+                    }
+                }
+
+                runLiveEditConflictCheck();
+            }
+            return;
         }
     });
 }
+
 
 if (cancelEditScheduleBtn) {
     cancelEditScheduleBtn.addEventListener("click", closeEditScheduleModal);
@@ -4249,8 +5225,11 @@ if (saveEditScheduleBtn) {
                 }
             });
 
-            // Display conflict banner
+            // Display conflict banner & Suggested Conflict Resolutions
             if (editScheduleConflicts) {
+                const recommendations = generateConflictResolutions(validation, schedule, updatedEntries);
+                const resolutionsHtml = renderConflictResolutionsUI(recommendations);
+
                 editScheduleConflicts.innerHTML = `
                     <div class="edit-conflict-banner">
                         <h4>⚠️ Scheduling Conflicts Detected (${validation.conflicts.length})</h4>
@@ -4259,6 +5238,7 @@ if (saveEditScheduleBtn) {
                         </ul>
                         <p style="margin:8px 0 0 0; font-size:12px; opacity:0.9;">Please resolve the conflicts above before saving changes.</p>
                     </div>
+                    ${resolutionsHtml}
                 `;
                 editScheduleConflicts.style.display = "block";
                 editScheduleConflicts.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -4495,7 +5475,8 @@ savedSchedulesList.addEventListener("click", async event => {
     await Promise.all([
         loadFacultyMembers(),
         loadFacultySubjectAssignments(),
-        loadSectionsFromFirestore()
+        loadSectionsFromFirestore(),
+        loadRooms()
     ]);
 
     const firestoreSchedules = await loadSchedulesFromFirestore();

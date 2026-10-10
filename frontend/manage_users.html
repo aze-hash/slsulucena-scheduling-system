@@ -907,6 +907,8 @@
             align-items: center;
             gap: 6px;
             margin-right: 8px;
+            vertical-align: middle;
+            line-height: normal;
         }
 
         .exclude-btn.included {
@@ -950,6 +952,76 @@
             margin-left: 8px;
             vertical-align: middle;
         }
+
+        /* =========================
+           ROOM PREFERENCES MODAL & BUTTON STYLES
+        ========================= */
+        .room-prefs-btn {
+            background: #0d72a8;
+            color: #ffffff;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: .3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 8px;
+            vertical-align: middle;
+            line-height: normal;
+        }
+
+        .room-prefs-btn:hover {
+            background: #0277bd;
+            transform: translateY(-1px);
+        }
+
+        .room-prefs-badge {
+            background: rgba(255, 255, 255, 0.28);
+            color: #ffffff;
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: 4px;
+        }
+
+        .pref-room-checklist {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #c9c1b0;
+            border-radius: 7px;
+            padding: 8px 12px;
+            background: #fafaf7;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 8px;
+        }
+
+        .pref-room-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            background: #ffffff;
+            border: 1px solid #e0dbd0;
+            border-radius: 5px;
+            padding: 5px 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .pref-room-item:hover {
+            border-color: #2e7d32;
+            background: #f4f9f4;
+        }
+
+        .pref-room-item input {
+            cursor: pointer;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -968,6 +1040,7 @@
         <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
         <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
+        <li><a href="curriculum.html"><span class="nav-icon">📚</span> Manage Curriculum</a></li>
         <li><a href="manage_users.html" class="active"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -1275,6 +1348,80 @@
             <div class="modal-footer">
                 <button type="button" class="btn-cancel" id="cancelExcludeConfirmBtn">Cancel</button>
                 <button type="button" class="btn-save" id="confirmExcludeBtn" style="background:#c62828;">Exclude</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Faculty Room & Accessibility Preferences Modal -->
+    <div id="facultyPreferencesModal" class="custom-confirm-modal" style="display:none; z-index:100000;">
+        <div class="custom-confirm-content" style="max-width:620px; width:95%;">
+            <div class="custom-confirm-header">
+                <div>
+                    <h3 style="margin:0; font-size:18px;">Faculty Room & Accessibility Preferences</h3>
+                    <small id="prefModalSubtitle" style="color:rgba(255,255,255,0.85); font-size:12px;"></small>
+                </div>
+                <span id="closePrefModalBtn" class="close-modal" title="Close" style="cursor:pointer; font-size:24px; line-height:1; color:#fff;">&times;</span>
+            </div>
+            <div class="custom-confirm-body" style="padding:18px 22px; overflow-y:auto; max-height:calc(90vh - 130px);">
+                <div style="background:#f4f9f4; border:1px solid #c8e6c9; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px;">
+                    <strong>Faculty Member:</strong> <span id="prefFacultyNameDisplay">-</span> • <span id="prefFacultyDeptDisplay">-</span>
+                </div>
+
+                <div class="edit-form-group" style="margin-bottom:14px;">
+                    <label for="prefBuildingSelect" style="display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:#333;">Preferred Building</label>
+                    <select id="prefBuildingSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:13px; background:#fff;">
+                        <option value="">-- No Building Preference --</option>
+                        <option value="Admin Building">Admin Building</option>
+                        <option value="Building A">Building A</option>
+                        <option value="Building B">Building B</option>
+                    </select>
+                    <small style="color:#666; font-size:11.5px; display:block; margin-top:3px;">
+                        Rooms in this building will be prioritized during recommendations and schedule editing.
+                    </small>
+                </div>
+
+                <div class="edit-form-group" style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                        <label style="font-size:13px; font-weight:600; color:#333;">Allowed / Preferred Rooms</label>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" id="prefSelectBldgRoomsBtn" style="background:none; border:none; color:#1b5e20; font-size:11.5px; font-weight:700; cursor:pointer; text-decoration:underline;">
+                                Select All in Preferred Building
+                            </button>
+                            <button type="button" id="prefClearRoomsBtn" style="background:none; border:none; color:#888; font-size:11.5px; cursor:pointer; text-decoration:underline;">
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
+                    <input type="text" id="prefRoomFilterInput" placeholder="⌕ Search rooms..." style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:13px; margin-bottom:8px; box-sizing:border-box;">
+                    <div id="prefRoomChecklistContainer" class="pref-room-checklist"></div>
+                    <small style="color:#666; font-size:11.5px; margin-top:4px; display:block;">
+                        Selected rooms (<span id="prefSelectedRoomCount">0</span> selected) will be recommended for this faculty member.
+                    </small>
+                </div>
+
+                <div style="margin-bottom:14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px;">
+                    <label style="display:flex; align-items:flex-start; gap:8px; font-size:12.5px; font-weight:600; color:#5d4037; cursor:pointer;">
+                        <input type="checkbox" id="prefRestrictedCheckbox" style="margin-top:2px; cursor:pointer; accent-color:#1b5e20;">
+                        <span>
+                            Enforce restricted room list
+                            <small style="display:block; font-weight:normal; color:#795548; font-size:11.5px; margin-top:2px;">
+                                When enabled, scheduler will recommend only rooms within the allowed list. Selecting other rooms will require explicit administrator override confirmation.
+                            </small>
+                        </span>
+                    </label>
+                </div>
+
+                <div class="edit-form-group">
+                    <label for="prefAccessibilityNotesInput" style="display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:#333;">Accessibility & Mobility Requirements / Scheduling Notes</label>
+                    <textarea id="prefAccessibilityNotesInput" rows="3" placeholder="e.g. Ground floor or elevator access required. Mobility limitation prevents travel between Building A and Building B." style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid #cbbfa6; outline:none; font-size:13px; box-sizing:border-box; resize:vertical; font-family:inherit;"></textarea>
+                    <small style="color:#666; font-size:11.5px; display:block; margin-top:3px;">
+                        Optional notes to guide administrators when assigning rooms and reviewing conflicts.
+                    </small>
+                </div>
+            </div>
+            <div class="custom-confirm-footer" style="padding:14px 22px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #eee; background:#fff;">
+                <button type="button" id="cancelPrefModalBtn" class="btn-cancel">Cancel</button>
+                <button type="button" id="savePrefModalBtn" class="btn-save">Save Preferences</button>
             </div>
         </div>
     </div>

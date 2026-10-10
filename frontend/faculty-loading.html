@@ -669,6 +669,375 @@
             border-top: 1px solid #d0ccbf;
             overflow-x: auto;
         }
+
+        /* ── Faculty Preference Badge ─────────────── */
+        .pref-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #a5d6a7;
+            border-radius: 999px;
+            padding: 2px 8px;
+            white-space: nowrap;
+        }
+
+        .pref-pill.restricted {
+            background: #fff8e1;
+            color: #b78103;
+            border-color: #ffe082;
+        }
+
+        /* ── Edit Schedule Details Form ───────────── */
+        .edit-sched-info-strip {
+            background: #f4f9f4;
+            border: 1px solid #c8e6c9;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            font-size: 12.5px;
+        }
+
+        .edit-sched-info-strip div strong {
+            display: block;
+            color: #1b5e20;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 2px;
+        }
+
+        .pref-info-banner {
+            background: #eef7ee;
+            border-left: 4px solid #2e7d32;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-bottom: 14px;
+            font-size: 12.5px;
+            color: #1b5e20;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .edit-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .edit-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .edit-form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .edit-form-group label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #333333;
+        }
+
+        .edit-form-group select,
+        .edit-form-group input,
+        .edit-form-group textarea {
+            padding: 9px 11px;
+            border: 1px solid #c9c1b0;
+            border-radius: 7px;
+            font-size: 13px;
+            background: #ffffff;
+            color: #1a1a1a;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .edit-form-group select:focus,
+        .edit-form-group input:focus,
+        .edit-form-group textarea:focus {
+            border-color: #2e7d32;
+            box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+        }
+
+        /* ── Conflict Warning Panel ───────────────── */
+        .conflict-warning-panel {
+            background: #ffebee;
+            border: 1px solid #ef9a9a;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-top: 12px;
+            font-size: 12.5px;
+            color: #b71c1c;
+            line-height: 1.45;
+        }
+
+        .conflict-warning-header {
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+            color: #b71c1c;
+            font-size: 13px;
+        }
+
+        .conflict-warning-list {
+            margin: 4px 0 0 0;
+            padding-left: 20px;
+        }
+
+        .override-warning-box {
+            background: #fff8e1;
+            border: 1px solid #ffe082;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-top: 10px;
+            font-size: 12.5px;
+            color: #795548;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Suggested Room Resolutions ───────────── */
+        .resolutions-section {
+            margin-top: 16px;
+            border-top: 1px solid #e0dbd0;
+            padding-top: 14px;
+        }
+
+        .resolutions-title {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #1b5e20;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .resolutions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .resolution-card {
+            background: #ffffff;
+            border: 1px solid #c8e6c9;
+            border-left: 4px solid #2e7d32;
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .resolution-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(46, 125, 50, 0.12);
+        }
+
+        .resolution-card.type-time {
+            border-left-color: #1565c0;
+            border-color: #bbdefb;
+        }
+
+        .resolution-card.type-switch {
+            border-left-color: #e65100;
+            border-color: #ffe0b2;
+        }
+
+        .resolution-card-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .resolution-card-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .resolution-card.type-room .resolution-card-badge {
+            background: #e8f5e9;
+            color: #1b5e20;
+        }
+
+        .resolution-card.type-time .resolution-card-badge {
+            background: #e3f2fd;
+            color: #0d47a1;
+        }
+
+        .resolution-card.type-switch .resolution-card-badge {
+            background: #fff3e0;
+            color: #bf360c;
+        }
+
+        .resolution-card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 2px;
+        }
+
+        .resolution-card-desc {
+            font-size: 12px;
+            color: #555555;
+            line-height: 1.4;
+        }
+
+        .btn-resolution-action {
+            padding: 7px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+        }
+
+        .btn-apply-room {
+            background: #2e7d32;
+            color: #ffffff;
+        }
+
+        .btn-apply-room:hover {
+            background: #1b5e20;
+        }
+
+        .btn-apply-time {
+            background: #1565c0;
+            color: #ffffff;
+        }
+
+        .btn-apply-time:hover {
+            background: #0d47a1;
+        }
+
+        .btn-review-switch {
+            background: #e65100;
+            color: #ffffff;
+        }
+
+        .btn-review-switch:hover {
+            background: #bf360c;
+        }
+
+        /* ── Room Switch Review Table ─────────────── */
+        .switch-compare-box {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .switch-compare-box {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .switch-class-card {
+            background: #fafaf7;
+            border: 1px solid #d0ccbf;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 12px;
+        }
+
+        .switch-class-card.highlight {
+            background: #f0f7f0;
+            border-color: #a5d6a7;
+        }
+
+        .switch-class-card h5 {
+            margin: 0 0 6px 0;
+            font-size: 13px;
+            color: #1b5e20;
+        }
+
+        .switch-class-detail {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            border-bottom: 1px dotted #e0dbd0;
+        }
+
+        .switch-class-detail:last-child {
+            border-bottom: none;
+        }
+
+        .switch-check-list {
+            background: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 12px;
+            color: #1b5e20;
+            margin-bottom: 12px;
+        }
+
+        /* ── Room Preference Checklist ───────────── */
+        .pref-room-checklist {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #c9c1b0;
+            border-radius: 7px;
+            padding: 8px 12px;
+            background: #fafaf7;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 8px;
+        }
+
+        .pref-room-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            background: #ffffff;
+            border: 1px solid #e0dbd0;
+            border-radius: 5px;
+            padding: 5px 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .pref-room-item:hover {
+            border-color: #2e7d32;
+            background: #f4f9f4;
+        }
+
+        .pref-room-item input {
+            cursor: pointer;
+            margin: 0;
+        }
     </style>
 
 </head>
@@ -688,6 +1057,7 @@
         <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
         <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
         <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
+        <li><a href="curriculum.html"><span class="nav-icon">📚</span> Manage Curriculum</a></li>
         <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
         <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
     </ul>
@@ -891,6 +1261,227 @@
         </div>
     </div>
 </div>
+
+<!-- Edit Schedule Details Modal -->
+<div id="editScheduleDetailModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content" style="max-width:680px; width:95%;">
+        <div class="custom-confirm-header">
+            <div>
+                <h3 style="margin:0; font-size:18px;">Edit Schedule Details</h3>
+                <small id="editDetailSubtitle" style="color:rgba(255,255,255,0.85); font-size:12px;"></small>
+            </div>
+            <span id="closeEditDetailModalBtn" class="close-modal" title="Close">&times;</span>
+        </div>
+        <div class="custom-confirm-body" style="padding:18px 22px;">
+            <!-- Assignment Summary Strip -->
+            <div class="edit-sched-info-strip">
+                <div>
+                    <strong>Subject</strong>
+                    <span id="editDetailSubjectDisplay">-</span>
+                </div>
+                <div>
+                    <strong>Section</strong>
+                    <span id="editDetailSectionDisplay">-</span>
+                </div>
+                <div>
+                    <strong>Instructor</strong>
+                    <span id="editDetailFacultyDisplay">-</span>
+                </div>
+                <div>
+                    <strong>Hours / Units</strong>
+                    <span id="editDetailHoursDisplay">-</span>
+                </div>
+            </div>
+
+            <!-- Faculty Accessibility & Location Preferences Notice (Dynamic) -->
+            <div id="editDetailPrefBanner" class="pref-info-banner" style="display:none;">
+                <div style="font-size:18px; line-height:1;">♿</div>
+                <div style="flex:1;">
+                    <strong style="display:block; margin-bottom:2px;" id="editDetailPrefTitle">Faculty Room Preference</strong>
+                    <span id="editDetailPrefText"></span>
+                </div>
+            </div>
+
+            <!-- Form Fields -->
+            <div class="edit-form-grid">
+                <div class="edit-form-group">
+                    <label for="editDetailDaySelect">Day of Week *</label>
+                    <select id="editDetailDaySelect">
+                        <option value="Monday">Monday</option>
+                        <option value="Tuesday">Tuesday</option>
+                        <option value="Wednesday">Wednesday</option>
+                        <option value="Thursday">Thursday</option>
+                        <option value="Friday">Friday</option>
+                        <option value="Saturday">Saturday</option>
+                    </select>
+                </div>
+
+                <div class="edit-form-group">
+                    <label for="editDetailRoomSelect">Room Assignment *</label>
+                    <select id="editDetailRoomSelect">
+                        <option value="">-- Select Room --</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="edit-form-grid" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom: 6px;">
+                <div class="edit-form-group">
+                    <label for="editDetailStartTimeSelect">Start Time *</label>
+                    <select id="editDetailStartTimeSelect"></select>
+                </div>
+
+                <div class="edit-form-group">
+                    <label for="editDetailEndTimeSelect">End Time *</label>
+                    <select id="editDetailEndTimeSelect"></select>
+                </div>
+
+                <div class="edit-form-group">
+                    <label for="editDetailTimeSlotPreset">Common Time Slot</label>
+                    <select id="editDetailTimeSlotPreset">
+                        <option value="">-- Custom Time --</option>
+                        <option value="7:30 AM - 9:00 AM">7:30 AM - 9:00 AM (1.5 hrs)</option>
+                        <option value="9:00 AM - 10:30 AM">9:00 AM - 10:30 AM (1.5 hrs)</option>
+                        <option value="10:30 AM - 12:00 PM">10:30 AM - 12:00 PM (1.5 hrs)</option>
+                        <option value="1:00 PM - 2:30 PM">1:00 PM - 2:30 PM (1.5 hrs)</option>
+                        <option value="2:30 PM - 4:00 PM">2:30 PM - 4:00 PM (1.5 hrs)</option>
+                        <option value="4:00 PM - 5:30 PM">4:00 PM - 5:30 PM (1.5 hrs)</option>
+                        <option value="7:30 AM - 10:00 AM">7:30 AM - 10:00 AM (2.5 hrs)</option>
+                        <option value="10:00 AM - 12:30 PM">10:00 AM - 12:30 PM (2.5 hrs)</option>
+                        <option value="1:00 PM - 3:30 PM">1:00 PM - 3:30 PM (2.5 hrs)</option>
+                        <option value="3:30 PM - 6:00 PM">3:30 PM - 6:00 PM (2.5 hrs)</option>
+                        <option value="7:30 AM - 10:30 AM">7:30 AM - 10:30 AM (3.0 hrs)</option>
+                        <option value="1:00 PM - 4:00 PM">1:00 PM - 4:00 PM (3.0 hrs)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="font-size:11.5px; color:#666; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+                <span>Active Slot: <strong id="editDetailActiveSlotDisplay" style="color:#1b5e20;">-</strong></span>
+                <span id="editDetailDurationDisplay" style="color:#555;">-</span>
+            </div>
+
+            <!-- Restricted Room Override Confirmation Notice -->
+            <div id="editDetailOverrideBox" class="override-warning-box" style="display:none;">
+                <span style="font-size:16px;">⚠️</span>
+                <span id="editDetailOverrideText" style="flex:1;"></span>
+                <button type="button" id="editDetailConfirmOverrideBtn" style="background:#b78103; color:#fff; border:none; border-radius:5px; padding:4px 10px; font-size:11.5px; font-weight:700; cursor:pointer;">
+                    Confirm Override
+                </button>
+            </div>
+
+            <!-- Live Conflict Warning Alert Panel -->
+            <div id="editDetailConflictPanel" class="conflict-warning-panel" style="display:none;">
+                <div class="conflict-warning-header">
+                    <span>⚠️</span> Scheduling Conflict Detected
+                </div>
+                <div id="editDetailConflictSummary"></div>
+                <ul id="editDetailConflictList" class="conflict-warning-list"></ul>
+            </div>
+
+            <!-- Suggested Room Resolutions Section -->
+            <div id="editDetailResolutionsSection" class="resolutions-section" style="display:none;">
+                <div class="resolutions-title">
+                    <span>💡</span> Suggested Room Resolutions
+                </div>
+                <p style="font-size:12px; color:#555; margin:0 0 10px 0;">
+                    Select an alternative resolution below to clear the room conflict automatically:
+                </p>
+                <div id="editDetailResolutionsList" class="resolutions-list"></div>
+            </div>
+        </div>
+        <div class="custom-confirm-footer">
+            <button type="button" id="cancelEditDetailBtn" class="custom-confirm-btn cancel">Cancel</button>
+            <button type="button" id="saveEditDetailBtn" class="custom-confirm-btn ok">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Review Room Switch Modal -->
+<div id="roomSwitchReviewModal" class="custom-confirm-modal" style="display:none; z-index:100001;">
+    <div class="custom-confirm-content" style="max-width:620px; width:95%;">
+        <div class="custom-confirm-header" style="background:#bf360c;">
+            <div>
+                <h3 style="margin:0; font-size:17px;">Review Room Switch</h3>
+                <small style="color:rgba(255,255,255,0.85); font-size:12px;">Validate two-way room exchange before saving</small>
+            </div>
+            <span id="closeRoomSwitchModalBtn" class="close-modal" title="Close">&times;</span>
+        </div>
+        <div class="custom-confirm-body" style="padding:18px 22px;">
+            <p style="font-size:13px; color:#444; margin-bottom:14px; line-height:1.5;">
+                To resolve the room conflict and accommodate the instructor's room preference, the following assignments will be updated simultaneously in a safe atomic operation:
+            </p>
+
+            <div class="switch-compare-box">
+                <!-- Class 1 -->
+                <div class="switch-class-card highlight">
+                    <h5 id="switchClass1Header">Class 1 (Current Schedule)</h5>
+                    <div class="switch-class-detail">
+                        <span>Section:</span>
+                        <strong id="switchClass1Section">-</strong>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Subject:</span>
+                        <strong id="switchClass1Subject">-</strong>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Instructor:</span>
+                        <span id="switchClass1Faculty">-</span>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Day & Time:</span>
+                        <span id="switchClass1Time">-</span>
+                    </div>
+                    <div class="switch-class-detail" style="margin-top:6px; padding-top:6px; border-top:1px solid #c8e6c9;">
+                        <span>Assigned Room:</span>
+                        <strong id="switchClass1ProposedRoom" style="color:#1b5e20;">-</strong>
+                    </div>
+                </div>
+
+                <!-- Class 2 -->
+                <div class="switch-class-card">
+                    <h5 id="switchClass2Header">Class 2 (Occupying Class)</h5>
+                    <div class="switch-class-detail">
+                        <span>Section:</span>
+                        <strong id="switchClass2Section">-</strong>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Subject:</span>
+                        <strong id="switchClass2Subject">-</strong>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Instructor:</span>
+                        <span id="switchClass2Faculty">-</span>
+                    </div>
+                    <div class="switch-class-detail">
+                        <span>Day & Time:</span>
+                        <span id="switchClass2Time">-</span>
+                    </div>
+                    <div class="switch-class-detail" style="margin-top:6px; padding-top:6px; border-top:1px solid #d0ccbf;">
+                        <span>New Room:</span>
+                        <strong id="switchClass2ProposedRoom" style="color:#bf360c;">-</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Validation Checklist -->
+            <div class="switch-check-list">
+                <div style="font-weight:700; margin-bottom:4px;">Safety & Verification Checks:</div>
+                <div>✓ Both classes verified eligible for their proposed rooms</div>
+                <div>✓ Room capacity and building suitability verified</div>
+                <div>✓ No overlapping section or instructor conflicts created</div>
+                <div>✓ Atomic update: both changes will save together or fail safely without partial data</div>
+            </div>
+
+            <div id="switchValidationNotice" style="display:none; color:#b71c1c; font-size:12.5px; padding:8px 12px; background:#ffebee; border-radius:6px; border:1px solid #ffcdd2;"></div>
+        </div>
+        <div class="custom-confirm-footer">
+            <button type="button" id="cancelRoomSwitchBtn" class="custom-confirm-btn cancel">Cancel</button>
+            <button type="button" id="applyRoomSwitchBtn" class="custom-confirm-btn ok" style="background:#bf360c;">Apply Room Switch</button>
+        </div>
+    </div>
+</div>
+
+
 
 <script type="module" src="faculty-loading.js"></script>
 

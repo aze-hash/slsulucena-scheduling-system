@@ -28,6 +28,8 @@ const usersRef = db.collection("users");
 const examSchedulesRef = db.collection("examSchedules");
 const classSchedulesRef = db.collection("classSchedules");
 const emailNotificationsRef = db.collection("emailNotifications");
+const programsRef = db.collection("programs");
+const majorsRef = db.collection("majors");
 
 // ======================================
 // 📚 GET ALL PROSPECTUS SUBJECTS
@@ -145,6 +147,73 @@ app.get("/prospectus/:id", async (req, res) => {
   } catch (error) {
     console.error("Error loading subject:", error);
 
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// ======================================
+// 🎓 GET ALL PROGRAMS
+// GET /programs
+// ======================================
+app.get("/programs", async (req, res) => {
+  try {
+    const snapshot = await programsRef.get();
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error("Error loading programs:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// ======================================
+// 📑 GET ALL MAJORS
+// GET /majors
+// ======================================
+app.get("/majors", async (req, res) => {
+  try {
+    const snapshot = await majorsRef.get();
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error("Error loading majors:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// ======================================
+// 📑 GET MAJORS BY PROGRAM
+// GET /majors/program/:programCode
+// ======================================
+app.get("/majors/program/:programCode", async (req, res) => {
+  try {
+    const { programCode } = req.params;
+    let snapshot = await majorsRef.where("program", "==", programCode).get();
+    if (snapshot.empty) {
+      snapshot = await majorsRef.where("programCode", "==", programCode).get();
+    }
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error("Error loading majors for program:", error);
     return res.status(500).json({
       success: false,
       error: error.message,

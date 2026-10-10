@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Curriculum - SLSU Lucena Scheduling System</title>
+    <link rel="stylesheet" href="chairperson.css">
+    <style>
+        /* ============================================================
+           MANAGE CURRICULUM STYLES (Consistent with Green-and-Beige Theme)
+           ============================================================ */
+
+        /* Navigation scrollable if needed */
+        nav {
+            overflow-y: auto;
+        }
+
+        /* Top Module Header Banner */
+        .module-banner {
+            background: linear-gradient(135deg, rgba(46, 125, 50, 0.12), rgba(163, 177, 138, 0.2));
+            border-left: 5px solid var(--primary);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .module-banner-text h2 {
+            font-size: 20px;
+            color: var(--dark);
+            margin-bottom: 4px;
+        }
+
+        .module-banner-text p {
+            font-size: 13px;
+            color: #444;
+            margin: 0;
+        }
+
+        /* Top Statistics Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-box {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            border-radius: 14px;
+            padding: 16px 20px;
+            box-shadow: 0 4px 15px var(--shadow);
+            border-top: 4px solid var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: rgba(46, 125, 50, 0.12);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
+        .stat-info h3 {
+            font-size: 26px;
+            color: var(--dark);
+            margin: 0;
+            line-height: 1.1;
+        }
+
+        .stat-info p {
+            font-size: 13px;
+            color: #666;
+            margin: 4px 0 0 0;
+            font-weight: 600;
+        }
+
+        /* Primary Tabs Navigation */
+        .curriculum-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid rgba(46, 125, 50, 0.2);
+            padding-bottom: 2px;
+            flex-wrap: wrap;
+        }
+
+        .curriculum-tab-btn {
+            padding: 12px 22px;
+            border: none;
+            border-radius: 10px 10px 0 0;
+            background: rgba(255, 255, 255, 0.6);
+            color: #333;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .curriculum-tab-btn:hover {
+            background: rgba(46, 125, 50, 0.15);
+            color: var(--dark);
+        }
+
+        .curriculum-tab-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3);
+        }
+
+        .curriculum-tab-btn .tab-badge {
+            background: rgba(0, 0, 0, 0.1);
+            color: inherit;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .curriculum-tab-btn.active .tab-badge {
+            background: rgba(255, 255, 255, 0.28);
+            color: #ffffff;
+        }
+
+        /* Tab Content Panes */
+        .tab-pane {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Action Toolbar */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex: 1;
+        }
+
+        .toolbar-search {
+            position: relative;
+            min-width: 240px;
+            max-width: 380px;
+            flex: 1;
+        }
+
+        .toolbar-search input {
+            width: 100%;
+            padding: 10px 14px 10px 36px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            background: #ffffff;
+            font-size: 13px;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        .toolbar-search input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+        }
+
+        .toolbar-search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #888;
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        .toolbar select {
+            padding: 10px 14px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            background: #ffffff;
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+            min-width: 160px;
+            transition: border-color 0.2s;
+        }
+
+        .toolbar select:focus {
+            border-color: var(--primary);
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 6px rgba(46, 125, 50, 0.25);
+        }
+
+        .btn-primary:hover {
+            background: var(--dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(46, 125, 50, 0.35);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            border: 1px solid #c9c1b0;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #f0ebe1;
+        }
+
+        /* Table Action Buttons */
+        .action-btns {
+            display: inline-flex;
+            gap: 6px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-action-edit {
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-action-edit:hover {
+            background: #115293;
+        }
+
+        .btn-action-status {
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-action-status.deactivate {
+            background: #f57c00;
+            color: #ffffff;
+        }
+
+        .btn-action-status.deactivate:hover {
+            background: #e65100;
+        }
+
+        .btn-action-status.activate {
+            background: #2e7d32;
+            color: #ffffff;
+        }
+
+        .btn-action-status.activate:hover {
+            background: #1b5e20;
+        }
+
+        .btn-action-delete {
+            background: #d32f2f;
+            color: #ffffff;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-action-delete:hover {
+            background: #b71c1c;
+        }
+
+        /* Status & Meta Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .badge-active {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #c8e6c9;
+        }
+
+        .badge-inactive {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+        }
+
+        .badge-code {
+            background: #e8f5e9;
+            color: #1b5e20;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .badge-program {
+            background: #f3e5f5;
+            color: #6a1b9a;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .badge-major {
+            background: #fff3e0;
+            color: #e65100;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .badge-units {
+            background: #e3f2fd;
+            color: #0d47a1;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        /* Filter Selector Card for Curriculum Subjects */
+        .curriculum-filter-card {
+            background: #ffffff;
+            border: 1px solid #dcd4c3;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+        }
+
+        .curriculum-filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            align-items: flex-end;
+        }
+
+        .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-field label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-field select {
+            padding: 10px 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            background: #ffffff;
+            font-size: 13px;
+            font-weight: 500;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .filter-field select:focus {
+            border-color: var(--primary);
+        }
+
+        /* Curriculum Summary Meta Bar */
+        .curriculum-summary-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(46, 125, 50, 0.08);
+            border-radius: 10px;
+            padding: 12px 18px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+            border: 1px solid rgba(46, 125, 50, 0.2);
+        }
+
+        .summary-chips {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .summary-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .summary-chip strong {
+            color: var(--dark);
+            font-size: 15px;
+        }
+
+        /* Empty States */
+        .empty-state-box {
+            text-align: center;
+            padding: 48px 20px;
+            color: #777;
+        }
+
+        .empty-state-icon {
+            font-size: 40px;
+            color: #a5b39c;
+            margin-bottom: 12px;
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #444;
+            margin-bottom: 6px;
+        }
+
+        .empty-state-text {
+            font-size: 13px;
+            color: #777;
+            max-width: 440px;
+            margin: 0 auto 16px auto;
+        }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .modal {
+            background: #ffffff;
+            border-radius: 14px;
+            width: 90%;
+            max-width: 520px;
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+
+        .modal-large {
+            max-width: 960px;
+            width: 95%;
+        }
+
+        .modal form {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: #e3d7be;
+            color: #060303;
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px 26px;
+            box-sizing: border-box;
+        }
+
+        /* Modern styled scrollbar for modal body */
+        .modal-body::-webkit-scrollbar {
+            width: 8px;
+        }
+        .modal-body::-webkit-scrollbar-track {
+            background: #f7f5ed;
+            border-radius: 4px;
+        }
+        .modal-body::-webkit-scrollbar-thumb {
+            background: #c5bca8;
+            border-radius: 4px;
+        }
+        .modal-body::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+
+        .modal-footer {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 14px 24px;
+            background: #ffffff;
+            border-top: 1px solid #e5dfd2;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.97);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .form-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 14px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .form-group label span.required {
+            color: #d32f2f;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 10px 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            background: #ffffff;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .form-group input:disabled {
+            background: #f0ebe1;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .form-helper {
+            font-size: 11px;
+            color: #777;
+            margin-top: 2px;
+        }
+
+        /* Add Subject Choice Tabs */
+        .add-subject-choice {
+            display: flex;
+            border: 1px solid #c9c1b0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 18px;
+        }
+
+        .choice-btn {
+            flex: 1;
+            padding: 10px 14px;
+            border: none;
+            background: #f7f5ed;
+            color: #555;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .choice-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+        }
+
+        .existing-subject-picker {
+            background: #fdfbf7;
+            border: 1px solid #e2dac9;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+
+        /* Pagination Styles */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            margin-top: 12px;
+            border-top: 1px solid #e0d8c8;
+            font-size: 13px;
+            color: #666;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .pagination-btns {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .pagination-btns button {
+            padding: 6px 12px;
+            border: 1px solid #c9c1b0;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #333;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .pagination-btns button:hover:not(:disabled) {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+        }
+
+        .pagination-btns button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Custom Toast Notification */
+        .toast-popup {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #1b5e20;
+            color: #ffffff;
+            padding: 14px 22px;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 3000;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            animation: slideInRight 0.3s ease;
+        }
+
+        .toast-popup.toast-error {
+            background: #c62828;
+        }
+
+        .toast-popup.toast-warning {
+            background: #ef6c00;
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Confirm Modal specific text */
+        .confirm-warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #b75300;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid-2, .form-grid-3 {
+                grid-template-columns: 1fr;
+            }
+            .curriculum-tabs {
+                flex-direction: column;
+            }
+            .curriculum-tab-btn {
+                border-radius: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- SIDEBAR NAVIGATION -->
+<nav>
+    <div class="logo">
+        <img src="new slsu logo.jpg" alt="SLSU Logo">
+        <h2>Admin Dashboard</h2>
+    </div>
+
+    <ul>
+        <li><a href="chairperson.html"><span class="nav-icon">🏠︎</span> Home</a></li>
+        <li><a href="class.html"><span class="nav-icon">📅</span> Class Scheduling</a></li>
+        <li><a href="faculty-loading.html"><span class="nav-icon">👥</span> Faculty Loading</a></li>
+        <li><a href="exam.html"><span class="nav-icon">📝</span> Exam Schedule</a></li>
+        <li><a href="proctoring.html"><span class="nav-icon">📋</span> Faculty Assignment</a></li>
+        <li><a href="report.html"><span class="nav-icon">💾</span> Schedule Archive</a></li>
+        <li><a href="room-allocation.html"><span class="nav-icon">🏫</span> Room Assignment</a></li>
+        <li><a href="curriculum.html" class="active"><span class="nav-icon">📚</span> Manage Curriculum</a></li>
+        <li><a href="manage_users.html"><span class="nav-icon">👩🏻‍💼</span> Manage Users</a></li>
+        <li><a href="login.html" id="logoutLink"><span class="nav-icon">➜]</span> Logout</a></li>
+    </ul>
+</nav>
+
+<!-- MAIN CONTAINER -->
+<main class="container">
+
+    <!-- PAGE HEADER -->
+    <header class="header">
+        <div>
+            <h1>Manage Curriculum</h1>
+            <p>Administer academic programs, specialized majors, and curriculum subject offerings.</p>
+        </div>
+
+        <div class="admin-profile">
+            <strong id="adminName">SLSU Admin</strong>
+            <span>Administrator / Chairperson / Department Head</span>
+        </div>
+    </header>
+
+    <!-- MODULE BANNER -->
+    <div class="module-banner">
+        <div class="module-banner-text">
+            <h2>Southern Luzon State University - Lucena Campus</h2>
+            <p>Centralized curriculum database synchronized with Class Scheduling, Faculty Loading, and Exam Management.</p>
+        </div>
+        <div id="activeCurriculumBadge" class="badge badge-active" style="font-size: 13px; padding: 6px 14px;">
+            System Status: Connected
+        </div>
+    </div>
+
+    <!-- STATISTICS CARDS -->
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-info">
+                <h3 id="statTotalPrograms">0</h3>
+                <p>Academic Programs</p>
+            </div>
+        </div>
+
+        <div class="stat-box">
+            <div class="stat-info">
+                <h3 id="statTotalMajors">0</h3>
+                <p>Active Majors</p>
+            </div>
+        </div>
+
+        <div class="stat-box">
+            <div class="stat-info">
+                <h3 id="statTotalSubjects">0</h3>
+                <p>Curriculum Subjects</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN TABS CARD -->
+    <section class="card">
+        <!-- TABS HEADER -->
+        <div class="curriculum-tabs">
+            <button class="curriculum-tab-btn active" id="tabBtnPrograms" data-tab="tabPrograms">
+                Manage Programs <span class="tab-badge" id="tabBadgePrograms">0</span>
+            </button>
+            <button class="curriculum-tab-btn" id="tabBtnMajors" data-tab="tabMajors">
+                Manage Majors <span class="tab-badge" id="tabBadgeMajors">0</span>
+            </button>
+            <button class="curriculum-tab-btn" id="tabBtnSubjects" data-tab="tabSubjects">
+                Manage Curriculum Subjects <span class="tab-badge" id="tabBadgeSubjects">0</span>
+            </button>
+        </div>
+
+        <!-- ====================================================
+             TAB 1: MANAGE PROGRAMS
+             ==================================================== -->
+        <div class="tab-pane active" id="tabPrograms">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <div class="toolbar-search">
+                        <span class="toolbar-search-icon">🔍</span>
+                        <input type="text" id="programSearchInput" placeholder="Search program code or name...">
+                    </div>
+                    <select id="programStatusFilter">
+                        <option value="">All Statuses</option>
+                        <option value="Active">Active Only</option>
+                        <option value="Inactive">Inactive Only</option>
+                    </select>
+                </div>
+                <button class="btn-primary" id="openAddProgramBtn">
+                    <span>➕</span> Add New Program
+                </button>
+            </div>
+
+            <!-- Programs Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 130px;">Program Code</th>
+                            <th style="text-align: left;">Program Name</th>
+                            <th style="width: 100px;">Majors</th>
+                            <th style="width: 110px;">Status</th>
+                            <th style="width: 180px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="programsTableBody">
+                        <tr>
+                            <td colspan="5" class="empty-state-box">
+                                <div class="empty-state-icon">⏳</div>
+                                <div class="empty-state-title">Loading Academic Programs...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Programs Pagination -->
+            <div class="pagination-container" id="programsPagination">
+                <span id="programsCountLabel">Showing 0 programs</span>
+                <div class="pagination-btns">
+                    <button id="programsPrevBtn" disabled>&laquo; Previous</button>
+                    <span id="programsPageNum" style="font-weight: 700; padding: 0 8px;">1</span>
+                    <button id="programsNextBtn" disabled>Next &raquo;</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ====================================================
+             TAB 2: MANAGE MAJORS
+             ==================================================== -->
+        <div class="tab-pane" id="tabMajors">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="majorsProgramSelect" style="font-size: 13px; font-weight: 700; color: #444;">Select Program:</label>
+                        <select id="majorsProgramSelect">
+                            <option value="">-- All Programs --</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-search">
+                        <span class="toolbar-search-icon">🔍</span>
+                        <input type="text" id="majorSearchInput" placeholder="Search major code or name...">
+                    </div>
+                    <select id="majorStatusFilter">
+                        <option value="">All Statuses</option>
+                        <option value="Active">Active Only</option>
+                        <option value="Inactive">Inactive Only</option>
+                    </select>
+                </div>
+                <button class="btn-primary" id="openAddMajorBtn">
+                    <span>➕</span> Add New Major
+                </button>
+            </div>
+
+            <div id="majorProgramNotice" class="notice" style="display: none; margin-bottom: 16px;">
+                Note: Programs with no specialized majors offer a standardized, general curriculum.
+            </div>
+
+            <!-- Majors Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 120px;">Major Code</th>
+                            <th style="text-align: left;">Major Name</th>
+                            <th style="width: 140px;">Parent Program</th>
+                            <th style="width: 110px;">Status</th>
+                            <th style="width: 180px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="majorsTableBody">
+                        <tr>
+                            <td colspan="5" class="empty-state-box">
+                                <div class="empty-state-icon">⏳</div>
+                                <div class="empty-state-title">Loading Majors...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Majors Pagination -->
+            <div class="pagination-container" id="majorsPagination">
+                <span id="majorsCountLabel">Showing 0 majors</span>
+                <div class="pagination-btns">
+                    <button id="majorsPrevBtn" disabled>&laquo; Previous</button>
+                    <span id="majorsPageNum" style="font-weight: 700; padding: 0 8px;">1</span>
+                    <button id="majorsNextBtn" disabled>Next &raquo;</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ====================================================
+             TAB 3: MANAGE CURRICULUM SUBJECTS
+             ==================================================== -->
+        <div class="tab-pane" id="tabSubjects">
+            <!-- Curriculum Filter Selector -->
+            <div class="curriculum-filter-card">
+                <div class="curriculum-filter-grid">
+                    <div class="filter-field">
+                        <label for="currFilterProgram">1. Program *</label>
+                        <select id="currFilterProgram">
+                            <option value="">-- Select Program --</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-field">
+                        <label for="currFilterMajor">2. Major</label>
+                        <select id="currFilterMajor">
+                            <option value="">-- No Major / General --</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-field">
+                        <label for="currFilterYear">3. Year Level</label>
+                        <select id="currFilterYear">
+                            <option value="">All Year Levels</option>
+                            <option value="1">1st Year</option>
+                            <option value="2">2nd Year</option>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-field">
+                        <label for="currFilterSem">4. Semester</label>
+                        <select id="currFilterSem">
+                            <option value="">All Semesters</option>
+                            <option value="1">1st Semester</option>
+                            <option value="2">2nd Semester</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-field" style="align-self: flex-end;">
+                        <button class="btn-primary" id="openAddSubjectBtn" style="height: 38px; justify-content: center;">
+                            <span>➕</span> Add Subject to Curriculum
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Curriculum Summary Metadata -->
+            <div class="curriculum-summary-bar" id="curriculumSummaryBar">
+                <div class="summary-chips">
+                    <div class="summary-chip">Total Subjects: <strong id="currSumSubjects">0</strong></div>
+                    <div class="summary-chip">Total Units: <strong id="currSumUnits">0</strong></div>
+                    <div class="summary-chip">Lec Hours: <strong id="currSumLec">0</strong></div>
+                    <div class="summary-chip">Lab Hours: <strong id="currSumLab">0</strong></div>
+                    <div class="summary-chip">Weekly Hours: <strong id="currSumWeekly">0</strong></div>
+                </div>
+                <div class="toolbar-search" style="min-width: 200px; max-width: 280px;">
+                    <span class="toolbar-search-icon">🔍</span>
+                    <input type="text" id="currSubjectSearchInput" placeholder="Filter subjects...">
+                </div>
+            </div>
+
+            <!-- Curriculum Subjects Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 110px;">Subject Code</th>
+                            <th style="text-align: left;">Subject Name</th>
+                            <th style="width: 60px;">Units</th>
+                            <th style="width: 60px;">Lec</th>
+                            <th style="width: 60px;">Lab</th>
+                            <th style="width: 80px;">Hrs / Wk</th>
+                            <th style="text-align: left; width: 120px;">Prerequisite</th>
+                            <th style="width: 90px;">Status</th>
+                            <th style="width: 170px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="currSubjectsTableBody">
+                        <tr>
+                            <td colspan="9" class="empty-state-box">
+                                <div class="empty-state-icon"></div>
+                                <div class="empty-state-title">Select a Program to View Curriculum Subjects</div>
+                                <p class="empty-state-text">Choose an academic program, optional major, year level, and semester above to manage subjects.</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Curriculum Subjects Pagination -->
+            <div class="pagination-container" id="currSubjectsPagination" style="display: none;">
+                <span id="currSubjectsCountLabel">Showing 0 subjects</span>
+                <div class="pagination-btns">
+                    <button id="currSubjectsPrevBtn" disabled>&laquo; Previous</button>
+                    <span id="currSubjectsPageNum" style="font-weight: 700; padding: 0 8px;">1</span>
+                    <button id="currSubjectsNextBtn" disabled>Next &raquo;</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<!-- ====================================================
+     MODAL 1: ADD / EDIT PROGRAM
+     ==================================================== -->
+<div class="modal-overlay" id="programModal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="programModalTitle">Add New Academic Program</h3>
+            <button class="modal-close" id="closeProgramModalBtn">&times;</button>
+        </div>
+        <form id="programForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="progInputCode">Program Code <span class="required">*</span></label>
+                    <input type="text" id="progInputCode" placeholder="e.g. BIT, BTVTED, BINDTECH" required maxlength="20" style="text-transform: uppercase;">
+                    <span class="form-helper">Unique acronym or code identifier (e.g. BIT). Cannot be changed after creation.</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="progInputName">Program Name <span class="required">*</span></label>
+                    <input type="text" id="progInputName" placeholder="e.g. Bachelor of in Industrial Technology" required maxlength="120">
+                </div>
+
+                <div class="form-group">
+                    <label for="progInputStatus">Status <span class="required">*</span></label>
+                    <select id="progInputStatus" required>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+
+                <div id="programFormError" style="color: #c62828; font-size: 13px; font-weight: 600; display: none; margin-top: 8px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancelProgramModalBtn">Cancel</button>
+                <button type="submit" class="btn-primary" id="saveProgramSubmitBtn">Save Program</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ====================================================
+     MODAL 2: ADD / EDIT MAJOR
+     ==================================================== -->
+<div class="modal-overlay" id="majorModal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="majorModalTitle">Add New Major</h3>
+            <button class="modal-close" id="closeMajorModalBtn">&times;</button>
+        </div>
+        <form id="majorForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="majorInputProgram">Parent Program <span class="required">*</span></label>
+                    <select id="majorInputProgram" required>
+                        <option value="">-- Select Parent Program --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="majorInputCode">Major Code <span class="required">*</span></label>
+                    <input type="text" id="majorInputCode" placeholder="e.g. CPT, AT, CP, FSM" required maxlength="20" style="text-transform: uppercase;">
+                    <span class="form-helper">Acronym or short identifier unique within this program.</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="majorInputName">Major Name <span class="required">*</span></label>
+                    <input type="text" id="majorInputName" placeholder="e.g. Computer Technology" required maxlength="120">
+                </div>
+
+                <div class="form-group">
+                    <label for="majorInputStatus">Status <span class="required">*</span></label>
+                    <select id="majorInputStatus" required>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+
+                <div id="majorFormError" style="color: #c62828; font-size: 13px; font-weight: 600; display: none; margin-top: 8px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancelMajorModalBtn">Cancel</button>
+                <button type="submit" class="btn-primary" id="saveMajorSubmitBtn">Save Major</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ====================================================
+     MODAL 3: ADD / EDIT CURRICULUM SUBJECT
+     ==================================================== -->
+<div class="modal-overlay" id="subjectModal" style="display: none;">
+    <div class="modal modal-large">
+        <div class="modal-header">
+            <h3 id="subjectModalTitle">Add Subject to Curriculum</h3>
+            <button class="modal-close" id="closeSubjectModalBtn">&times;</button>
+        </div>
+        <form id="subjectForm">
+            <div class="modal-body">
+                <!-- Current Curriculum Context Info -->
+                <div class="form-grid-2" style="background: rgba(46, 125, 50, 0.06); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="subjModalProgSelect">Program <span class="required">*</span></label>
+                        <select id="subjModalProgSelect" required></select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="subjModalMajorSelect">Major</label>
+                        <select id="subjModalMajorSelect">
+                            <option value="">-- No Major / General --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-grid-2" style="background: rgba(46, 125, 50, 0.06); padding: 12px; border-radius: 8px; margin-bottom: 14px; margin-top: -6px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="subjModalYearSelect">Year Level <span class="required">*</span></label>
+                        <select id="subjModalYearSelect" required>
+                            <option value="1">1st Year</option>
+                            <option value="2">2nd Year</option>
+                            <option value="3">3rd Year</option>
+                            <option value="4">4th Year</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="subjModalSemSelect">Semester <span class="required">*</span></label>
+                        <select id="subjModalSemSelect" required>
+                            <option value="1">1st Semester</option>
+                            <option value="2">2nd Semester</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Subject Form Fields -->
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="subjInputCode">Subject Code <span class="required">*</span></label>
+                        <input type="text" id="subjInputCode" placeholder="e.g. IT101, CPT01, GEC02" required maxlength="25" style="text-transform: uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputName">Subject Name / Descriptive Title <span class="required">*</span></label>
+                        <input type="text" id="subjInputName" placeholder="e.g. Introduction to Computing" required maxlength="150">
+                    </div>
+                </div>
+
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label for="subjInputUnits">Units <span class="required">*</span></label>
+                        <input type="number" id="subjInputUnits" min="0" max="30" step="1" value="3" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputLec">Lec Hours <span class="required">*</span></label>
+                        <input type="number" id="subjInputLec" min="0" max="40" step="1" value="3" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputLab">Lab Hours <span class="required">*</span></label>
+                        <input type="number" id="subjInputLab" min="0" max="40" step="1" value="0" required>
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>Hours per Week</label>
+                        <input type="text" id="subjCalculatedHours" value="3 hrs / week" disabled style="font-weight: 700; background: #f0ebe1;">
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputPrereq">Prerequisite(s)</label>
+                        <input type="text" id="subjInputPrereq" placeholder="e.g. None, or IT101, MATH01">
+                    </div>
+                </div>
+
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label for="subjInputType">Subject Type</label>
+                        <select id="subjInputType">
+                            <option value="Major">Major</option>
+                            <option value="Minor">Minor</option>
+                            <option value="General">General Education</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputRoomType">Required Room Type</label>
+                        <select id="subjInputRoomType">
+                            <option value="Lecture Room">Lecture Room</option>
+                            <option value="Laboratory">Laboratory</option>
+                            <option value="Gymnasium">Gymnasium</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="subjInputStatus">Status</label>
+                        <select id="subjInputStatus">
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="subjectFormError" style="color: #c62828; font-size: 13px; font-weight: 600; display: none; margin-top: 8px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancelSubjectModalBtn">Cancel</button>
+                <button type="submit" class="btn-primary" id="saveSubjectSubmitBtn">Save Curriculum Subject</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ====================================================
+     MODAL 4: CONFIRMATION & SAFETY MODAL
+     ==================================================== -->
+<div class="modal-overlay" id="confirmModal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="confirmModalTitle">Confirm Action</h3>
+            <button class="modal-close" id="confirmModalCloseBtn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="confirmModalMessage" style="font-size: 14px; line-height: 1.5; color: #333;"></p>
+            <div id="confirmModalWarning" class="confirm-warning-box" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="confirmModalCancelBtn">Cancel</button>
+            <button type="button" class="btn-primary" id="confirmModalOkBtn" style="background: #c62828;">Proceed</button>
+        </div>
+    </div>
+</div>
+
+<!-- TOAST NOTIFICATION POPUP -->
+<div id="toastPopup" class="toast-popup">
+    <span id="toastIcon">✔</span>
+    <span id="toastMessage">Action completed successfully.</span>
+</div>
+
+<script type="module" src="curriculum.js"></script>
+</body>
+</html>

@@ -22,7 +22,7 @@ import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/
 // ===================================================
 const EXAM_SCHEDULES_KEY = "chairpersonExamSchedules";
 
-const PROGRAM_MAJORS = {
+let PROGRAM_MAJORS = {
     "BIT": ["CPT"],
     "BINDTECH": ["CPT"],
     "BTVTED": ["MT", "AT", "CP", "FSM", "CT", "ELT", "ELX"]
@@ -667,7 +667,32 @@ function initMultiSelectDropdowns() {
 // ===================================================
 async function loadSectionsFromFirestore() {
     try {
-        const snap = await getDocs(collection(db, "sections"));
+        const [snap, progSnap, majorSnap] = await Promise.all([
+            getDocs(collection(db, "sections")),
+            getDocs(collection(db, "programs")).catch(() => ({ docs: [] })),
+            getDocs(collection(db, "majors")).catch(() => ({ docs: [] }))
+        ]);
+
+        progSnap.docs.forEach(d => {
+            const data = d.data();
+            const code = String(data.programCode || data.courseCode || d.id).trim().toUpperCase();
+            if (code && !PROGRAM_MAJORS[code]) {
+                PROGRAM_MAJORS[code] = [];
+            }
+        });
+
+        majorSnap.docs.forEach(d => {
+            const data = d.data();
+            const prog = String(data.program || data.programCode || "").trim().toUpperCase();
+            const major = String(data.majorCode || "").trim().toUpperCase();
+            if (prog && major) {
+                if (!PROGRAM_MAJORS[prog]) PROGRAM_MAJORS[prog] = [];
+                if (!PROGRAM_MAJORS[prog].includes(major)) {
+                    PROGRAM_MAJORS[prog].push(major);
+                }
+            }
+        });
+
         allSections = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         renderAllDropdowns();
     } catch (err) {
@@ -744,6 +769,7 @@ loadSubjectsBtn?.addEventListener("click", async () => {
 
         snap.forEach(d => {
             const data = d.data();
+            if (data.status === "Inactive") return;
             if (data.subjectCode && data.subjectCode.includes("NSTP")) return;
             if (!programs.includes(data.programCode) || !majors.includes(data.majorCode) || !yearLevels.includes(Number(data.yearLevel))) return;
             loadedSubjects.push({ id: d.id, ...data });

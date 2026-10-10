@@ -30,6 +30,8 @@ const API_URL = API_BASE_URL;
 
 let allUsers = [];
 let facultyAssignmentsMap = new Map(); // maps facultyUserId -> string[] handledSubjects
+let facultyRoomPreferencesMap = new Map(); // maps facultyUserId / id -> roomPreferences object
+let allRooms = []; // Loaded rooms from Firestore/defaults
 let prospectusSubjects = []; // cached prospectus subjects from Firestore
 let currentTab = "Student";
 let searchTerm = "";
@@ -158,10 +160,11 @@ onAuthStateChanged(auth, async user => {
         document.getElementById("adminName").textContent =
             profile.data().fullName || "SLSU Admin";
 
-        // Load users, faculty subject assignments, and prospectus subjects concurrently in parallel
+        // Load users, faculty subject assignments, rooms, and prospectus subjects concurrently in parallel
         await Promise.all([
             loadFacultySubjectAssignments(),
             loadProspectusSubjects(),
+            loadRooms(),
             loadUsers()
         ]);
 
@@ -174,7 +177,7 @@ onAuthStateChanged(auth, async user => {
 });
 
 /* =========================
-   LOAD FACULTY SUBJECT ASSIGNMENTS
+   LOAD FACULTY SUBJECT ASSIGNMENTS & ROOM PREFS
 ========================= */
 
 let facultyAssignmentsPromise = null;
@@ -193,8 +196,14 @@ async function loadFacultySubjectAssignments() {
                 if (data.facultyId && data.facultyId !== docSnap.id) {
                     facultyAssignmentsMap.set(data.facultyId, handled);
                 }
+                if (data.roomPreferences) {
+                    facultyRoomPreferencesMap.set(docSnap.id, data.roomPreferences);
+                    if (data.facultyId) {
+                        facultyRoomPreferencesMap.set(data.facultyId, data.roomPreferences);
+                    }
+                }
             });
-            console.log("Faculty subject assignments loaded:", facultyAssignmentsMap.size);
+            console.log("Faculty subject assignments & room preferences loaded:", facultyAssignmentsMap.size);
         } catch (error) {
             console.warn("Could not load faculty subject assignments from Firestore:", error);
         } finally {
@@ -251,6 +260,88 @@ async function loadProspectusSubjects() {
     })();
 
     return prospectusPromise;
+}
+
+/* =========================
+   LOAD ROOMS
+========================= */
+
+function getDefaultRooms() {
+    return [
+        { id: "ADM204", roomCode: "ADM204", roomName: "Room 204", roomType: "Lecture Room", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "ADM205", roomCode: "ADM205", roomName: "Room 205", roomType: "Lecture Room", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "ADM206", roomCode: "ADM206", roomName: "Room 206", roomType: "Lecture Room", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "ADM207", roomCode: "ADM207", roomName: "Room 207", roomType: "Lecture Room", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "CET01", roomCode: "CET01", roomName: "CET Center", roomType: "Laboratory", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "CET02", roomCode: "CET02", roomName: "CET Shop", roomType: "Laboratory", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "A101", roomCode: "A101", roomName: "Room A101", roomType: "Lecture Room", building: "Building A", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "A102", roomCode: "A102", roomName: "Room A102", roomType: "Lecture Room", building: "Building A", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "A103", roomCode: "A103", roomName: "Room A103", roomType: "Special Room", building: "Building A", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "A104", roomCode: "A104", roomName: "Room A104", roomType: "Special Room", building: "Building A", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "A201", roomCode: "A201", roomName: "Room A201", roomType: "Lecture Room", building: "Building A", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "A202", roomCode: "A202", roomName: "Room A202", roomType: "Lecture Room", building: "Building A", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "A203", roomCode: "A203", roomName: "Room A203", roomType: "Lecture Room", building: "Building A", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "A204", roomCode: "A204", roomName: "Room A204", roomType: "Lecture Room", building: "Building A", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "A301", roomCode: "A301", roomName: "Room A301", roomType: "Lecture Room", building: "Building A", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "A302", roomCode: "A302", roomName: "Room A302", roomType: "Lecture Room", building: "Building A", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "A303", roomCode: "A303", roomName: "Room A303", roomType: "Lecture Room", building: "Building A", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "A304", roomCode: "A304", roomName: "Room A304", roomType: "Lecture Room", building: "Building A", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "B101", roomCode: "B101", roomName: "Room B101", roomType: "Lecture Room", building: "Building B", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "B102", roomCode: "B102", roomName: "Room B102", roomType: "Lecture Room", building: "Building B", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "B103", roomCode: "B103", roomName: "Room B103", roomType: "Lecture Room", building: "Building B", floor: 1, capacity: 50, status: "AVAILABLE" },
+        { id: "B201", roomCode: "B201", roomName: "Room B201", roomType: "Lecture Room", building: "Building B", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "B202", roomCode: "B202", roomName: "Room B202", roomType: "Lecture Room", building: "Building B", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "B203", roomCode: "B203", roomName: "Room B203", roomType: "Lecture Room", building: "Building B", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "B204", roomCode: "B204", roomName: "Room B204", roomType: "Laboratory", building: "Building B", floor: 2, capacity: 50, status: "AVAILABLE" },
+        { id: "B301", roomCode: "B301", roomName: "Room B301", roomType: "Lecture Room", building: "Building B", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "B302", roomCode: "B302", roomName: "Room B302", roomType: "Avr", building: "Building B", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "B303", roomCode: "B303", roomName: "Room B303", roomType: "Avr", building: "Building B", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "B304", roomCode: "B304", roomName: "Room B304", roomType: "Lecture Room", building: "Building B", floor: 3, capacity: 50, status: "AVAILABLE" },
+        { id: "FSML01", roomCode: "FSML01", roomName: "FSM Laboratory", roomType: "FSM Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "ATL01", roomCode: "ATL01", roomName: "AT Laboratory", roomType: "AT Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "MTL01", roomCode: "MTL01", roomName: "MT Laboratory", roomType: "MT Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "CTL01", roomCode: "CTL01", roomName: "CT Laboratory", roomType: "CT Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "ELTL01", roomCode: "ELTL01", roomName: "ELT Laboratory", roomType: "ELT Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "ELXL01", roomCode: "ELXL01", roomName: "ELX Laboratory", roomType: "ELX Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "CPL01", roomCode: "CPL01", roomName: "CP Laboratory", roomType: "CP Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" },
+        { id: "CPTL01", roomCode: "CPTL01", roomName: "CPT Laboratory", roomType: "CPT Laboratory", building: "Building A", floor: 1, capacity: 40, status: "AVAILABLE" }
+    ];
+}
+
+let roomsPromise = null;
+
+async function loadRooms() {
+    if (allRooms.length > 0) return allRooms;
+    if (roomsPromise) return roomsPromise;
+
+    roomsPromise = (async () => {
+        try {
+            const snap = await getDocs(collection(db, "rooms"));
+            const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (raw.length > 0) {
+                allRooms = raw.map(r => ({
+                    id: r.id,
+                    roomCode: String(r.roomCode || r.id || "").trim(),
+                    roomName: String(r.roomName || r.roomCode || r.id || "").trim(),
+                    roomType: String(r.roomType || "Lecture Room").trim(),
+                    building: String(r.building || "").trim(),
+                    floor: Number(r.floor) || 1,
+                    capacity: Number(r.capacity) || 50,
+                    status: String(r.status || "AVAILABLE").toUpperCase()
+                })).sort((a, b) => a.roomCode.localeCompare(b.roomCode, undefined, { numeric: true, sensitivity: 'base' }));
+            } else {
+                allRooms = getDefaultRooms();
+            }
+        } catch (err) {
+            console.warn("Could not load rooms from Firestore:", err);
+            allRooms = getDefaultRooms();
+        } finally {
+            roomsPromise = null;
+        }
+        return allRooms;
+    })();
+
+    return roomsPromise;
 }
 
 /* =========================
@@ -315,6 +406,10 @@ async function loadUsers() {
 
         allUsers = (rawUsers || []).map(u => {
             const docId = u.id || u.uid || u.docId || u._id;
+            if (u.roomPreferences) {
+                facultyRoomPreferencesMap.set(docId, u.roomPreferences);
+                if (u.employeeId) facultyRoomPreferencesMap.set(u.employeeId, u.roomPreferences);
+            }
             return {
                 ...u,
                 id: docId,
@@ -529,6 +624,17 @@ function renderUsers() {
             const count = handledList.length;
             const isExcluded = user.excluded === true;
 
+            const pref = facultyRoomPreferencesMap.get(userId) ||
+                (user.employeeId ? facultyRoomPreferencesMap.get(user.employeeId) : null) ||
+                user.roomPreferences || {};
+            const prefRoomCount = Array.isArray(pref.preferredRooms) ? pref.preferredRooms.length : 0;
+            const prefBadge = prefRoomCount > 0
+                ? `<span class="room-prefs-badge">${prefRoomCount}</span>`
+                : "";
+            const prefTooltip = prefRoomCount > 0
+                ? `Preferred: ${pref.preferredBuilding ? pref.preferredBuilding + ' • ' : ''}${prefRoomCount} room(s)`
+                : (pref.preferredBuilding ? `Preferred Building: ${pref.preferredBuilding}` : "Configure Room & Accessibility Preferences");
+
             const countText = count > 0
                 ? `${count} subject${count === 1 ? "" : "s"} assigned`
                 : "No subjects assigned";
@@ -584,6 +690,17 @@ function renderUsers() {
 
                     <td>
                         <button
+                            class="room-prefs-btn"
+                            data-user-id="${safe(userId)}"
+                            data-user-name="${safe(user.fullName || "Unknown")}"
+                            data-user-email="${safe(user.email || "")}"
+                            data-user-dept="${safe(user.department || user.program || "")}"
+                            data-employee-id="${safe(user.employeeId || "")}"
+                            title="${safe(prefTooltip)}"
+                        >
+                            Room Prefs${prefBadge}
+                        </button>
+                        <button
                             class="exclude-btn ${isExcluded ? "excluded" : "included"}"
                             data-user-id="${safe(userId)}"
                             data-user-name="${safe(user.fullName || "Unknown")}"
@@ -607,6 +724,13 @@ function renderUsers() {
     /* =========================
        BUTTON EVENT LISTENERS
     ========================= */
+
+    body.querySelectorAll(".room-prefs-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            const userId = button.dataset.userId;
+            openFacultyPreferencesModal(userId);
+        });
+    });
 
     body.querySelectorAll(".delete-btn").forEach(button => {
         button.addEventListener("click", () => {
@@ -913,25 +1037,16 @@ function updateModalMajorFilterDropdown() {
     modalMajorFilter = "";
     majorSelect.innerHTML = `<option value="">All Majors</option>`;
 
-    if (modalProgramFilter === "BIT" || modalProgramFilter === "BINDTECH") {
-        majorSelect.innerHTML += `<option value="CPT">CPT</option>`;
-    } else if (modalProgramFilter === "BTVTED") {
-        majorSelect.innerHTML += `
-            <option value="AT">AT</option>
-            <option value="MT">MT</option>
-            <option value="CP">CP</option>
-            <option value="FSM">FSM</option>
-            <option value="CT">CT</option>
-            <option value="ELT">ELT</option>
-            <option value="ELX">ELX</option>
-        `;
-    } else {
-        // All Programs or empty: collect unique majors from prospectus
-        const majors = [...new Set(prospectusSubjects.map(s => s.majorCode).filter(Boolean))].sort();
-        majors.forEach(m => {
-            majorSelect.innerHTML += `<option value="${safe(m)}">${safe(m)}</option>`;
-        });
-    }
+    const matchingMajors = [...new Set(
+        prospectusSubjects
+            .filter(s => !modalProgramFilter || s.programCode.toUpperCase() === modalProgramFilter.toUpperCase())
+            .map(s => s.majorCode)
+            .filter(Boolean)
+    )].sort();
+
+    matchingMajors.forEach(m => {
+        majorSelect.innerHTML += `<option value="${safe(m)}">${safe(m)}</option>`;
+    });
 }
 
 function getFilteredProspectusSubjects() {
@@ -1845,21 +1960,16 @@ programFilterEl.addEventListener("change", () => {
 
     majorFilterEl.innerHTML = `<option value="">All Majors</option>`;
 
-    if (programFilter === "BIT" || programFilter === "BINDTECH") {
-        majorFilterEl.innerHTML += `<option value="CPT">CPT</option>`;
-    }
+    const matchingMajors = [...new Set(
+        prospectusSubjects
+            .filter(s => !programFilter || s.programCode.toUpperCase() === programFilter.toUpperCase())
+            .map(s => s.majorCode)
+            .filter(Boolean)
+    )].sort();
 
-    if (programFilter === "BTVTED") {
-        majorFilterEl.innerHTML += `
-            <option value="AT">AT</option>
-            <option value="MT">MT</option>
-            <option value="CP">CP</option>
-            <option value="FSM">FSM</option>
-            <option value="CT">CT</option>
-            <option value="ELT">ELT</option>
-            <option value="ELX">ELX</option>
-        `;
-    }
+    matchingMajors.forEach(m => {
+        majorFilterEl.innerHTML += `<option value="${safe(m)}">${safe(m)}</option>`;
+    });
 
     renderUsers();
 });
@@ -1883,4 +1993,209 @@ document.getElementById("logoutLink")?.addEventListener("click", async event => 
     sessionStorage.clear();
     localStorage.clear();
     window.location.replace("login.html");
+});
+
+/* ==========================================================================
+   FACULTY ROOM & ACCESSIBILITY PREFERENCES
+========================================================================== */
+
+const facultyPreferencesModal = document.getElementById("facultyPreferencesModal");
+const prefModalSubtitle = document.getElementById("prefModalSubtitle");
+const closePrefModalBtn = document.getElementById("closePrefModalBtn");
+const cancelPrefModalBtn = document.getElementById("cancelPrefModalBtn");
+const savePrefModalBtn = document.getElementById("savePrefModalBtn");
+
+const prefFacultyNameDisplay = document.getElementById("prefFacultyNameDisplay");
+const prefFacultyDeptDisplay = document.getElementById("prefFacultyDeptDisplay");
+const prefBuildingSelect = document.getElementById("prefBuildingSelect");
+const prefSelectBldgRoomsBtn = document.getElementById("prefSelectBldgRoomsBtn");
+const prefClearRoomsBtn = document.getElementById("prefClearRoomsBtn");
+const prefRoomFilterInput = document.getElementById("prefRoomFilterInput");
+const prefRoomChecklistContainer = document.getElementById("prefRoomChecklistContainer");
+const prefSelectedRoomCount = document.getElementById("prefSelectedRoomCount");
+const prefRestrictedCheckbox = document.getElementById("prefRestrictedCheckbox");
+const prefAccessibilityNotesInput = document.getElementById("prefAccessibilityNotesInput");
+
+function openFacultyPreferencesModal(facultyUid) {
+    const faculty = allUsers.find(u => (u.id === facultyUid || u.uid === facultyUid));
+    if (!faculty) return;
+
+    if (allRooms.length === 0) {
+        allRooms = getDefaultRooms();
+    }
+
+    const pref = facultyRoomPreferencesMap.get(facultyUid) ||
+        (faculty.employeeId ? facultyRoomPreferencesMap.get(faculty.employeeId) : null) ||
+        faculty.roomPreferences || {};
+
+    if (prefFacultyNameDisplay) prefFacultyNameDisplay.textContent = faculty.fullName || faculty.name || "Faculty Member";
+    if (prefFacultyDeptDisplay) prefFacultyDeptDisplay.textContent = faculty.department || faculty.program || "Faculty";
+    if (prefModalSubtitle) prefModalSubtitle.textContent = `Faculty ID: ${faculty.employeeId || 'N/A'}`;
+
+    // Populate building options dynamically
+    if (prefBuildingSelect) {
+        const buildings = Array.from(new Set(allRooms.map(r => r.building).filter(Boolean)));
+        if (!buildings.includes("Admin Building")) buildings.push("Admin Building");
+        if (!buildings.includes("Building A")) buildings.push("Building A");
+        if (!buildings.includes("Building B")) buildings.push("Building B");
+        buildings.sort();
+
+        prefBuildingSelect.innerHTML = `<option value="">-- No Building Preference --</option>` +
+            buildings.map(b => `<option value="${safe(b)}" ${pref.preferredBuilding === b ? 'selected' : ''}>${safe(b)}</option>`).join("");
+
+        prefBuildingSelect.value = pref.preferredBuilding || "";
+    }
+
+    if (prefRestrictedCheckbox) prefRestrictedCheckbox.checked = Boolean(pref.restrictedRoomList);
+    if (prefAccessibilityNotesInput) prefAccessibilityNotesInput.value = pref.accessibilityNotes || "";
+
+    const selectedRooms = new Set(Array.isArray(pref.preferredRooms) ? pref.preferredRooms : []);
+
+    function renderRoomChecklist(filterText = "") {
+        if (!prefRoomChecklistContainer) return;
+        const q = filterText.toLowerCase();
+        const filteredRooms = allRooms.filter(r =>
+            !q ||
+            r.roomCode.toLowerCase().includes(q) ||
+            r.roomName.toLowerCase().includes(q) ||
+            r.building.toLowerCase().includes(q)
+        );
+
+        if (filteredRooms.length === 0) {
+            prefRoomChecklistContainer.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:#777; font-size:12px; padding:12px;">No rooms matching "${safe(filterText)}"</div>`;
+        } else {
+            prefRoomChecklistContainer.innerHTML = filteredRooms.map(r => {
+                const isChecked = selectedRooms.has(r.roomCode);
+                return `
+                    <label class="pref-room-item" data-building="${safe(r.building)}" data-code="${safe(r.roomCode)}">
+                        <input type="checkbox" value="${safe(r.roomCode)}" ${isChecked ? 'checked' : ''}>
+                        <span><strong>${safe(r.roomCode)}</strong> <small style="color:#666;">(${safe(r.building || 'General')})</small></span>
+                    </label>
+                `;
+            }).join("");
+        }
+
+        if (prefSelectedRoomCount) prefSelectedRoomCount.textContent = selectedRooms.size;
+
+        prefRoomChecklistContainer.querySelectorAll("input[type='checkbox']").forEach(cb => {
+            cb.addEventListener("change", () => {
+                if (cb.checked) {
+                    selectedRooms.add(cb.value);
+                } else {
+                    selectedRooms.delete(cb.value);
+                }
+                if (prefSelectedRoomCount) prefSelectedRoomCount.textContent = selectedRooms.size;
+            });
+        });
+    }
+
+    renderRoomChecklist();
+
+    if (prefRoomFilterInput) {
+        prefRoomFilterInput.value = "";
+        prefRoomFilterInput.oninput = (e) => renderRoomChecklist(e.target.value.trim());
+    }
+
+    if (prefSelectBldgRoomsBtn) {
+        prefSelectBldgRoomsBtn.onclick = () => {
+            const bldg = prefBuildingSelect.value;
+            if (!bldg) {
+                alert("Please select a Preferred Building first.");
+                return;
+            }
+            allRooms.forEach(r => {
+                if (r.building === bldg) selectedRooms.add(r.roomCode);
+            });
+            renderRoomChecklist(prefRoomFilterInput ? prefRoomFilterInput.value.trim() : "");
+        };
+    }
+
+    if (prefClearRoomsBtn) {
+        prefClearRoomsBtn.onclick = () => {
+            selectedRooms.clear();
+            renderRoomChecklist(prefRoomFilterInput ? prefRoomFilterInput.value.trim() : "");
+        };
+    }
+
+    if (savePrefModalBtn) {
+        savePrefModalBtn.onclick = async () => {
+            const newPrefs = {
+                preferredBuilding: prefBuildingSelect ? prefBuildingSelect.value.trim() : "",
+                preferredRooms: [...selectedRooms],
+                restrictedRoomList: prefRestrictedCheckbox ? prefRestrictedCheckbox.checked : false,
+                accessibilityNotes: prefAccessibilityNotesInput ? prefAccessibilityNotesInput.value.trim() : "",
+                updatedAt: new Date().toISOString()
+            };
+
+            try {
+                savePrefModalBtn.disabled = true;
+                savePrefModalBtn.textContent = "Saving...";
+
+                // 1. Primary storage for faculty loading and scheduling
+                await setDoc(doc(db, "facultySubjectAssignments", facultyUid), {
+                    roomPreferences: newPrefs,
+                    facultyName: faculty.fullName || faculty.name || "",
+                    facultyId: faculty.employeeId || ""
+                }, { merge: true });
+
+                // 2. Also update users collection
+                try {
+                    await updateDoc(doc(db, "users", facultyUid), {
+                        roomPreferences: newPrefs
+                    });
+                } catch (_) {
+                    try {
+                        await setDoc(doc(db, "users", facultyUid), {
+                            roomPreferences: newPrefs
+                        }, { merge: true });
+                    } catch (e) {}
+                }
+
+                // 3. Fallback for faculty collection
+                try {
+                    await setDoc(doc(db, "faculty", facultyUid), {
+                        roomPreferences: newPrefs
+                    }, { merge: true });
+                } catch (_) {}
+
+                faculty.roomPreferences = newPrefs;
+                facultyRoomPreferencesMap.set(facultyUid, newPrefs);
+                if (faculty.employeeId) facultyRoomPreferencesMap.set(faculty.employeeId, newPrefs);
+
+                alert(`Room preferences saved successfully for ${faculty.fullName || faculty.name || "faculty"}.`);
+                if (facultyPreferencesModal) facultyPreferencesModal.style.display = "none";
+
+                renderUsers();
+            } catch (err) {
+                console.error("Failed to save room preferences:", err);
+                alert(`Error saving preferences: ${err.message}`);
+            } finally {
+                savePrefModalBtn.disabled = false;
+                savePrefModalBtn.textContent = "Save Preferences";
+            }
+        };
+    }
+
+    if (facultyPreferencesModal) facultyPreferencesModal.style.display = "flex";
+}
+
+// Modal closing event listeners
+closePrefModalBtn?.addEventListener("click", () => {
+    if (facultyPreferencesModal) facultyPreferencesModal.style.display = "none";
+});
+
+cancelPrefModalBtn?.addEventListener("click", () => {
+    if (facultyPreferencesModal) facultyPreferencesModal.style.display = "none";
+});
+
+window.addEventListener("click", e => {
+    if (e.target === facultyPreferencesModal) {
+        facultyPreferencesModal.style.display = "none";
+    }
+});
+
+window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && facultyPreferencesModal && facultyPreferencesModal.style.display === "flex") {
+        facultyPreferencesModal.style.display = "none";
+    }
 });
