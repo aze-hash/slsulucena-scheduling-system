@@ -449,6 +449,11 @@ export function renderClassCalendar(schedule) {
                 if (b1.day.toLowerCase() === b2.day.toLowerCase()) {
                     // Time overlap
                     if (b1.start < b2.end && b2.start < b1.end) {
+                        // If same subject code, same room, and exact same time, this is a shared class session across sets
+                        if (b1.code === b2.code && b1.room && b2.room && b1.room.trim().toLowerCase() === b2.room.trim().toLowerCase() && b1.start === b2.start && b1.end === b2.end) {
+                            continue;
+                        }
+
                         const clashKey = [b1.day, b1.code, b1.section, b2.code, b2.section, b1.start].sort().join("_");
                         if (!seenClashKeys.has(clashKey)) {
                             seenClashKeys.add(clashKey);

@@ -661,6 +661,13 @@ function detectClassConflicts(classes) {
                     continue;
                 }
 
+                // Sibling sets sharing a minor class session in the same room at the same time is not a conflict
+                const baseSecA = (a.section || "").trim().toLowerCase().replace(/\s+set\s+[ab]$/i, "");
+                const baseSecB = (b.section || "").trim().toLowerCase().replace(/\s+set\s+[ab]$/i, "");
+                if (baseSecA && baseSecA === baseSecB && a.code === b.code && a.time === b.time) {
+                    continue;
+                }
+
                 if (timesOverlap(a.time, b.time)) {
                     const keyA = `${a.scheduleId}::${a.code}::${a.day}::${a.time}::${a.section}`;
                     const keyB = `${b.scheduleId}::${b.code}::${b.day}::${b.time}::${b.section}`;

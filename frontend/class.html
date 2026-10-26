@@ -119,6 +119,7 @@
             <h3>Saved Schedules</h3>
             <div class="export-btn-container">
                 <button id="publishAllClassBtn" type="button" style="background:#2e7d32; color:white;">Publish All</button>
+                <button id="exportAllClassPdfBtn" type="button" style="background:#2e7d32; color:white;">Export All to PDF</button>
                 <button id="exportPdfBtn" type="button">Move to Archive</button>
                 <button id="deleteAllBtn" type="button" style="background:#b71c1c; color:white;">Delete All</button>
             </div>
@@ -348,6 +349,98 @@
         </div>
         <div class="cls-cal-modal-body" id="clsCalModalBody">
             <!-- Calendar injected here -->
+        </div>
+    </div>
+</div>
+
+<!-- Split Section into Sets Modal -->
+<div id="splitScheduleModal" class="custom-confirm-modal" style="display:none;">
+    <div class="custom-confirm-content split-modal-content">
+        <div class="custom-confirm-header" style="display:flex; justify-content:space-between; align-items:center; background:#00796b;">
+            <div>
+                <h3 id="splitModalTitle" style="margin:0; font-size:18px; color:white;">Split Section into Set A & Set B</h3>
+                <small id="splitModalSubtitle" style="color:rgba(255,255,255,0.85); font-size:12px; margin-top:2px; display:block;"></small>
+            </div>
+            <span id="closeSplitScheduleModalBtn" class="close-modal" style="color:white; font-size:24px; cursor:pointer; line-height:1;" title="Close">&times;</span>
+        </div>
+
+        <div class="custom-confirm-body" style="max-height:72vh; overflow-y:auto; padding:20px;">
+            <div class="split-rules-callout">
+                <strong>Splitting Rules:</strong>
+                <ul style="margin:6px 0 0 18px; padding:0;">
+                    <li><strong>Major Subjects:</strong> Both Set A and Set B will contain the identical major subjects, but their day, time, room, and faculty assignments can be scheduled and edited independently.</li>
+                    <li><strong>Minor Subjects & Common Activities:</strong> Both sets share identical details and schedules (including PE / PATHFit) and are treated as one combined class session to prevent duplicate bookings or false conflicts.</li>
+                </ul>
+            </div>
+
+            <!-- Inline warning for ambiguous / missing curriculum classifications -->
+            <div id="splitAmbiguousAlert" style="display:none; margin-bottom:14px; padding:10px 14px; background:#fff3e0; border:1px solid #ffb74d; border-radius:8px; font-size:12.5px; color:#e65100;">
+            </div>
+
+            <!-- Sets Configuration & Schedule Preview -->
+            <div id="splitTabSetsPreviewContent">
+                <p style="font-size:13px; color:#555; margin-bottom:12px;">
+                    Review schedules for <strong>Set A</strong> and <strong>Set B</strong>. Major subjects in Set B have been automatically rescheduled to alternative non-conflicting slots, while shared minor subjects and activities remain synchronized. You may further adjust any field below if needed.
+                </p>
+
+                <div class="split-sets-comparison-container">
+                    <!-- Set A Card -->
+                    <div class="split-set-card set-a">
+                        <div class="split-set-header">
+                            <h4 class="split-set-title">
+                                <span>🅰️</span> <span id="setACardTitle">Set A</span>
+                            </h4>
+                            <span style="font-size:11px; background:#e8f5e9; color:#1b5e20; font-weight:bold; padding:2px 8px; border-radius:6px;">Baseline Schedule</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table class="split-set-table">
+                                <thead>
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Day</th>
+                                        <th>Time</th>
+                                        <th>Room</th>
+                                        <th>Faculty</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="splitSetATableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Set B Card -->
+                    <div class="split-set-card set-b">
+                        <div class="split-set-header">
+                            <h4 class="split-set-title">
+                                <span>🅱️</span> <span id="setBCardTitle">Set B</span>
+                            </h4>
+                            <span style="font-size:11px; background:#e0f2f1; color:#00796b; font-weight:bold; padding:2px 8px; border-radius:6px;">Auto-Rescheduled Major Slots</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table class="split-set-table">
+                                <thead>
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Day</th>
+                                        <th>Time</th>
+                                        <th>Room</th>
+                                        <th>Faculty</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="splitSetBTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="splitConflictsBanner" style="display:none;" class="split-conflict-banner"></div>
+                <div id="splitResolutionsContainer" style="display:none;"></div>
+            </div>
+        </div>
+
+        <div class="custom-confirm-footer">
+            <button type="button" id="cancelSplitScheduleBtn" class="custom-confirm-btn cancel">Cancel</button>
+            <button type="button" id="confirmSplitScheduleBtn" class="custom-confirm-btn ok" style="background:#00796b;">Confirm & Save Sets</button>
         </div>
     </div>
 </div>

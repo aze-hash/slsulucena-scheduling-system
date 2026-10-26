@@ -137,6 +137,7 @@ const savedExamSchedulesContainer = document.getElementById("savedExamSchedules"
 const emptyExamSchedules = document.getElementById("emptyExamSchedules");
 const savedScheduleSearchInput = document.getElementById("savedScheduleSearchInput");
 const publishAllExamBtn = document.getElementById("publishAllExamBtn");
+const exportAllExamPdfBtn = document.getElementById("exportAllExamPdfBtn");
 const moveExamArchiveBtn = document.getElementById("moveExamArchiveBtn");
 const deleteAllExamBtn = document.getElementById("deleteAllExamBtn");
 
@@ -2071,6 +2072,10 @@ function renderSavedExamSchedules() {
         `;
 
         // Card button event listeners
+        card.querySelector(".btn-export-pdf")?.addEventListener("click", () => {
+            const html = generateAllExamsPdfHtml([schedule]);
+            openPrintWindow(html);
+        });
         card.querySelector(".btn-view-cal")?.addEventListener("click", () => openCalendarModal(schedule));
         card.querySelector(".edit-schedule-btn")?.addEventListener("click", () => openEditScheduleModal(schedule));
         card.querySelector(".btn-publish-card")?.addEventListener("click", () => publishSingleSchedule(schedule));
@@ -2234,6 +2239,182 @@ moveExamArchiveBtn?.addEventListener("click", async () => {
         moveExamArchiveBtn.disabled = false;
         moveExamArchiveBtn.textContent = "Move to Archive";
     }
+});
+
+// ===================================================
+// PDF GENERATION (SCHEDULE ARCHIVE FORMAT)
+// ===================================================
+function openPrintWindow(htmlContent) {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+        showToast("The print window was blocked by the browser. Please allow popups.");
+        return;
+    }
+
+    printWindow.document.write(htmlContent || "<p>No content available.</p>");
+    printWindow.document.close();
+    printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+    };
+    setTimeout(() => {
+        try {
+            printWindow.focus();
+            printWindow.print();
+        } catch (_) {}
+    }, 700);
+}
+
+function generateSingleExamScheduleBody(schedule, logoUrl, logoUrl1) {
+    const examType = schedule.examType || "Preliminary";
+    const examTypeUpper = examType.toUpperCase();
+    const sectionName = escapeHtml(schedule.section || schedule.title || "Section Schedule");
+    const exams = Array.isArray(schedule.exams) ? schedule.exams : [];
+
+    const dateLabel = rawDate => {
+        if (!rawDate || rawDate === "TBA") return "Date to be announced";
+        const date = new Date(`${rawDate}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return String(rawDate);
+        return date.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            weekday: "long"
+        });
+    };
+
+    const groupedExams = new Map();
+    exams.forEach(exam => {
+        const key = exam.date || "TBA";
+        if (!groupedExams.has(key)) groupedExams.set(key, []);
+        groupedExams.get(key).push(exam);
+    });
+
+    const dateKeys = [...groupedExams.keys()].sort((a, b) => {
+        if (a === "TBA") return 1;
+        if (b === "TBA") return -1;
+        return String(a).localeCompare(String(b));
+    });
+
+    const scheduleSections = dateKeys.length
+        ? dateKeys.map(date => `
+            <section class="exam-day">
+                <div class="exam-date">${escapeHtml(dateLabel(date))}</div>
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th style="width:18%;">TIME</th>
+                            <th style="width:42%;">SUBJECT</th>
+                            <th style="width:20%;">PROCTOR</th>
+                            <th style="width:20%;">ROOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groupedExams.get(date).map(e => `
+                            <tr>
+                                <td>${escapeHtml(e.time || "—")}</td>
+                                <td>${escapeHtml([e.code || e.subjectCode, e.name || e.subjectName].filter(Boolean).join(" — ") || "—")}</td>
+                                <td>${escapeHtml(e.proctor || e.facultyName || "TBA")}</td>
+                                <td>${escapeHtml(e.room || "—")}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </section>
+        `).join("")
+        : `<div class="empty-schedule">No examination entries recorded.</div>`;
+
+    return `
+        <div class="exam-schedule-page">
+            <div class="header-section">
+                <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
+                <div class="header-text">
+                    <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
+                    <div class="dtlc-name">Dual Training and Livelihood Center</div>
+                    <div class="campus-name">LUCENA CAMPUS</div>
+                    <div class="city-name">Lucena City</div>
+                </div>
+                <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
+            </div>
+            <div class="divider"></div>
+            <div class="title-section">SCHEDULES OF ${escapeHtml(examTypeUpper)} EXAMINATIONS</div>
+            <div class="section-row">${sectionName}</div>
+            ${scheduleSections}
+        </div>
+    `;
+}
+
+function generateAllExamsPdfHtml(schedules) {
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
+    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+
+    const pagesHtml = schedules.map(s => generateSingleExamScheduleBody(s, logoUrl, logoUrl1)).join("");
+
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Examination Schedules - SLSU Lucena</title>
+        <style>
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 0; margin: 0; }
+            .exam-schedule-page {
+                page-break-after: always;
+                break-after: page;
+                padding: 10px;
+            }
+            .exam-schedule-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+            .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+            .logo-img { width: 65px; height: 65px; }
+            .logo-left, .logo-right { flex-shrink: 0; }
+            .header-text { text-align: center; flex-grow: 1; }
+            .uni-name { font-size: 15px; font-weight: bold; color: #000000; }
+            .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
+            .city-name { font-size: 11px; color: #555; }
+            .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
+            .title-section { text-align: center; font-size: 14px; font-weight: bold; color: #000000; margin-bottom: 10px; text-decoration: underline; }
+            .section-row { text-align: center; font-size: 12px; font-weight: bold; color: #555; padding: 4px 10px 10px; }
+            .exam-day { page-break-inside: avoid; margin-bottom: 14px; }
+            .exam-date { text-align: center; color: #030303; font-size: 11px; font-weight: bold; margin: 8px 0 3px; }
+            .schedule-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 2px; }
+            .schedule-table th, .schedule-table td { border: 1px solid #888888; padding: 4px 6px; text-align: left; }
+            .schedule-table th { background: #a7c7a3; color: #1b5e20; font-weight: bold; text-align: center; }
+            .schedule-table td { vertical-align: middle; }
+            .schedule-table tbody tr:nth-child(even) { background: #f7f7f7; }
+            .empty-schedule { text-align: center; padding: 16px; border: 1px solid #888; }
+        </style>
+    </head>
+    <body>
+        ${pagesHtml}
+    </body>
+    </html>`;
+}
+
+exportAllExamPdfBtn?.addEventListener("click", () => {
+    if (!savedExamSchedules || savedExamSchedules.length === 0) {
+        showToast("No saved examination schedules to export.");
+        return;
+    }
+
+    const searchTerm = (savedScheduleSearchInput?.value || "").trim().toLowerCase();
+    const schedulesToExport = searchTerm
+        ? savedExamSchedules.filter(s => {
+            const text = `${s.section} ${s.academicYear} ${s.semester} ${s.examType} ${s.program || ""} ${s.major || ""}`.toLowerCase();
+            return text.includes(searchTerm);
+        })
+        : savedExamSchedules;
+
+    if (schedulesToExport.length === 0) {
+        showToast("No examination schedules match your search to export.");
+        return;
+    }
+
+    const html = generateAllExamsPdfHtml(schedulesToExport);
+    openPrintWindow(html);
 });
 
 // ===================================================

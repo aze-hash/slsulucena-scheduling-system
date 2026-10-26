@@ -530,6 +530,48 @@ nav ul li a.active{
     transform: translateY(-1px);
 }
 
+.split-sets-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #00796b !important;
+    color: white !important;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.split-sets-btn:hover {
+    background: #004d40 !important;
+    transform: translateY(-1px);
+}
+
+.manage-sets-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #512da8 !important;
+    color: white !important;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.manage-sets-btn:hover {
+    background: #311b92 !important;
+    transform: translateY(-1px);
+}
+
 /* Edit Schedule Modal Table */
 .edit-schedule-modal-content {
     background: #fff;
@@ -2204,4 +2246,253 @@ tr:hover{
 .cal-details-summary:hover { background: #eef6ee !important; }
 .cal-details-summary:hover .cal-details-toggle-icon { background: #c8e6c9 !important; }
 .cal-details-collapsible[open] .cal-details-toggle-icon { transform: rotate(180deg); background: #c8e6c9 !important; }
+
+/* ==================================================
+   SPLIT SECTION INTO SETS MODAL & STYLING
+   ================================================== */
+
+.split-modal-content {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 45px rgba(0,0,0,0.28);
+    overflow: hidden;
+    max-width: 1100px;
+    width: 95%;
+    display: flex;
+    flex-direction: column;
+}
+
+.split-rules-callout {
+    background: #e0f2f1;
+    border-left: 4px solid #00796b;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: #004d40;
+    line-height: 1.5;
+}
+
+.split-rules-callout strong {
+    color: #004d40;
+}
+
+.split-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 16px;
+}
+
+.split-tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 700;
+    color: #666;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+}
+
+.split-tab-btn.active {
+    color: #00796b;
+    border-bottom-color: #00796b;
+    background: #f4faf9;
+    border-radius: 6px 6px 0 0;
+}
+
+.split-tab-btn:hover:not(.active) {
+    color: #333;
+    background: #f5f5f5;
+}
+
+.badge-classification {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-major {
+    background: #ede7f6;
+    color: #512da8;
+    border: 1px solid #d1c4e9;
+}
+
+.badge-minor {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+
+.badge-activity {
+    background: #e0f7fa;
+    color: #00838f;
+    border: 1px solid #b2ebf2;
+}
+
+.badge-unconfirmed {
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffe0b2;
+    animation: pulseWarn 2s infinite ease-in-out;
+}
+
+@keyframes pulseWarn {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.75; }
+}
+
+.classification-select {
+    padding: 6px 10px;
+    border: 1.5px solid #b0bec5;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #333;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.classification-select:focus {
+    border-color: #00796b;
+    box-shadow: 0 0 0 2px rgba(0, 121, 107, 0.15);
+}
+
+.classification-select.needs-confirmation {
+    border-color: #f57c00;
+    background: #fffde7;
+    color: #b78103;
+}
+
+.split-sets-comparison-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+    .split-sets-comparison-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.split-set-card {
+    background: #fafaf8;
+    border: 1.5px solid #dcd7ca;
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+}
+
+.split-set-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e0dbce;
+    margin-bottom: 12px;
+}
+
+.split-set-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: #1b5e20;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.split-set-card.set-b .split-set-title {
+    color: #00796b;
+}
+
+.split-set-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.split-set-table th {
+    background: #efebe2;
+    padding: 7px 8px;
+    text-align: left;
+    font-size: 11px;
+    color: #444;
+    font-weight: 700;
+    border: 1px solid #ded9cd;
+}
+
+.split-set-table td {
+    padding: 6px 8px;
+    border: 1px solid #e6e2d8;
+    vertical-align: middle;
+}
+
+.split-set-table tr.row-major {
+    background: #ffffff;
+}
+
+.split-set-table tr.row-shared {
+    background: #f1f8f5;
+}
+
+.split-set-table input,
+.split-set-table select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 11.5px;
+    box-sizing: border-box;
+}
+
+.split-set-table input:focus,
+.split-set-table select:focus {
+    border-color: #00796b;
+    outline: none;
+}
+
+.shared-lock-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #2e7d32;
+    font-weight: 600;
+    background: #e8f5e9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.split-conflict-banner {
+    background: #ffebee;
+    border: 1.5px solid #ef5350;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 14px;
+    color: #b71c1c;
+    font-size: 12.5px;
+}
+
+.split-conflict-banner h5 {
+    margin: 0 0 6px 0;
+    font-size: 13.5px;
+    font-weight: 700;
+}
+
 

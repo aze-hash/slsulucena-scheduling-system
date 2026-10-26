@@ -13,7 +13,8 @@ import {
     updateDoc,
     deleteDoc,
     serverTimestamp,
-    getDoc
+    getDoc,
+    writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 /* ------------------------------------------------------------------ */
@@ -476,12 +477,49 @@ async function loadRooms() {
     }
 }
 
+function normalizeAyStr(ay) {
+    return String(ay || "")
+        .replace(/a\.y\.?\s*/i, "")
+        .replace(/[\u2013\u2014–—]/g, "-")
+        .replace(/\s+/g, "")
+        .trim()
+        .toLowerCase();
+}
+
+function normalizeSemStr(sem) {
+    const s = String(sem || "").toLowerCase().trim();
+    if (s.includes("1") || s.includes("first")) return "1st semester";
+    if (s.includes("2") || s.includes("second")) return "2nd semester";
+    if (s.includes("mid") || s.includes("summer")) return "midyear";
+    return s;
+}
+
 function sameFaculty(f1, f2) {
     if (!f1 || !f2) return false;
     const n1 = String(f1).trim().replace(/\s+/g, " ").toLowerCase();
     const n2 = String(f2).trim().replace(/\s+/g, " ").toLowerCase();
     if (!n1 || !n2 || n1 === "unassigned" || n2 === "unassigned" || n1 === "tba" || n2 === "tba") return false;
     if (n1 === n2) return true;
+
+    const normalizeFacTokens = s => {
+        const clean = s.replace(/\b(dr|prof|engr|instructor|ms|mr|mrs)\.?\b/gi, "")
+                       .replace(/,\s*/g, " ")
+                       .replace(/\s+/g, " ")
+                       .trim();
+        return clean.split(" ").filter(t => t.length > 1);
+    };
+
+    const tokens1 = normalizeFacTokens(n1);
+    const tokens2 = normalizeFacTokens(n2);
+
+    if (tokens1.length && tokens2.length) {
+        if (tokens1.length === tokens2.length && tokens1.every(t => tokens2.includes(t))) return true;
+        const intersection = tokens1.filter(t => tokens2.includes(t));
+        if (intersection.length >= 2 && (intersection.length === tokens1.length || intersection.length === tokens2.length)) {
+            return true;
+        }
+    }
+
     const stripInitial = s => s.replace(/\s+[a-z]\.?$/i, "").replace(/,\s*/g, " ").trim();
     return stripInitial(n1) === stripInitial(n2);
 }
@@ -786,6 +824,12 @@ async function saveScheduleToFirestore(schedule) {
     const data = {
         name: schedule.name,
         section: schedule.section,
+        originalSection: schedule.originalSection || null,
+        setName: schedule.setName || null,
+        scheduleGroupId: schedule.scheduleGroupId || null,
+        sharedScheduleId: schedule.sharedScheduleId || null,
+        isSplit: Boolean(schedule.isSplit),
+        subjectClassifications: schedule.subjectClassifications || null,
         semester: schedule.semester,
         program: schedule.program,
         major: schedule.major,
@@ -867,6 +911,12 @@ async function loadSchedulesFromFirestore() {
                 id: document.id,
                 name: data.name || "",
                 section: data.section || "",
+                originalSection: data.originalSection || null,
+                setName: data.setName || null,
+                scheduleGroupId: data.scheduleGroupId || null,
+                sharedScheduleId: data.sharedScheduleId || null,
+                isSplit: Boolean(data.isSplit),
+                subjectClassifications: data.subjectClassifications || null,
                 semester: data.semester || "",
                 program: data.program || "",
                 major: data.major || "",
@@ -1073,25 +1123,33 @@ function scheduleRows(entries) {
 }
 
 function getSavedBookings(academicYear, semester) {
+    const targetAy = academicYear ? normalizeAyStr(academicYear) : "";
+    const targetSem = semester ? normalizeSemStr(semester) : "";
+
     return getSavedSchedules().flatMap(schedule => {
         /* ROOM & FACULTY AVAILABILITY SCOPING:
            Only ACTIVE schedules in the SAME Academic Year AND SAME Semester
            reserve rooms & faculty. Archived schedules and schedules from other
            academic years or other semesters must NOT block availability. */
         if ((schedule.status || "active") === "archived") return [];
-        if (academicYear && schedule.academicYear !== academicYear) return [];
-        if (semester && schedule.semester !== semester) return [];
+        if (targetAy && normalizeAyStr(schedule.academicYear) !== targetAy) return [];
+        if (targetSem && normalizeSemStr(schedule.semester) !== targetSem) return [];
 
         if (schedule.rawEntries?.length) {
-            /* Tag each booking with its source section so the conflict
-               validator can ignore a section's OWN previous schedule when
-               that section is being regenerated. */
+            /* Tag each booking with its source section and split group so the conflict
+               validator can recognize shared class sessions and ignore false conflicts. */
             return schedule.rawEntries.map(entry => ({
                 ...entry,
                 faculty: entry.faculty || "",
                 facultyId: entry.facultyId || "",
                 facultyUid: entry.facultyUid || "",
-                section: schedule.section || ""
+                section: schedule.section || "",
+                scheduleId: schedule.id || scheduleDocId(schedule),
+                scheduleGroupId: schedule.scheduleGroupId || null,
+                originalSection: schedule.originalSection || null,
+                setName: schedule.setName || null,
+                isSplit: Boolean(schedule.isSplit),
+                sharedScheduleId: schedule.sharedScheduleId || null
             }));
         }
 
@@ -1110,7 +1168,13 @@ function getSavedBookings(academicYear, semester) {
                 facultyId: entry.facultyId || "",
                 facultyUid: entry.facultyUid || "",
                 roomCode: "",
-                section: schedule.section || ""
+                section: schedule.section || "",
+                scheduleId: schedule.id || scheduleDocId(schedule),
+                scheduleGroupId: schedule.scheduleGroupId || null,
+                originalSection: schedule.originalSection || null,
+                setName: schedule.setName || null,
+                isSplit: Boolean(schedule.isSplit),
+                sharedScheduleId: schedule.sharedScheduleId || null
             }));
         });
     });
@@ -1292,7 +1356,11 @@ function expandScheduleEntries(schedule) {
                     facultyUid: entry.facultyUid || "",
                     facultyId: entry.facultyId || "",
                     academicYear: schedule.academicYear || "",
-                    semester: schedule.semester || ""
+                    semester: schedule.semester || "",
+                    scheduleGroupId: schedule.scheduleGroupId || null,
+                    originalSection: schedule.originalSection || null,
+                    setName: schedule.setName || null,
+                    isSplit: Boolean(schedule.isSplit)
                 });
             }
         }
@@ -1444,6 +1512,13 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
 
             // Must have actual time overlap
             if (!timesOverlap(cur.time, ext.time)) continue;
+
+            // If both belong to the same split group and have the same subject code -> shared class session
+            const isSameSplitGroup = (cur.scheduleGroupId && ext.scheduleGroupId && cur.scheduleGroupId === ext.scheduleGroupId) ||
+                                    (cur.originalSection && ext.originalSection && cur.originalSection === ext.originalSection);
+            if (isSameSplitGroup && cur.code === ext.code) {
+                continue; // Shared minor/activity session across sets is treated as one session
+            }
 
             const overlapTime = getOverlapTimeRange(cur.time, ext.time) || `${cur.time} / ${ext.time}`;
             timeOverlapCount++;
@@ -2993,8 +3068,14 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         return available[0];
     }
 
+    const nonTbaSubjects = subjects.filter(s => !TBA_SUBJECT_CODES.has(s.code));
 
-
+    if (nonTbaSubjects.length === 0) {
+        // All subjects are non-classroom / internship / practicum courses (e.g. 4th year OJT/SIP/PED11/TCC01).
+        // No room or time slots need to be scheduled by the physical solver.
+        scheduleSuccess = true;
+        finalOutput = [];
+    } else {
     for (let attempt = 1; attempt <= MAX_SOLVER_ATTEMPTS; attempt++) {
         const timetableInstance = {
             Monday: [],
@@ -3278,6 +3359,7 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             break;
         }
     }
+    }
 
     if (!scheduleSuccess) {
         if (!suppressToast) {
@@ -3362,7 +3444,7 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
     }));
 
     finalOutput.forEach(item => {
-        if (item.day && item.day !== "TBA" && item.time && item.time !== "TBA") {
+        if (item.day && item.day !== "TBA" && item.day !== "MTWThF" && item.time && item.time !== "TBA" && (item.room || "").toUpperCase() !== "TBA" && !TBA_SUBJECT_CODES.has(item.code)) {
             savedBookings.push({
                 section,
                 academicYear: currentAcademicYear,
@@ -3519,8 +3601,9 @@ async function generateSchedule() {
                 });
 
                 if (fetched.length > 0) {
-                    const existingIds = new Set((allLoadedSubjects || []).map(s => s.id || s.subjectCode));
-                    const newSubjects = fetched.filter(s => !existingIds.has(s.id || s.subjectCode));
+                    const getSubjectKey = s => s.id ? s.id : `${s.programCode || ""}-${s.majorCode || ""}-${s.yearLevel || ""}-${s.subjectCode || s.code || ""}`;
+                    const existingKeys = new Set((allLoadedSubjects || []).map(getSubjectKey));
+                    const newSubjects = fetched.filter(s => !existingKeys.has(getSubjectKey(s)));
                     allLoadedSubjects = [...(allLoadedSubjects || []), ...newSubjects];
 
                     const grouped = new Map();
@@ -3847,6 +3930,25 @@ function scheduleMatchesSavedSearch(schedule, query) {
     return false;
 }
 
+function isScheduleSplit(schedule) {
+    if (!schedule) return false;
+    if (schedule.isSplit === true) return true;
+    if (schedule.setName) return true;
+    if (schedule.scheduleGroupId) return true;
+    const secStr = String(schedule.section || "").trim();
+    if (/\bset\s+[ab]\b/i.test(secStr)) return true;
+    const nameStr = String(schedule.name || "").trim();
+    if (/\bset\s+[ab]\b/i.test(nameStr)) return true;
+
+    try {
+        const all = getSavedSchedules();
+        const hasLinkedSets = all.some(s => s.originalSection && s.originalSection.trim().toLowerCase() === secStr.toLowerCase());
+        if (hasLinkedSets) return true;
+    } catch (_) {}
+
+    return false;
+}
+
 function renderSavedSchedules() {
     /* Only non-archived schedules are shown in Saved Schedules (active, draft, and published).
        Archived schedules are displayed in the Schedule Archive section below. */
@@ -3895,7 +3997,7 @@ function renderSavedSchedules() {
 
                 <div class="schedule-card-actions">
                     ${schedule.status !== "published"
-                        ? `<button type="button" class="publish-schedule-card-btn" data-publish-schedule="${escapeHtml(schedule.id)}" style="background:#2e7d32;color:white;border:none;border-radius:8px;padding:7px 16px;font-weight:bold;font-size:13px;cursor:pointer;">Publish</button>`
+                        ? `<button type="button" class="publish-schedule-card-btn" data-publish-schedule="${escapeHtml(schedule.id)}" style="background:#2e7d32;color:white;border:none;border-radius:8px;padding:10px 16px;font-weight:bold;font-size:13px;cursor:pointer;">Publish</button>`
                         : ""
                     }
                     <button type="button" class="view-calendar-btn" data-view-calendar="${escapeHtml(schedule.id)}">
@@ -3904,6 +4006,14 @@ function renderSavedSchedules() {
                     <button type="button" class="edit-schedule-btn" data-edit-schedule="${escapeHtml(schedule.id)}">
                         Edit
                     </button>
+                    ${isScheduleSplit(schedule)
+                        ? `<button type="button" class="manage-sets-btn" data-manage-sets="${escapeHtml(schedule.id)}">
+                            Manage Sets
+                        </button>`
+                        : `<button type="button" class="split-sets-btn" data-split-schedule="${escapeHtml(schedule.id)}">
+                            Split into Sets
+                        </button>`
+                    }
                     <button type="button" class="delete-schedule-btn" data-delete-schedule="${escapeHtml(schedule.id)}">
                         Delete
                     </button>
@@ -3960,6 +4070,12 @@ function validateScheduleEdits(updatedEntries, schedule) {
     // Flatten updated entries into distinct meeting slots
     const slots = [];
     updatedEntries.forEach((entry, rowIdx) => {
+        if (!entry) return;
+        // Ignore TBA subjects that have no physical room/time (e.g. OJT, Practicum, SIP, Internship)
+        if (TBA_SUBJECT_CODES.has(entry.code) || (entry.room || "").trim().toUpperCase() === "TBA" || (entry.day || "").trim().toUpperCase() === "TBA" || (entry.day || "").trim().toUpperCase() === "MTWTHF") {
+            return;
+        }
+
         const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
         const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
         const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
@@ -4067,20 +4183,50 @@ function validateScheduleEdits(updatedEntries, schedule) {
     }
 
     // 4. Check against other saved active schedules in the same Academic Year & Semester
-    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(
-        b => (b.section || "").trim().toLowerCase() !== (schedule.section || "").trim().toLowerCase()
-    );
+    const targetSection = (schedule.section || "").trim().toLowerCase();
+    const origSection = (schedule.originalSection || "").trim().toLowerCase();
+    const cleanTarget = targetSection.replace(/\s+set\s+[ab]$/i, "").trim();
+    const schedId = schedule.id || "";
+    const schedGroupId = schedule.scheduleGroupId || "";
+
+    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(b => {
+        const bSec = (b.section || "").trim().toLowerCase();
+        const bOrig = (b.originalSection || "").trim().toLowerCase();
+        const cleanB = bSec.replace(/\s+set\s+[ab]$/i, "").trim();
+
+        // 1. Exclude the exact same section
+        if (bSec === targetSection) return false;
+
+        // 2. Exclude the original section being split / edited so Set A does not conflict with itself
+        if (origSection && (bSec === origSection || bOrig === origSection || cleanB === origSection)) return false;
+        if (cleanTarget && (cleanB === cleanTarget || bSec === cleanTarget)) return false;
+
+        // 3. Exclude by document ID or schedule ID
+        if (schedId && (b.scheduleId === schedId || b.id === schedId)) return false;
+
+        // 4. Exclude sibling sets in the same schedule group (cross-checks handled separately)
+        if (schedGroupId && b.scheduleGroupId && schedGroupId === b.scheduleGroupId) return false;
+
+        return true;
+    });
 
     slots.forEach(slot => {
         const roomName = (slot.room || "").trim().toLowerCase();
         if (!roomName) return;
-
         const isGym = isActivityGymOrCourtRoom(roomName);
-        const matching = otherBookings.filter(b =>
-            (b.room || "").trim().toLowerCase() === roomName &&
-            (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
-            timesOverlap(b.time, slot.time)
-        );
+
+        const matching = otherBookings.filter(b => {
+            // Sibling sets sharing a minor subject session are NOT a conflict (one class session)
+            const isSharedSession = (slot.scheduleGroupId && b.scheduleGroupId && slot.scheduleGroupId === b.scheduleGroupId && slot.code === b.code) ||
+                                    (schedule.scheduleGroupId && b.scheduleGroupId && schedule.scheduleGroupId === b.scheduleGroupId && slot.code === b.code) ||
+                                    (schedule.originalSection && b.originalSection && schedule.originalSection === b.originalSection && slot.code === b.code) ||
+                                    (cleanTarget && (b.section || "").toLowerCase().includes(cleanTarget) && slot.code === b.code);
+            if (isSharedSession) return false;
+
+            return (b.room || "").trim().toLowerCase() === roomName &&
+                (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
+                timesOverlap(b.time, slot.time);
+        });
 
         if (isGym) {
             // Activity / Gymnasium / Covered Court allows up to 2 simultaneous sections
@@ -4144,11 +4290,17 @@ function validateScheduleEdits(updatedEntries, schedule) {
     // 6. Check against other saved active schedules for faculty overlaps
     slots.forEach(slot => {
         if (!slot.faculty || slot.faculty === "Unassigned" || slot.faculty === "TBA") return;
-        const matchingFac = otherBookings.filter(b =>
-            sameFaculty(b.faculty, slot.faculty) &&
-            (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
-            timesOverlap(b.time, slot.time)
-        );
+        const matchingFac = otherBookings.filter(b => {
+            const isSharedSession = (slot.scheduleGroupId && b.scheduleGroupId && slot.scheduleGroupId === b.scheduleGroupId && slot.code === b.code) ||
+                                    (schedule.scheduleGroupId && b.scheduleGroupId && schedule.scheduleGroupId === b.scheduleGroupId && slot.code === b.code) ||
+                                    (schedule.originalSection && b.originalSection && schedule.originalSection === b.originalSection && slot.code === b.code) ||
+                                    (cleanTarget && (b.section || "").toLowerCase().includes(cleanTarget) && slot.code === b.code);
+            if (isSharedSession) return false;
+
+            return sameFaculty(b.faculty, slot.faculty) &&
+                (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
+                timesOverlap(b.time, slot.time);
+        });
         if (matchingFac.length > 0) {
             const bookedSecs = [...new Set(matchingFac.map(b => `${b.section || "Another section"} (${b.code || ""})`))].join(", ");
             conflicts.push(`Faculty Conflict on <strong>${escapeHtml(slot.day)}</strong>: <strong>${escapeHtml(slot.faculty)}</strong> is already assigned to <strong>${escapeHtml(bookedSecs)}</strong> during <strong>${escapeHtml(slot.time)}</strong>.`);
@@ -4163,6 +4315,53 @@ function validateScheduleEdits(updatedEntries, schedule) {
             });
         }
     });
+
+    // 7. Check against any explicitly provided extra bookings (e.g. Set A major schedule baseline)
+    if (Array.isArray(schedule.extraBookings) && schedule.extraBookings.length > 0) {
+        slots.forEach(slot => {
+            const roomName = (slot.room || "").trim().toLowerCase();
+            const isGym = isActivityGymOrCourtRoom(roomName);
+
+            schedule.extraBookings.forEach(b => {
+                if (!b.day || normalizeDayName(b.day).toLowerCase() !== normalizeDayName(slot.day).toLowerCase()) return;
+                if (!b.time || !timesOverlap(b.time, slot.time)) return;
+
+                // Room collision with Set A major
+                if (roomName && (b.room || "").trim().toLowerCase() === roomName) {
+                    if (!isGym) {
+                        conflicts.push(`Cross-Set Room Collision on <strong>${escapeHtml(slot.day)}</strong>: Set B <strong>${escapeHtml(slot.code)}</strong> conflicts with Set A <strong>${escapeHtml(b.code)}</strong> in room <strong>${escapeHtml(slot.room)}</strong> at ${escapeHtml(slot.time)}.`);
+                        conflictRowIndices.add(slot.rowIdx);
+                        detailedConflicts.push({
+                            type: "ROOM_CONFLICT",
+                            rowIdx: slot.rowIdx,
+                            slotIdx: slot.slotIdx,
+                            slot,
+                            otherSlot: b,
+                            room: slot.room,
+                            day: slot.day,
+                            time: slot.time
+                        });
+                    }
+                }
+
+                // Faculty collision with Set A major
+                if (slot.faculty && b.faculty && sameFaculty(slot.faculty, b.faculty) && slot.faculty !== "Unassigned" && slot.faculty !== "TBA") {
+                    conflicts.push(`Cross-Set Faculty Clash on <strong>${escapeHtml(slot.day)}</strong>: <strong>${escapeHtml(slot.faculty)}</strong> is assigned simultaneously to Set B <strong>${escapeHtml(slot.code)}</strong> and Set A <strong>${escapeHtml(b.code)}</strong> at overlapping times.`);
+                    conflictRowIndices.add(slot.rowIdx);
+                    detailedConflicts.push({
+                        type: "FACULTY_CONFLICT",
+                        rowIdx: slot.rowIdx,
+                        slotIdx: slot.slotIdx,
+                        slot,
+                        otherSlot: b,
+                        faculty: slot.faculty,
+                        day: slot.day,
+                        time: slot.time
+                    });
+                }
+            });
+        });
+    }
 
     return {
         isValid: conflicts.length === 0,
@@ -4207,11 +4406,15 @@ function normalizeDayName(d) {
  * 1. other rows within this edited schedule
  * 2. other saved active schedules for the same Academic Year & Semester
  */
-function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, proposedFaculty, rowIdx, slotIdx, schedule, currentRows) {
+function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, proposedFaculty, rowIdx, slotIdx, schedule, currentRows, options = {}) {
     const pDay = normalizeDayName(proposedDay);
     const pTime = proposedTime ? proposedTime.trim() : "";
     const pRoom = proposedRoom ? proposedRoom.trim() : "";
     const pFaculty = proposedFaculty ? proposedFaculty.trim() : "";
+
+    const checkRoom = options.checkRoom !== false;
+    const checkFaculty = options.checkFaculty !== false;
+    const checkSection = options.checkSection !== false;
 
     const timeRange = parseTimeRange(pTime);
     if (!timeRange) return false;
@@ -4234,16 +4437,16 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
 
             if (day.toLowerCase() === pDay.toLowerCase() && timesOverlap(time, pTime)) {
                 // Section time overlap (same section has 2 classes at once)
-                if (r !== rowIdx) return false;
+                if (checkSection && r !== rowIdx) return false;
 
                 // Room double-booking within this section
                 const isGym = isActivityGymOrCourtRoom(pRoom);
-                if (!isGym && pRoom && room && pRoom.toLowerCase() === room.toLowerCase()) {
+                if (checkRoom && !isGym && pRoom && room && pRoom.toLowerCase() === room.toLowerCase()) {
                     return false;
                 }
 
                 // Faculty double-booking within this section
-                if (pFaculty && faculty && sameFaculty(pFaculty, faculty)) {
+                if (checkFaculty && pFaculty && faculty && sameFaculty(pFaculty, faculty)) {
                     return false;
                 }
             }
@@ -4251,32 +4454,68 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
     }
 
     // Check against other active schedules in the same AY & Semester
-    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(
-        b => (b.section || "").trim().toLowerCase() !== (schedule.section || "").trim().toLowerCase()
-    );
+    const targetSection = (schedule.section || "").trim().toLowerCase();
+    const origSection = (schedule.originalSection || "").trim().toLowerCase();
+    const cleanTarget = targetSection.replace(/\s+set\s+[ab]$/i, "").trim();
+    const schedId = schedule.id || "";
+    const schedGroupId = schedule.scheduleGroupId || "";
+
+    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(b => {
+        const bSec = (b.section || "").trim().toLowerCase();
+        const bOrig = (b.originalSection || "").trim().toLowerCase();
+        const cleanB = bSec.replace(/\s+set\s+[ab]$/i, "").trim();
+
+        if (bSec === targetSection) return false;
+        if (origSection && (bSec === origSection || bOrig === origSection || cleanB === origSection)) return false;
+        if (cleanTarget && (cleanB === cleanTarget || bSec === cleanTarget)) return false;
+        if (schedId && (b.scheduleId === schedId || b.id === schedId)) return false;
+        if (schedGroupId && b.scheduleGroupId && schedGroupId === b.scheduleGroupId) return false;
+        return true;
+    });
 
     for (const b of otherBookings) {
         if (!b.day || normalizeDayName(b.day).toLowerCase() !== pDay.toLowerCase()) continue;
         if (!b.time || !timesOverlap(b.time, pTime)) continue;
 
         // Room conflict
-        const isGym = isActivityGymOrCourtRoom(pRoom);
-        if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
-            if (isGym) {
-                const count = otherBookings.filter(ob =>
-                    normalizeDayName(ob.day).toLowerCase() === pDay.toLowerCase() &&
-                    (ob.room || "").toLowerCase() === pRoom.toLowerCase() &&
-                    timesOverlap(ob.time, pTime)
-                ).length;
-                if (count >= 2) return false;
-            } else {
-                return false;
+        if (checkRoom) {
+            const isGym = isActivityGymOrCourtRoom(pRoom);
+            if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
+                if (isGym) {
+                    const count = otherBookings.filter(ob =>
+                        normalizeDayName(ob.day).toLowerCase() === pDay.toLowerCase() &&
+                        (ob.room || "").toLowerCase() === pRoom.toLowerCase() &&
+                        timesOverlap(ob.time, pTime)
+                    ).length;
+                    if (count >= 2) return false;
+                } else {
+                    return false;
+                }
             }
         }
 
         // Faculty conflict
-        if (pFaculty && b.faculty && sameFaculty(pFaculty, b.faculty)) {
+        if (checkFaculty && pFaculty && b.faculty && sameFaculty(pFaculty, b.faculty)) {
             return false;
+        }
+    }
+
+    // Check against any explicitly provided extra bookings (e.g. Set A major schedule baseline)
+    if (Array.isArray(schedule.extraBookings)) {
+        for (const b of schedule.extraBookings) {
+            if (!b.day || normalizeDayName(b.day).toLowerCase() !== pDay.toLowerCase()) continue;
+            if (!b.time || !timesOverlap(b.time, pTime)) continue;
+
+            if (checkRoom) {
+                const isGym = isActivityGymOrCourtRoom(pRoom);
+                if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
+                    if (!isGym) return false;
+                }
+            }
+
+            if (checkFaculty && pFaculty && b.faculty && sameFaculty(pFaculty, b.faculty) && pFaculty !== "Unassigned" && pFaculty !== "TBA") {
+                return false;
+            }
         }
     }
 
@@ -4288,7 +4527,7 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
  * 1. Faculty Suggestions
  * 2. Time Slot Suggestions
  * 3. Room Suggestions
- * 4. Combined Solution
+ * 4. Combined Solutions
  */
 function generateConflictResolutions(validation, schedule, currentRows) {
     const { detailedConflicts, slots } = validation;
@@ -4383,7 +4622,7 @@ function generateConflictResolutions(validation, schedule, currentRows) {
         handledTimeSlots.add(key);
 
         const isActivity = isActivityEntry(slot) || isActivityGymOrCourtRoom(slot.room);
-        const slotList = isActivity ? activitySlots : (minorSlots.includes(slot.time) ? minorSlots : majorSlots);
+        const slotList = isActivity ? activitySlots : getCandidateTimeSlotsForDuration(slot.time);
 
         for (const candDay of days) {
             for (const candTime of slotList) {
@@ -4437,7 +4676,7 @@ function generateConflictResolutions(validation, schedule, currentRows) {
 
         const candidateRooms = allRooms.filter(r => {
             const rName = (r.roomName || r.roomCode || "").trim();
-            if (rName.toLowerCase() === slot.room.trim().toLowerCase()) return false;
+            if (rName.toLowerCase() === (slot.room || "").trim().toLowerCase()) return false;
             if (targetType === "Gymnasium") {
                 return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(rName);
             }
@@ -4449,7 +4688,8 @@ function generateConflictResolutions(validation, schedule, currentRows) {
 
         for (const cr of candidateRooms) {
             const candRoomName = cr.roomName || cr.roomCode;
-            const isFree = testProposedSlotValidity(
+            // Test if the candidate room itself is unoccupied on this day and time
+            const isRoomFree = testProposedSlotValidity(
                 slot.day,
                 slot.time,
                 candRoomName,
@@ -4457,11 +4697,29 @@ function generateConflictResolutions(validation, schedule, currentRows) {
                 slot.rowIdx,
                 slot.slotIdx,
                 schedule,
-                currentRows
+                currentRows,
+                { checkFaculty: false }
             );
 
-            if (isFree) {
+            if (isRoomFree) {
+                const isFacFree = testProposedSlotValidity(
+                    slot.day,
+                    slot.time,
+                    candRoomName,
+                    slot.faculty,
+                    slot.rowIdx,
+                    slot.slotIdx,
+                    schedule,
+                    currentRows,
+                    { checkRoom: false }
+                );
+
                 const capText = cr.capacity ? `Capacity: ${cr.capacity} seats` : "Standard capacity";
+                const statusText = isFacFree ? "Unoccupied & Suitable" : "Room Unoccupied (Faculty Clash)";
+                const explanation = isFacFree
+                    ? `${candRoomName} (${cr.roomType || "Room"}, ${capText}) is unoccupied on ${slot.day} (${slot.time}) and accommodates section requirements.`
+                    : `${candRoomName} (${cr.roomType || "Room"}) is unoccupied on ${slot.day} (${slot.time}). (Note: ${slot.faculty || "Faculty"} also has a schedule clash at this hour; consider using a Combined Solution).`;
+
                 recommendations.room.push({
                     rowIdx: slot.rowIdx,
                     slotIdx: slot.slotIdx,
@@ -4473,27 +4731,31 @@ function generateConflictResolutions(validation, schedule, currentRows) {
                     day: slot.day,
                     time: slot.time,
                     faculty: slot.faculty,
-                    statusText: "Unoccupied & Suitable",
-                    explanation: `${candRoomName} (${cr.roomType || "Room"}, ${capText}) is unoccupied on ${slot.day} (${slot.time}) and accommodates section requirements.`
+                    statusText,
+                    explanation
                 });
                 if (recommendations.room.length >= 4) break;
             }
         }
     }
 
-    // 4. COMBINED SOLUTION
-    // Find a comprehensive solution that resolves all conflicts with fewest changes
+    // 4. COMBINED SOLUTIONS
+    // Find comprehensive solutions across all conflicted subjects to resolve all conflicts cleanly
     const uniqueConflictedRowIndices = [...new Set(detailedConflicts.map(c => c.rowIdx))];
-    if (uniqueConflictedRowIndices.length > 0) {
-        const targetRowIdx = uniqueConflictedRowIndices[0];
+    for (const targetRowIdx of uniqueConflictedRowIndices.slice(0, 3)) {
         const targetRow = currentRows[targetRowIdx];
+        if (!targetRow) continue;
 
-        if (targetRow) {
-            const targetDays = String(targetRow.day || "").split(" / ").map(d => normalizeDayName(d)).filter(Boolean);
-            const targetTimes = String(targetRow.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
-            const targetRooms = String(targetRow.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
-            const slotIdx = 0;
+        const targetDays = String(targetRow.day || "").split(" / ").map(d => normalizeDayName(d)).filter(Boolean);
+        const targetTimes = String(targetRow.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+        const targetRooms = String(targetRow.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
 
+        // Find which slotIdx in this row actually has the conflict
+        const rowConflicts = detailedConflicts.filter(c => c.rowIdx === targetRowIdx);
+        const slotIndicesToFix = [...new Set(rowConflicts.map(c => c.slotIdx !== undefined ? c.slotIdx : 0))];
+        if (slotIndicesToFix.length === 0) slotIndicesToFix.push(0);
+
+        for (const slotIdx of slotIndicesToFix) {
             const curDay = targetDays[slotIdx] || targetDays[0] || normalizeDayName(targetRow.day);
             const curTime = targetTimes[slotIdx] || targetTimes[0] || targetRow.time;
             const curRoom = targetRooms[slotIdx] || targetRooms[0] || targetRow.room;
@@ -4533,11 +4795,11 @@ function generateConflictResolutions(validation, schedule, currentRows) {
             ];
 
             const isActivity = isActivityEntry(targetRow) || isActivityGymOrCourtRoom(curRoom);
-            const slotList = isActivity ? activitySlots : (minorSlots.includes(curTime) ? minorSlots : majorSlots);
+            const slotList = isActivity ? activitySlots : getCandidateTimeSlotsForDuration(curTime);
 
-            let bestCombined = null;
-            let fewestChanges = Infinity;
+            const rowSolutions = [];
 
+            outerLoop:
             for (const candFac of facultyOptions) {
                 for (const candDay of [curDay, ...days.filter(d => d !== curDay)]) {
                     for (const candTime of [curTime, ...slotList.filter(t => t !== curTime)]) {
@@ -4572,9 +4834,8 @@ function generateConflictResolutions(validation, schedule, currentRows) {
                                     changes.push(`Faculty: ${candFac.name}`);
                                 }
 
-                                if (changeCount > 0 && changeCount < fewestChanges) {
-                                    fewestChanges = changeCount;
-                                    bestCombined = {
+                                if (changeCount > 0) {
+                                    rowSolutions.push({
                                         rowIdx: targetRowIdx,
                                         slotIdx,
                                         subjectCode: targetRow.code,
@@ -4584,23 +4845,22 @@ function generateConflictResolutions(validation, schedule, currentRows) {
                                         proposedRoom: rName,
                                         proposedFaculty: candFac.name,
                                         facultyUid: candFac.uid || "",
+                                        changeCount,
                                         changesSummary: changes.join(" • "),
                                         statusText: "Fully Resolved (0 Conflicts)",
                                         explanation: `Adjusts ${changes.join(", ")} to eliminate all blocking conflicts while maintaining curriculum and room rules.`
-                                    };
+                                    });
+
+                                    if (rowSolutions.length >= 2) break outerLoop;
                                 }
                             }
                         }
-                        if (bestCombined && fewestChanges <= 1) break;
                     }
-                    if (bestCombined && fewestChanges <= 1) break;
                 }
-                if (bestCombined && fewestChanges <= 1) break;
             }
 
-            if (bestCombined) {
-                recommendations.combined.push(bestCombined);
-            }
+            rowSolutions.sort((a, b) => a.changeCount - b.changeCount);
+            rowSolutions.forEach(sol => recommendations.combined.push(sol));
         }
     }
 
@@ -4655,6 +4915,7 @@ function renderConflictResolutionsUI(recommendations) {
                             <button type="button" class="suggestion-apply-btn apply-faculty-btn"
                                 data-row-idx="${f.rowIdx}"
                                 data-slot-idx="${f.slotIdx}"
+                                data-code="${escapeHtml(f.subjectCode)}"
                                 data-faculty-name="${escapeHtml(f.facultyName)}"
                                 data-faculty-uid="${escapeHtml(f.facultyUid || '')}">
                                 <span>✓</span> Use This Faculty
@@ -4692,6 +4953,7 @@ function renderConflictResolutionsUI(recommendations) {
                             <button type="button" class="suggestion-apply-btn apply-time-btn"
                                 data-row-idx="${t.rowIdx}"
                                 data-slot-idx="${t.slotIdx}"
+                                data-code="${escapeHtml(t.subjectCode)}"
                                 data-day="${escapeHtml(t.proposedDay)}"
                                 data-time="${escapeHtml(t.proposedTime)}">
                                 <span>📅</span> Apply This Time
@@ -4729,6 +4991,7 @@ function renderConflictResolutionsUI(recommendations) {
                             <button type="button" class="suggestion-apply-btn apply-room-btn"
                                 data-row-idx="${r.rowIdx}"
                                 data-slot-idx="${r.slotIdx}"
+                                data-code="${escapeHtml(r.subjectCode)}"
                                 data-room="${escapeHtml(r.proposedRoom)}">
                                 <span>🏫</span> Apply This Room
                             </button>
@@ -4766,6 +5029,7 @@ function renderConflictResolutionsUI(recommendations) {
                             <button type="button" class="suggestion-apply-btn combined-btn apply-combined-btn"
                                 data-row-idx="${c.rowIdx}"
                                 data-slot-idx="${c.slotIdx}"
+                                data-code="${escapeHtml(c.subjectCode)}"
                                 data-day="${escapeHtml(c.proposedDay)}"
                                 data-time="${escapeHtml(c.proposedTime)}"
                                 data-room="${escapeHtml(c.proposedRoom)}"
@@ -4955,6 +5219,7 @@ function openEditScheduleModal(scheduleId) {
 
     if (editScheduleModal) {
         editScheduleModal.style.display = "flex";
+        runLiveEditConflictCheck();
     }
 }
 
@@ -4975,9 +5240,7 @@ if (editScheduleTableBody) {
     const triggerLiveCheck = () => {
         if (editConflictDebounceTimer) clearTimeout(editConflictDebounceTimer);
         editConflictDebounceTimer = setTimeout(() => {
-            if (editScheduleConflicts && editScheduleConflicts.style.display !== "none") {
-                runLiveEditConflictCheck();
-            }
+            runLiveEditConflictCheck();
         }, 250);
     };
 
@@ -5001,8 +5264,13 @@ if (editScheduleConflicts) {
         const facBtn = e.target.closest(".apply-faculty-btn");
         if (facBtn) {
             const rowIdx = parseInt(facBtn.dataset.rowIdx, 10);
+            const code = facBtn.dataset.code || "";
             const facultyName = facBtn.dataset.facultyName || "";
-            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            const row = editScheduleTableBody ? (
+                editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? editScheduleTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
             if (row) {
                 const facSelect = row.querySelector(".edit-faculty-select");
                 if (facSelect) {
@@ -5017,8 +5285,12 @@ if (editScheduleConflicts) {
                     }
                     if (matchedOpt) {
                         facSelect.value = matchedOpt.value;
+                        matchedOpt.selected = true;
                     }
+                    facSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                    facSelect.dispatchEvent(new Event("input", { bubbles: true }));
                     runLiveEditConflictCheck();
+                    showToast(`Applied faculty: ${facultyName}`);
                 }
             }
             return;
@@ -5029,9 +5301,14 @@ if (editScheduleConflicts) {
         if (timeBtn) {
             const rowIdx = parseInt(timeBtn.dataset.rowIdx, 10);
             const slotIdx = parseInt(timeBtn.dataset.slotIdx, 10) || 0;
+            const code = timeBtn.dataset.code || "";
             const newDay = timeBtn.dataset.day || "";
             const newTime = timeBtn.dataset.time || "";
-            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            const row = editScheduleTableBody ? (
+                editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? editScheduleTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
             if (row) {
                 const dayInput = row.querySelector(".edit-day-input");
                 const timeInput = row.querySelector(".edit-time-input");
@@ -5053,7 +5330,12 @@ if (editScheduleConflicts) {
                         timeInput.value = newTime;
                     }
 
+                    dayInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    dayInput.dispatchEvent(new Event("change", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("change", { bubbles: true }));
                     runLiveEditConflictCheck();
+                    showToast(`Applied schedule: ${newDay} (${newTime})`);
                 }
             }
             return;
@@ -5064,8 +5346,13 @@ if (editScheduleConflicts) {
         if (roomBtn) {
             const rowIdx = parseInt(roomBtn.dataset.rowIdx, 10);
             const slotIdx = parseInt(roomBtn.dataset.slotIdx, 10) || 0;
+            const code = roomBtn.dataset.code || "";
             const newRoom = roomBtn.dataset.room || "";
-            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            const row = editScheduleTableBody ? (
+                editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? editScheduleTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
             if (row) {
                 const roomInput = row.querySelector(".edit-room-input");
                 if (roomInput) {
@@ -5076,7 +5363,10 @@ if (editScheduleConflicts) {
                     } else {
                         roomInput.value = newRoom;
                     }
+                    roomInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    roomInput.dispatchEvent(new Event("change", { bubbles: true }));
                     runLiveEditConflictCheck();
+                    showToast(`Applied room: ${newRoom}`);
                 }
             }
             return;
@@ -5087,18 +5377,23 @@ if (editScheduleConflicts) {
         if (combinedBtn) {
             const rowIdx = parseInt(combinedBtn.dataset.rowIdx, 10);
             const slotIdx = parseInt(combinedBtn.dataset.slotIdx, 10) || 0;
+            const code = combinedBtn.dataset.code || "";
             const newDay = combinedBtn.dataset.day || "";
             const newTime = combinedBtn.dataset.time || "";
             const newRoom = combinedBtn.dataset.room || "";
             const newFaculty = combinedBtn.dataset.facultyName || "";
-            const row = editScheduleTableBody ? editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) : null;
+            const row = editScheduleTableBody ? (
+                editScheduleTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? editScheduleTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
             if (row) {
                 const dayInput = row.querySelector(".edit-day-input");
                 const timeInput = row.querySelector(".edit-time-input");
                 const roomInput = row.querySelector(".edit-room-input");
                 const facSelect = row.querySelector(".edit-faculty-select");
 
-                if (dayInput) {
+                if (dayInput && newDay) {
                     const daysArr = dayInput.value.split(" / ").map(d => d.trim()).filter(Boolean);
                     if (daysArr.length > 1 && slotIdx < daysArr.length) {
                         daysArr[slotIdx] = newDay;
@@ -5106,9 +5401,11 @@ if (editScheduleConflicts) {
                     } else {
                         dayInput.value = newDay;
                     }
+                    dayInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    dayInput.dispatchEvent(new Event("change", { bubbles: true }));
                 }
 
-                if (timeInput) {
+                if (timeInput && newTime) {
                     const timesArr = timeInput.value.split(" / ").map(t => t.trim()).filter(Boolean);
                     if (timesArr.length > 1 && slotIdx < timesArr.length) {
                         timesArr[slotIdx] = newTime;
@@ -5116,9 +5413,11 @@ if (editScheduleConflicts) {
                     } else {
                         timeInput.value = newTime;
                     }
+                    timeInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("change", { bubbles: true }));
                 }
 
-                if (roomInput) {
+                if (roomInput && newRoom) {
                     const roomsArr = roomInput.value.split(" / ").map(r => r.trim()).filter(Boolean);
                     if (roomsArr.length > 1 && slotIdx < roomsArr.length) {
                         roomsArr[slotIdx] = newRoom;
@@ -5126,6 +5425,8 @@ if (editScheduleConflicts) {
                     } else {
                         roomInput.value = newRoom;
                     }
+                    roomInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    roomInput.dispatchEvent(new Event("change", { bubbles: true }));
                 }
 
                 if (facSelect && newFaculty) {
@@ -5140,7 +5441,10 @@ if (editScheduleConflicts) {
                     }
                     if (matchedOpt) {
                         facSelect.value = matchedOpt.value;
+                        matchedOpt.selected = true;
                     }
+                    facSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                    facSelect.dispatchEvent(new Event("input", { bubbles: true }));
                 }
 
                 runLiveEditConflictCheck();
@@ -5294,6 +5598,76 @@ if (saveEditScheduleBtn) {
             } else {
                 allSchedules.push(schedule);
             }
+
+            /* Synchronize shared minor subjects and activities across sibling sets if split */
+            if (schedule.isSplit || schedule.scheduleGroupId) {
+                const grpId = schedule.scheduleGroupId;
+                const origSec = (schedule.originalSection || schedule.section.replace(/\s+set\s+[ab]$/i, "")).trim().toLowerCase();
+                const siblingSchedules = allSchedules.filter(s =>
+                    s.id !== schedule.id &&
+                    scheduleDocId(s) !== scheduleDocId(schedule) &&
+                    ((grpId && s.scheduleGroupId === grpId) || ((s.originalSection || s.section.replace(/\s+set\s+[ab]$/i, "")).trim().toLowerCase() === origSec))
+                );
+
+                for (const sibling of siblingSchedules) {
+                    let sibChanged = false;
+                    const classifications = schedule.subjectClassifications || sibling.subjectClassifications || {};
+
+                    updatedEntries.forEach(upEntry => {
+                        const type = classifications[upEntry.code] || (isActivityEntry(upEntry) ? "Activity" : "");
+                        const isShared = (type === "Minor" || type === "Activity" || String(type).toLowerCase().includes("minor") || isActivityEntry(upEntry));
+
+                        if (isShared && Array.isArray(sibling.entries)) {
+                            const sibEntry = sibling.entries.find(e => e.code === upEntry.code);
+                            if (sibEntry) {
+                                if (sibEntry.day !== upEntry.day || sibEntry.time !== upEntry.time || sibEntry.room !== upEntry.room || sibEntry.faculty !== upEntry.faculty) {
+                                    sibEntry.day = upEntry.day;
+                                    sibEntry.time = upEntry.time;
+                                    sibEntry.room = upEntry.room;
+                                    sibEntry.faculty = upEntry.faculty;
+                                    sibEntry.facultyUid = upEntry.facultyUid;
+                                    sibEntry.facultyId = upEntry.facultyId;
+                                    sibChanged = true;
+                                }
+                            }
+                        }
+                    });
+
+                    if (sibChanged) {
+                        const sibRaw = [];
+                        sibling.entries.forEach(entry => {
+                            const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+                            const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+                            const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+                            const maxLen = Math.max(days.length, times.length, rooms.length, 1);
+                            for (let i = 0; i < maxLen; i++) {
+                                sibRaw.push({
+                                    code: entry.code,
+                                    name: entry.name,
+                                    units: entry.units,
+                                    day: days[i] || days[0] || entry.day,
+                                    time: times[i] || times[0] || entry.time,
+                                    room: rooms[i] || rooms[0] || entry.room,
+                                    roomCode: "",
+                                    faculty: entry.faculty || "Unassigned",
+                                    facultyUid: entry.facultyUid || "",
+                                    facultyId: entry.facultyId || "",
+                                    section: sibling.section || ""
+                                });
+                            }
+                        });
+                        sibling.rawEntries = sibRaw;
+                        sibling.updatedAt = new Date().toISOString();
+                        try {
+                            await saveScheduleToFirestore(sibling);
+                            console.log("Synchronized shared subjects to sibling set in Firestore:", sibling.id);
+                        } catch (sibErr) {
+                            console.warn("Could not synchronize sibling schedule in Firestore:", sibErr);
+                        }
+                    }
+                }
+            }
+
             setSavedSchedules(allSchedules);
 
             renderSavedSchedules();
@@ -5357,7 +5731,1424 @@ document.addEventListener("keydown", e => {
     if (e.key === "Escape" && classCalendarModal?.style.display === "flex") closeClassCalendarModal();
 });
 
+/* ------------------------------------------------------------------ */
+/*  Split Section into Set A & Set B Subsystem                        */
+/* ------------------------------------------------------------------ */
+
+const splitScheduleModal = document.getElementById("splitScheduleModal");
+const splitModalTitle = document.getElementById("splitModalTitle");
+const splitModalSubtitle = document.getElementById("splitModalSubtitle");
+const closeSplitScheduleModalBtn = document.getElementById("closeSplitScheduleModalBtn");
+const cancelSplitScheduleBtn = document.getElementById("cancelSplitScheduleBtn");
+const confirmSplitScheduleBtn = document.getElementById("confirmSplitScheduleBtn");
+const splitTabClassificationBtn = document.getElementById("splitTabClassificationBtn");
+const splitTabSetsPreviewBtn = document.getElementById("splitTabSetsPreviewBtn");
+const splitTabClassificationContent = document.getElementById("splitTabClassificationContent");
+const splitTabSetsPreviewContent = document.getElementById("splitTabSetsPreviewContent");
+const splitClassificationTableBody = document.getElementById("splitClassificationTableBody");
+const unconfirmedAlert = document.getElementById("unconfirmedAlert");
+const proceedToSetsPreviewBtn = document.getElementById("proceedToSetsPreviewBtn");
+const setACardTitle = document.getElementById("setACardTitle");
+const setBCardTitle = document.getElementById("setBCardTitle");
+const splitSetATableBody = document.getElementById("splitSetATableBody");
+const splitSetBTableBody = document.getElementById("splitSetBTableBody");
+const splitConflictsBanner = document.getElementById("splitConflictsBanner");
+const splitAmbiguousAlert = document.getElementById("splitAmbiguousAlert");
+const splitResolutionsContainer = document.getElementById("splitResolutionsContainer");
+
+let currentSplitContext = null;
+
+async function fetchProspectusClassifications(schedule) {
+    const map = new Map();
+    try {
+        let q;
+        const semNum = parseInt(String(schedule.semester || "").replace(/\D/g, ""), 10);
+        if (!isNaN(semNum) && semNum > 0) {
+            q = query(collection(db, "prospectus"), where("semester", "==", semNum));
+        } else {
+            q = collection(db, "prospectus");
+        }
+        const snap = await getDocs(q);
+        snap.forEach(d => {
+            const data = d.data();
+            if (data.subjectCode) {
+                const codeKey = String(data.subjectCode).trim().toUpperCase();
+                map.set(codeKey, {
+                    subjectCode: data.subjectCode,
+                    subjectName: data.subjectName || "",
+                    programCode: data.programCode || "",
+                    majorCode: data.majorCode || "",
+                    yearLevel: data.yearLevel,
+                    semester: data.semester,
+                    subjectType: data.subjectType || "",
+                    meetingType: data.meetingType || "",
+                    requiredRoomType: data.requiredRoomType || ""
+                });
+            }
+        });
+    } catch (err) {
+        console.warn("Could not fetch prospectus for classifications:", err);
+    }
+    return map;
+}
+
+function resolveSubjectClassification(entry, prospectusMap, savedClassifications = {}) {
+    const code = String(entry.code || "").trim();
+    const codeKey = code.toUpperCase();
+
+    if (savedClassifications && savedClassifications[code]) {
+        const saved = savedClassifications[code];
+        const isActivity = saved === "Activity" || isActivityEntry(entry);
+        return {
+            type: saved === "Major" ? "Major" : (isActivity ? "Activity" : "Minor"),
+            foundInProspectus: true,
+            sourceLabel: "Saved Classification",
+            needsConfirmation: false
+        };
+    }
+
+    const p = prospectusMap.get(codeKey);
+    if (p) {
+        const rawType = String(p.subjectType || "").trim().toLowerCase();
+        const rawMeeting = String(p.meetingType || "").trim().toLowerCase();
+        const rawRoom = String(p.requiredRoomType || "").trim().toLowerCase();
+
+        if (rawType === "major") {
+            return {
+                type: "Major",
+                foundInProspectus: true,
+                sourceLabel: "Curriculum (Prospectus: Major)",
+                needsConfirmation: false
+            };
+        } else if (rawType === "minor") {
+            if (rawMeeting.includes("activity") || rawRoom.includes("gym") || isActivityEntry(entry)) {
+                return {
+                    type: "Activity",
+                    foundInProspectus: true,
+                    sourceLabel: "Curriculum (Prospectus: Activity)",
+                    needsConfirmation: false
+                };
+            }
+            return {
+                type: "Minor",
+                foundInProspectus: true,
+                sourceLabel: "Curriculum (Prospectus: Minor)",
+                needsConfirmation: false
+            };
+        } else if (rawMeeting.includes("activity") || isActivityEntry(entry)) {
+            return {
+                type: "Activity",
+                foundInProspectus: true,
+                sourceLabel: "Curriculum (Activity Rule)",
+                needsConfirmation: false
+            };
+        }
+    }
+
+    if (isActivityEntry(entry) || isActivityGymOrCourtRoom(entry.room)) {
+        return {
+            type: "Activity",
+            foundInProspectus: true,
+            sourceLabel: "Physical Activity / PE",
+            needsConfirmation: false
+        };
+    }
+
+    // Unclassified or missing from prospectus: infer sensible default and flag as ambiguous
+    const isGE = /^(GE|GEC|NSTP|FIL|ENG|MATH|SOC|HIST|CWTS|ROTC)/i.test(codeKey) || /general education|nstp|filipino|contemporary|purposive|ethics|understanding the self|readings in/i.test(entry.name || "");
+    const isAct = isActivityEntry(entry) || /^(PE|PATHFIT|PATH FIT)/i.test(codeKey);
+    const inferredType = isAct ? "Activity" : (isGE ? "Minor" : "Major");
+
+    return {
+        type: inferredType,
+        foundInProspectus: false,
+        isAmbiguous: true,
+        sourceLabel: "Inferred (Missing from Curriculum)",
+        needsConfirmation: false
+    };
+}
+
+function buildSplitFacultyOptions(selectedFaculty, facultyUid, subjectCode, scheduleMeta) {
+    const entryCriteria = {
+        subjectCode: subjectCode || "",
+        programCode: scheduleMeta.program || "",
+        majorCode: scheduleMeta.major || "",
+        yearLevel: scheduleMeta.yearLevel || "",
+        semester: scheduleMeta.semester || "",
+        section: scheduleMeta.section || ""
+    };
+    const eligible = (allFacultyMembers || []).filter(f => {
+        const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+        return isFacultyEligibleForSubject(handled, entryCriteria);
+    });
+    const list = [...eligible];
+    if (selectedFaculty && !list.some(f => sameFaculty(selectedFaculty, f.name) || (facultyUid && facultyUid === f.uid))) {
+        const currentFac = (allFacultyMembers || []).find(f => sameFaculty(selectedFaculty, f.name) || (facultyUid && facultyUid === f.uid));
+        if (currentFac) list.unshift(currentFac);
+    }
+    return `
+        <option value="">-- Unassigned --</option>
+        ${list.map(f => `
+            <option value="${escapeHtml(f.name)}" data-uid="${escapeHtml(f.uid || '')}" data-employee-id="${escapeHtml(f.employeeId || '')}" ${(selectedFaculty && (sameFaculty(selectedFaculty, f.name) || facultyUid === f.uid)) ? 'selected' : ''}>
+                ${escapeHtml(f.name)}${f.employeeId ? ' (' + escapeHtml(f.employeeId) + ')' : ''}
+            </option>
+        `).join("")}
+    `;
+}
+
+function getCandidateTimeSlotsForDuration(origTimeStr) {
+    const parsed = parseTimeRange(origTimeStr);
+    const duration = parsed ? (parsed.end - parsed.start) : 150;
+
+    if (Math.abs(duration - 90) <= 15) {
+        return [...minorSlots];
+    }
+    if (Math.abs(duration - 120) <= 15) {
+        return ["8:00-10:00", "10:00-12:00", "1:00-3:00", "3:00-5:00", "7:30-9:30", "1:30-3:30"];
+    }
+    if (Math.abs(duration - 180) <= 15) {
+        return ["7:30-10:30", "10:00-1:00", "1:00-4:00", "2:00-5:00", "3:30-6:30"];
+    }
+    return [...majorSlots, ...minorSlots];
+}
+
+function getCandidateRoomsForSubject(entry) {
+    const curRoom = String(entry.room || "").split(" / ")[0].trim();
+    const curRoomObj = allRooms.find(r =>
+        (r.roomName || "").trim().toLowerCase() === curRoom.toLowerCase() ||
+        (r.roomCode || "").trim().toLowerCase() === curRoom.toLowerCase()
+    );
+    const targetType = curRoomObj?.roomType || (isActivityEntry(entry) ? "Gymnasium" : "Lecture Room");
+    const isTargetLab = isLabRoomType(targetType);
+
+    const suitable = allRooms.filter(r => {
+        const rName = r.roomName || r.roomCode || "";
+        if (!rName) return false;
+        if (targetType === "Gymnasium") {
+            return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(rName);
+        }
+        if (isTargetLab) {
+            return r.roomType === targetType || isLabRoomType(r.roomType);
+        }
+        return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
+    }).map(r => r.roomName || r.roomCode);
+
+    const list = [];
+    suitable.forEach(r => {
+        if (r.toLowerCase() !== curRoom.toLowerCase()) list.push(r);
+    });
+    if (curRoom && !list.some(r => r.toLowerCase() === curRoom.toLowerCase())) {
+        list.push(curRoom);
+    }
+    return list.length ? list : (curRoom ? [curRoom] : ["Room 101"]);
+}
+
+function isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleMeta) {
+    if (!cand.day || !cand.time) return false;
+    const cDay = normalizeDayName(cand.day).toLowerCase();
+    const cTime = cand.time;
+    const cRoom = (cand.room || "").trim().toLowerCase();
+    const cFac = (cand.faculty || "").trim();
+    const isGym = isActivityGymOrCourtRoom(cRoom);
+
+    // 1. Check against current Set B slots
+    for (const s of setBSlots) {
+        if (normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime)) {
+            return false; // Section time overlap
+        }
+        if (!isGym && cRoom && s.room && normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime) && s.room.trim().toLowerCase() === cRoom) {
+            return false; // Internal room double-booking
+        }
+        if (cFac && cFac !== "Unassigned" && s.faculty && normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime) && sameFaculty(s.faculty, cFac)) {
+            return false; // Internal faculty double-booking
+        }
+    }
+
+    // 2. Check against Set A slots
+    for (const s of setASlots) {
+        if (s.isShared && s.code === cand.code) continue;
+
+        if (normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime)) {
+            if (!isGym && cRoom && s.room && s.room.trim().toLowerCase() === cRoom) {
+                return false; // Room conflict with Set A
+            }
+            if (cFac && cFac !== "Unassigned" && s.faculty && sameFaculty(s.faculty, cFac)) {
+                return false; // Faculty conflict with Set A
+            }
+        }
+    }
+
+    // 3. Check against other active sections in database
+    const cleanOrig = (scheduleMeta.originalSection || scheduleMeta.section || "").replace(/\s+set\s+[ab]$/i, "").trim().toLowerCase();
+    for (const b of (otherBookings || [])) {
+        const cleanB = (b.section || "").replace(/\s+set\s+[ab]$/i, "").trim().toLowerCase();
+        if (cleanB && cleanOrig && cleanB === cleanOrig) continue;
+        if ((b.section || "").trim().toLowerCase() === (scheduleMeta.section || "").trim().toLowerCase()) continue;
+        if (scheduleMeta.originalSection && (b.originalSection || "").trim().toLowerCase() === scheduleMeta.originalSection.trim().toLowerCase()) continue;
+        if (scheduleMeta.scheduleGroupId && b.scheduleGroupId === scheduleMeta.scheduleGroupId) continue;
+
+        if (b.day && normalizeDayName(b.day).toLowerCase() === cDay && b.time && timesOverlap(b.time, cTime)) {
+            if (cRoom && b.room && (b.room || "").trim().toLowerCase() === cRoom) {
+                if (isGym) {
+                    const gymCount = otherBookings.filter(ob =>
+                        ob.day && normalizeDayName(ob.day).toLowerCase() === cDay &&
+                        ob.room && (ob.room || "").trim().toLowerCase() === cRoom &&
+                        timesOverlap(ob.time, cTime)
+                    ).length;
+                    if (gymCount >= 2) return false;
+                } else {
+                    return false;
+                }
+            }
+            if (cFac && cFac !== "Unassigned" && b.faculty && sameFaculty(b.faculty, cFac)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRooms, setBSlots, setASlots, otherBookings, scheduleMeta) {
+    const candidateRooms = getCandidateRoomsForSubject(entry);
+    const candFaculty = entry.faculty || "Unassigned";
+    const candFacultyUid = entry.facultyUid || "";
+    const candFacultyId = entry.facultyId || "";
+
+    // Candidate faculty: prioritize current instructor, then eligible department faculty
+    const eligibleFaculty = [
+        ...(candFaculty && candFaculty !== "Unassigned" ? [{ name: candFaculty, uid: candFacultyUid, employeeId: candFacultyId }] : [])
+    ];
+    const handledList = (allFacultyMembers || []).filter(f => {
+        const handled = facultyAssignmentsMap.get(f.uid) || facultyAssignmentsMap.get(f.id) || [];
+        return isFacultyEligibleForSubject(handled, {
+            subjectCode: entry.code,
+            programCode: scheduleMeta.program,
+            majorCode: scheduleMeta.major,
+            yearLevel: scheduleMeta.yearLevel,
+            semester: scheduleMeta.semester,
+            section: scheduleMeta.section
+        });
+    });
+    handledList.forEach(f => {
+        if (!eligibleFaculty.some(ef => sameFaculty(ef.name, f.name))) {
+            eligibleFaculty.push({ name: f.name, uid: f.uid || "", employeeId: f.employeeId || "" });
+        }
+    });
+    if (!eligibleFaculty.length) {
+        eligibleFaculty.push({ name: "Unassigned", uid: "", employeeId: "" });
+    }
+
+    if (slotCount === 1) {
+        const origDay = origDays[0] || "Monday";
+        const origTime = origTimes[0] || "7:30-10:00";
+        const candidateDays = days.filter(d => d.toLowerCase() !== origDay.toLowerCase()).concat([origDay]);
+        const candidateTimes = getCandidateTimeSlotsForDuration(origTime);
+
+        for (const fac of eligibleFaculty) {
+            for (const day of candidateDays) {
+                for (const time of candidateTimes) {
+                    if (day.toLowerCase() === origDay.toLowerCase() && time === origTime && sameFaculty(fac.name, candFaculty)) continue;
+                    for (const room of candidateRooms) {
+                        const cand = {
+                            day,
+                            time,
+                            room,
+                            faculty: fac.name,
+                            facultyUid: fac.uid,
+                            facultyId: fac.employeeId
+                        };
+                        if (isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleMeta)) {
+                            return [cand];
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no valid schedule is available, identify conflict and allow manual adjustment without inventing assignments
+        return [{
+            day: "",
+            time: "",
+            room: "",
+            faculty: candFaculty,
+            facultyUid: candFacultyUid,
+            facultyId: candFacultyId,
+            unresolved: true
+        }];
+    }
+
+    if (slotCount === 2) {
+        const standardPairs = [
+            ["Tuesday", "Thursday"],
+            ["Monday", "Wednesday"],
+            ["Wednesday", "Friday"],
+            ["Monday", "Thursday"],
+            ["Tuesday", "Friday"],
+            ["Monday", "Friday"]
+        ];
+
+        const origNorm = origDays.map(d => normalizeDayName(d).toLowerCase());
+        const sortedPairs = [...standardPairs].sort((a, b) => {
+            const overlapA = a.filter(d => origNorm.includes(d.toLowerCase())).length;
+            const overlapB = b.filter(d => origNorm.includes(d.toLowerCase())).length;
+            return overlapA - overlapB;
+        });
+
+        const candidateTimes = getCandidateTimeSlotsForDuration(origTimes[0] || "7:30-9:00");
+
+        for (const fac of eligibleFaculty) {
+            for (const [pDay1, pDay2] of sortedPairs) {
+                for (const time of candidateTimes) {
+                    for (const room of candidateRooms) {
+                        const cand1 = { day: pDay1, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
+                        const cand2 = { day: pDay2, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
+
+                        if (isSlotConflictFree(cand1, setBSlots, setASlots, otherBookings, scheduleMeta) &&
+                            isSlotConflictFree(cand2, [...setBSlots, cand1], setASlots, otherBookings, scheduleMeta)) {
+                            return [cand1, cand2];
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no valid schedule is available, identify conflict and allow manual adjustment without inventing assignments
+        return [
+            { day: "", time: "", room: "", faculty: candFaculty, facultyUid: candFacultyUid, facultyId: candFacultyId, unresolved: true },
+            { day: "", time: "", room: "", faculty: candFaculty, facultyUid: candFacultyUid, facultyId: candFacultyId, unresolved: true }
+        ];
+    }
+
+    // slotCount > 2
+    const res = [];
+    const tempSetBSlots = [...setBSlots];
+    for (let i = 0; i < slotCount; i++) {
+        const oDay = origDays[i] || days[i % days.length];
+        const oTime = origTimes[i] || origTimes[0] || "7:30-9:00";
+        const candidateDays = days.filter(d => d.toLowerCase() !== oDay.toLowerCase()).concat([oDay]);
+        const candidateTimes = getCandidateTimeSlotsForDuration(oTime);
+
+        let placed = null;
+        for (const fac of eligibleFaculty) {
+            for (const day of candidateDays) {
+                for (const time of candidateTimes) {
+                    if (day.toLowerCase() === oDay.toLowerCase() && time === oTime && sameFaculty(fac.name, candFaculty)) continue;
+                    for (const room of candidateRooms) {
+                        const cand = { day, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
+                        if (isSlotConflictFree(cand, tempSetBSlots, setASlots, otherBookings, scheduleMeta)) {
+                            placed = cand;
+                            break;
+                        }
+                    }
+                    if (placed) break;
+                }
+                if (placed) break;
+            }
+            if (placed) break;
+        }
+
+        if (!placed) {
+            placed = {
+                day: "",
+                time: "",
+                room: "",
+                faculty: candFaculty,
+                facultyUid: candFacultyUid,
+                facultyId: candFacultyId,
+                unresolved: true
+            };
+        }
+        tempSetBSlots.push(placed);
+        res.push(placed);
+    }
+    return res;
+}
+
+function generateAlternativeScheduleForSetB(entriesBaseline, classifications, scheduleMeta, existingSetBEntries = null) {
+    if (!entriesBaseline || !entriesBaseline.length) return [];
+
+    const otherBookings = getSavedBookings(scheduleMeta.academicYear, scheduleMeta.semester);
+
+    // Expand Set A into individual slot objects for cross-set conflict checking
+    const setASlots = [];
+    entriesBaseline.forEach(entry => {
+        const info = classifications.get(entry.code) || { type: "Major" };
+        const isShared = (info.type === "Minor" || info.type === "Activity");
+        const entryDays = String(entry.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
+        const entryTimes = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+        const entryRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+        const maxSlots = Math.max(entryDays.length, entryTimes.length, entryRooms.length, 1);
+
+        for (let i = 0; i < maxSlots; i++) {
+            setASlots.push({
+                code: entry.code,
+                name: entry.name,
+                day: entryDays[i] || entryDays[0] || normalizeDayName(entry.day),
+                time: entryTimes[i] || entryTimes[0] || entry.time,
+                room: entryRooms[i] || entryRooms[0] || entry.room,
+                faculty: entry.faculty || "Unassigned",
+                facultyUid: entry.facultyUid || "",
+                isShared
+            });
+        }
+    });
+
+    const setBSlots = [];
+    const resultEntries = [];
+
+    // Step 1: Place all shared subjects (Minor and Activity) first, as they mirror Set A exactly
+    entriesBaseline.forEach(entry => {
+        const info = classifications.get(entry.code) || { type: "Major" };
+        if (info.type === "Minor" || info.type === "Activity") {
+            const entryDays = String(entry.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
+            const entryTimes = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+            const entryRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+            const maxSlots = Math.max(entryDays.length, entryTimes.length, entryRooms.length, 1);
+
+            for (let i = 0; i < maxSlots; i++) {
+                setBSlots.push({
+                    code: entry.code,
+                    name: entry.name,
+                    day: entryDays[i] || entryDays[0] || normalizeDayName(entry.day),
+                    time: entryTimes[i] || entryTimes[0] || entry.time,
+                    room: entryRooms[i] || entryRooms[0] || entry.room,
+                    faculty: entry.faculty || "Unassigned",
+                    facultyUid: entry.facultyUid || "",
+                    isShared: true
+                });
+            }
+        }
+    });
+
+    // Step 2: For each entry in baseline, if Minor/Activity, keep identical. If Major, generate alternative!
+    entriesBaseline.forEach(entry => {
+        const info = classifications.get(entry.code) || { type: "Major" };
+        if (info.type !== "Major") {
+            resultEntries.push({
+                ...entry,
+                subjectType: info.type
+            });
+            return;
+        }
+
+        // Check if existingSetBEntries already had a customized/different schedule for this major subject
+        const prevB = (existingSetBEntries || []).find(e => e.code === entry.code);
+        const isPrevDifferent = prevB && (
+            prevB.day !== entry.day ||
+            prevB.time !== entry.time ||
+            (prevB.room && prevB.room !== entry.room)
+        );
+
+        if (isPrevDifferent) {
+            resultEntries.push({
+                ...prevB,
+                subjectType: "Major"
+            });
+            const pDays = String(prevB.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
+            const pTimes = String(prevB.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+            const pRooms = String(prevB.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+            const maxS = Math.max(pDays.length, pTimes.length, pRooms.length, 1);
+            for (let i = 0; i < maxS; i++) {
+                setBSlots.push({
+                    code: prevB.code,
+                    name: prevB.name,
+                    day: pDays[i] || pDays[0] || normalizeDayName(prevB.day),
+                    time: pTimes[i] || pTimes[0] || prevB.time,
+                    room: pRooms[i] || pRooms[0] || prevB.room,
+                    faculty: prevB.faculty || "Unassigned",
+                    facultyUid: prevB.facultyUid || "",
+                    isShared: false
+                });
+            }
+            return;
+        }
+
+        // Generate alternative schedule for this Major subject
+        const origDays = String(entry.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
+        const origTimes = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+        const origRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+        const slotCount = Math.max(origDays.length, origTimes.length, 1);
+
+        const newSlots = findAlternativeMajorSlots(
+            entry,
+            slotCount,
+            origDays,
+            origTimes,
+            origRooms,
+            setBSlots,
+            setASlots,
+            otherBookings,
+            scheduleMeta
+        );
+
+        newSlots.forEach(s => {
+            setBSlots.push({
+                code: entry.code,
+                name: entry.name,
+                day: s.day,
+                time: s.time,
+                room: s.room,
+                faculty: s.faculty,
+                facultyUid: s.facultyUid,
+                isShared: false
+            });
+        });
+
+        const resDay = newSlots.map(s => s.day).join(" / ");
+        const resTime = newSlots.map(s => s.time).join(" / ");
+        const resRoom = newSlots.every(s => s.room === newSlots[0].room)
+            ? (newSlots[0].room || entry.room || "")
+            : newSlots.map(s => s.room).join(" / ");
+        const resFac = newSlots[0]?.faculty || entry.faculty || "Unassigned";
+        const resFacUid = newSlots[0]?.facultyUid || entry.facultyUid || "";
+        const resFacId = newSlots[0]?.facultyId || entry.facultyId || "";
+
+        resultEntries.push({
+            code: entry.code,
+            name: entry.name,
+            units: Number(entry.units) || entry.units,
+            day: resDay,
+            time: resTime,
+            room: resRoom,
+            faculty: resFac,
+            facultyUid: resFacUid,
+            facultyId: resFacId,
+            subjectType: "Major"
+        });
+    });
+
+    return resultEntries;
+}
+
+function ensureSetBAlternativeScheduleGenerated() {
+    if (!currentSplitContext) return;
+    if (currentSplitContext.isManage && currentSplitContext.setBEntries && currentSplitContext.setBEntries.length > 0) {
+        return;
+    }
+    currentSplitContext.setBEntries = generateAlternativeScheduleForSetB(
+        currentSplitContext.entriesBaseline,
+        currentSplitContext.classifications,
+        currentSplitContext.originalSchedule,
+        currentSplitContext.setBEntries
+    );
+}
+
+function switchSplitTab(tab) {
+    if (splitTabSetsPreviewContent) splitTabSetsPreviewContent.style.display = "block";
+    ensureSetBAlternativeScheduleGenerated();
+    renderSplitSetsPreview();
+}
+
+function renderSplitSetsPreview() {
+    if (!currentSplitContext || !splitSetATableBody || !splitSetBTableBody) return;
+
+    const baseline = currentSplitContext.entriesBaseline || [];
+    const scheduleMeta = currentSplitContext.originalSchedule;
+
+    // Render Set A Table
+    splitSetATableBody.innerHTML = baseline.map((entry, idx) => {
+        const info = currentSplitContext.classifications.get(entry.code) || { type: "Major" };
+        const isMajor = info.type === "Major";
+
+        return `
+            <tr data-code="${escapeHtml(entry.code)}" data-idx="${idx}" data-entry-idx="${idx}" class="${isMajor ? 'row-major' : 'row-shared'}">
+                <td>
+                    <strong style="color:#1b5e20;">${escapeHtml(entry.code)}</strong>
+                    <div style="font-size:11px; color:#555;">${escapeHtml(entry.name)}</div>
+                </td>
+                <td>
+                    <input type="text" class="set-a-day-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(entry.day || '')}" readonly style="background:#f4fbf4; border:1px solid #c8e6c9; color:#1b5e20; font-weight:600;">
+                </td>
+                <td>
+                    <input type="text" class="set-a-time-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(entry.time || '')}" readonly style="background:#f4fbf4; border:1px solid #c8e6c9; color:#1b5e20; font-weight:600;">
+                </td>
+                <td>
+                    <input type="text" class="set-a-room-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(entry.room || '')}" readonly style="background:#f4fbf4; border:1px solid #c8e6c9; color:#1b5e20; font-weight:600;">
+                </td>
+                <td>
+                    <input type="text" class="set-a-fac-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(entry.faculty || 'Unassigned')}" readonly style="background:#f4fbf4; border:1px solid #c8e6c9; color:#1b5e20; font-weight:600;">
+                </td>
+            </tr>
+        `;
+    }).join("");
+
+    // Render Set B Table
+    // Set B has identical list of major subjects with independent editable inputs.
+    // Shared minor subjects mirror Set A with locked display.
+    splitSetBTableBody.innerHTML = baseline.map((entry, idx) => {
+        const info = currentSplitContext.classifications.get(entry.code) || { type: "Major" };
+        const isMajor = info.type === "Major";
+
+        const existingB = (currentSplitContext.setBEntries || []).find(e => e.code === entry.code);
+
+        const dayVal = isMajor ? (existingB?.day || "") : (entry.day || "");
+        const timeVal = isMajor ? (existingB?.time || "") : (entry.time || "");
+        const roomVal = isMajor ? (existingB?.room || "") : (entry.room || "");
+        const facVal = isMajor ? (existingB?.faculty || entry.faculty || "") : (entry.faculty || "");
+        const facUid = isMajor ? (existingB?.facultyUid || entry.facultyUid || "") : (entry.facultyUid || "");
+
+        if (isMajor) {
+            const hasMissingField = !dayVal || !timeVal || !roomVal;
+            return `
+                <tr data-code="${escapeHtml(entry.code)}" data-idx="${idx}" data-entry-idx="${idx}" class="row-major" style="${hasMissingField ? 'background:#fff8f8;' : ''}">
+                    <td>
+                        <strong style="color:#00796b;">${escapeHtml(entry.code)}</strong>
+                        <div style="font-size:11px; color:#555;">${escapeHtml(entry.name)}</div>
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-day-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(dayVal)}" placeholder="e.g. Wednesday" style="${!dayVal ? 'border:1px solid #e53935; background:#fff5f5;' : ''}">
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-time-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(timeVal)}" placeholder="e.g. 1:00-3:30" style="${!timeVal ? 'border:1px solid #e53935; background:#fff5f5;' : ''}">
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-room-input" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(roomVal)}" placeholder="e.g. Room 102" style="${!roomVal ? 'border:1px solid #e53935; background:#fff5f5;' : ''}">
+                    </td>
+                    <td>
+                        <select class="set-b-fac-select" data-code="${escapeHtml(entry.code)}">
+                            ${buildSplitFacultyOptions(facVal, facUid, entry.code, scheduleMeta)}
+                        </select>
+                    </td>
+                </tr>
+            `;
+        } else {
+            // Shared Minor / Activity
+            return `
+                <tr data-code="${escapeHtml(entry.code)}" data-idx="${idx}" data-entry-idx="${idx}" class="row-shared">
+                    <td>
+                        <strong style="color:#2e7d32;">${escapeHtml(entry.code)}</strong>
+                        <div style="font-size:11px; color:#555;">${escapeHtml(entry.name)}</div>
+                        <div style="margin-top:3px;"><span class="shared-lock-indicator">🔒 Shared from Set A</span></div>
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-day-input shared-mirror" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(dayVal)}" disabled style="background:#f9f9f9; color:#666;">
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-time-input shared-mirror" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(timeVal)}" disabled style="background:#f9f9f9; color:#666;">
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-room-input shared-mirror" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(roomVal)}" disabled style="background:#f9f9f9; color:#666;">
+                    </td>
+                    <td>
+                        <input type="text" class="set-b-fac-mirror shared-mirror" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(facVal || 'Unassigned')}" disabled style="background:#f9f9f9; color:#666;">
+                    </td>
+                </tr>
+            `;
+        }
+    }).join("");
+
+    splitSetBTableBody.querySelectorAll("input, select").forEach(input => {
+        input.addEventListener("input", runSplitConflictCheck);
+    });
+
+    runSplitConflictCheck();
+}
+
+function readSplitSetEntries(setName) {
+    const isSetA = setName === "Set A";
+    if (!currentSplitContext) return [];
+
+    const baseline = currentSplitContext.entriesBaseline || [];
+    if (isSetA) {
+        // Set A retains the original section's existing subject schedules exactly
+        return baseline.map((base, idx) => {
+            const info = currentSplitContext.classifications.get(base.code) || { type: "Major" };
+            return {
+                rowIdx: idx,
+                code: base.code,
+                name: base.name,
+                units: Number(base.units) || base.units,
+                day: base.day || "",
+                time: base.time || "",
+                room: base.room || "",
+                faculty: base.faculty || "Unassigned",
+                facultyUid: base.facultyUid || "",
+                facultyId: base.facultyId || "",
+                subjectType: info.type
+            };
+        });
+    }
+
+    const container = splitSetBTableBody;
+    const entries = [];
+
+    baseline.forEach((base, idx) => {
+        const row = container?.querySelector(`tr[data-code="${base.code}"]`);
+        const info = currentSplitContext.classifications.get(base.code) || { type: "Major" };
+        const isMajor = info.type === "Major";
+
+        if (isMajor) {
+            const day = (row?.querySelector(".set-b-day-input")?.value || "").trim();
+            const time = (row?.querySelector(".set-b-time-input")?.value || "").trim();
+            const room = (row?.querySelector(".set-b-room-input")?.value || "").trim();
+            const facSelect = row?.querySelector(".set-b-fac-select");
+            const faculty = (facSelect?.value || "").trim();
+            const facultyUid = (facSelect?.selectedOptions[0]?.dataset?.uid || "").trim();
+            const facultyId = (facSelect?.selectedOptions[0]?.dataset?.employeeId || "").trim();
+
+            entries.push({
+                rowIdx: idx,
+                code: base.code,
+                name: base.name,
+                units: Number(base.units) || base.units,
+                day,
+                time,
+                room,
+                faculty: faculty || "Unassigned",
+                facultyUid,
+                facultyId,
+                subjectType: "Major"
+            });
+        } else {
+            // Shared minor/activity subject mirrors Set A baseline exactly
+            entries.push({
+                rowIdx: idx,
+                code: base.code,
+                name: base.name,
+                units: Number(base.units) || base.units,
+                day: base.day || "",
+                time: base.time || "",
+                room: base.room || "",
+                faculty: base.faculty || "Unassigned",
+                facultyUid: base.facultyUid || "",
+                facultyId: base.facultyId || "",
+                subjectType: info.type
+            });
+        }
+    });
+
+    if (currentSplitContext) {
+        currentSplitContext.setBEntries = entries;
+    }
+
+    return entries;
+}
+
+function runSplitConflictCheck() {
+    if (!splitConflictsBanner || !currentSplitContext) return;
+
+    const setAEntries = readSplitSetEntries("Set A");
+    const setBEntries = readSplitSetEntries("Set B");
+    const scheduleMeta = currentSplitContext.originalSchedule;
+
+    const conflicts = [];
+
+    // 1. Validate Set A internally and against other active sections
+    // Note: Set A's original schedule will not conflict with itself because validateScheduleEdits excludes the original section
+    const valA = validateScheduleEdits(setAEntries, {
+        ...scheduleMeta,
+        section: `${currentSplitContext.originalSection} Set A`,
+        originalSection: currentSplitContext.originalSection,
+        scheduleGroupId: currentSplitContext.scheduleGroupId
+    });
+    valA.conflicts.forEach(c => conflicts.push(`<strong>Set A:</strong> ${c}`));
+
+    // 2. Prepare Set A major slots as extraBookings for Set B validation & recommendations
+    const setAExtraBookings = [];
+    setAEntries.forEach(a => {
+        const info = currentSplitContext.classifications.get(a.code);
+        if (info?.type === "Major") {
+            const days = String(a.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+            const times = String(a.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+            const rooms = String(a.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+            const maxLen = Math.max(days.length, times.length, rooms.length, 1);
+            for (let i = 0; i < maxLen; i++) {
+                setAExtraBookings.push({
+                    section: `${currentSplitContext.originalSection} Set A`,
+                    originalSection: currentSplitContext.originalSection,
+                    scheduleGroupId: currentSplitContext.scheduleGroupId,
+                    code: a.code,
+                    name: a.name,
+                    day: days[i] || days[0] || a.day,
+                    time: times[i] || times[0] || a.time,
+                    room: rooms[i] || rooms[0] || a.room,
+                    faculty: a.faculty || "Unassigned"
+                });
+            }
+        }
+    });
+
+    // 3. Validate Set B internally, against other active sections, and against Set A's major bookings
+    const setBSchedMeta = {
+        ...scheduleMeta,
+        section: `${currentSplitContext.originalSection} Set B`,
+        originalSection: currentSplitContext.originalSection,
+        scheduleGroupId: currentSplitContext.scheduleGroupId,
+        extraBookings: setAExtraBookings
+    };
+    const valB = validateScheduleEdits(setBEntries, setBSchedMeta);
+    valB.conflicts.forEach(c => conflicts.push(`<strong>Set B:</strong> ${c}`));
+
+    // Highlight conflicting rows in Set B table
+    if (splitSetBTableBody) {
+        const bRows = splitSetBTableBody.querySelectorAll("tr");
+        bRows.forEach((row, idx) => {
+            if (valB.conflictRowIndices.has(idx)) {
+                row.classList.add("has-conflict");
+            } else {
+                row.classList.remove("has-conflict");
+            }
+        });
+    }
+
+    // 4. Identify any unassigned/incomplete major subjects in Set B
+    for (const b of setBEntries) {
+        const info = currentSplitContext.classifications.get(b.code);
+        if (info?.type === "Major") {
+            if (!b.day || !b.time || !b.room || b.day === "TBA" || b.time === "TBA" || b.room === "TBA") {
+                if (!TBA_SUBJECT_CODES.has(b.code)) {
+                    conflicts.push(`<strong>Set B:</strong> Major subject <strong>${escapeHtml(b.code)}</strong> has no valid schedule assigned. Please manually assign Day, Time, and Room.`);
+                }
+            }
+        }
+    }
+
+    if (conflicts.length > 0) {
+        splitConflictsBanner.style.display = "block";
+        splitConflictsBanner.innerHTML = `
+            <h5>⚠️ Scheduling Conflicts Detected (${conflicts.length})</h5>
+            <ul style="margin:4px 0 0 16px; padding:0;">
+                ${conflicts.map(c => `<li style="margin-bottom:4px;">${c}</li>`).join("")}
+            </ul>
+        `;
+
+        // Render conflict resolution recommendations for Set B
+        if (splitResolutionsContainer) {
+            const recommendations = generateConflictResolutions(valB, setBSchedMeta, setBEntries);
+            const resolutionsHtml = renderConflictResolutionsUI(recommendations);
+            splitResolutionsContainer.innerHTML = resolutionsHtml;
+            splitResolutionsContainer.style.display = "block";
+        }
+    } else {
+        splitConflictsBanner.style.display = "none";
+        splitConflictsBanner.innerHTML = "";
+        if (splitResolutionsContainer) {
+            splitResolutionsContainer.style.display = "none";
+            splitResolutionsContainer.innerHTML = "";
+        }
+    }
+
+    return conflicts.length === 0;
+}
+
+if (splitResolutionsContainer) {
+    splitResolutionsContainer.addEventListener("click", e => {
+        // 1. Apply Faculty Suggestion
+        const facultyBtn = e.target.closest(".apply-faculty-btn");
+        if (facultyBtn) {
+            const rowIdx = parseInt(facultyBtn.dataset.rowIdx, 10);
+            const code = facultyBtn.dataset.code || "";
+            const newFaculty = facultyBtn.dataset.facultyName || "";
+            const row = splitSetBTableBody ? (
+                splitSetBTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? splitSetBTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
+            if (row) {
+                const facSelect = row.querySelector(".set-b-fac-select");
+                if (facSelect) {
+                    let matchedOpt = [...facSelect.options].find(opt => sameFaculty(opt.value, newFaculty));
+                    if (!matchedOpt) {
+                        const opt = document.createElement("option");
+                        opt.value = newFaculty;
+                        opt.textContent = newFaculty;
+                        if (facultyBtn.dataset.facultyUid) opt.dataset.uid = facultyBtn.dataset.facultyUid;
+                        facSelect.appendChild(opt);
+                        matchedOpt = opt;
+                    }
+                    if (matchedOpt) {
+                        facSelect.value = matchedOpt.value;
+                        matchedOpt.selected = true;
+                    }
+                    facSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                    facSelect.dispatchEvent(new Event("input", { bubbles: true }));
+                    runSplitConflictCheck();
+                    showToast(`Applied faculty: ${newFaculty}`);
+                }
+            }
+            return;
+        }
+
+        // 2. Apply Time Suggestion
+        const timeBtn = e.target.closest(".apply-time-btn");
+        if (timeBtn) {
+            const rowIdx = parseInt(timeBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(timeBtn.dataset.slotIdx, 10) || 0;
+            const code = timeBtn.dataset.code || "";
+            const newDay = timeBtn.dataset.day || "";
+            const newTime = timeBtn.dataset.time || "";
+            const row = splitSetBTableBody ? (
+                splitSetBTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? splitSetBTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
+            if (row) {
+                const dayInput = row.querySelector(".set-b-day-input");
+                const timeInput = row.querySelector(".set-b-time-input");
+                if (dayInput && timeInput) {
+                    const daysArr = dayInput.value.split(" / ").map(d => d.trim()).filter(Boolean);
+                    const timesArr = timeInput.value.split(" / ").map(t => t.trim()).filter(Boolean);
+
+                    if (daysArr.length > 1 && slotIdx < daysArr.length) {
+                        daysArr[slotIdx] = newDay;
+                        dayInput.value = daysArr.join(" / ");
+                    } else {
+                        dayInput.value = newDay;
+                    }
+
+                    if (timesArr.length > 1 && slotIdx < timesArr.length) {
+                        timesArr[slotIdx] = newTime;
+                        timeInput.value = timesArr.join(" / ");
+                    } else {
+                        timeInput.value = newTime;
+                    }
+
+                    dayInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    dayInput.dispatchEvent(new Event("change", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+                    runSplitConflictCheck();
+                    showToast(`Applied schedule: ${newDay} (${newTime})`);
+                }
+            }
+            return;
+        }
+
+        // 3. Apply Room Suggestion
+        const roomBtn = e.target.closest(".apply-room-btn");
+        if (roomBtn) {
+            const rowIdx = parseInt(roomBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(roomBtn.dataset.slotIdx, 10) || 0;
+            const code = roomBtn.dataset.code || "";
+            const newRoom = roomBtn.dataset.room || "";
+            const row = splitSetBTableBody ? (
+                splitSetBTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? splitSetBTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
+            if (row) {
+                const roomInput = row.querySelector(".set-b-room-input");
+                if (roomInput) {
+                    const roomsArr = roomInput.value.split(" / ").map(r => r.trim()).filter(Boolean);
+                    if (roomsArr.length > 1 && slotIdx < roomsArr.length) {
+                        roomsArr[slotIdx] = newRoom;
+                        roomInput.value = roomsArr.join(" / ");
+                    } else {
+                        roomInput.value = newRoom;
+                    }
+                    roomInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    roomInput.dispatchEvent(new Event("change", { bubbles: true }));
+                    runSplitConflictCheck();
+                    showToast(`Applied room: ${newRoom}`);
+                }
+            }
+            return;
+        }
+
+        // 4. Apply Combined Solution
+        const combinedBtn = e.target.closest(".apply-combined-btn");
+        if (combinedBtn) {
+            const rowIdx = parseInt(combinedBtn.dataset.rowIdx, 10);
+            const slotIdx = parseInt(combinedBtn.dataset.slotIdx, 10) || 0;
+            const code = combinedBtn.dataset.code || "";
+            const newDay = combinedBtn.dataset.day || "";
+            const newTime = combinedBtn.dataset.time || "";
+            const newRoom = combinedBtn.dataset.room || "";
+            const newFaculty = combinedBtn.dataset.facultyName || "";
+            const row = splitSetBTableBody ? (
+                splitSetBTableBody.querySelector(`tr[data-entry-idx="${rowIdx}"]`) ||
+                (code ? splitSetBTableBody.querySelector(`tr[data-code="${code}"]`) : null)
+            ) : null;
+
+            if (row) {
+                const dayInput = row.querySelector(".set-b-day-input");
+                const timeInput = row.querySelector(".set-b-time-input");
+                const roomInput = row.querySelector(".set-b-room-input");
+                const facSelect = row.querySelector(".set-b-fac-select");
+
+                if (dayInput && newDay) {
+                    const daysArr = dayInput.value.split(" / ").map(d => d.trim()).filter(Boolean);
+                    if (daysArr.length > 1 && slotIdx < daysArr.length) {
+                        daysArr[slotIdx] = newDay;
+                        dayInput.value = daysArr.join(" / ");
+                    } else {
+                        dayInput.value = newDay;
+                    }
+                    dayInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    dayInput.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+
+                if (timeInput && newTime) {
+                    const timesArr = timeInput.value.split(" / ").map(t => t.trim()).filter(Boolean);
+                    if (timesArr.length > 1 && slotIdx < timesArr.length) {
+                        timesArr[slotIdx] = newTime;
+                        timeInput.value = timesArr.join(" / ");
+                    } else {
+                        timeInput.value = newTime;
+                    }
+                    timeInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    timeInput.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+
+                if (roomInput && newRoom) {
+                    const roomsArr = roomInput.value.split(" / ").map(r => r.trim()).filter(Boolean);
+                    if (roomsArr.length > 1 && slotIdx < roomsArr.length) {
+                        roomsArr[slotIdx] = newRoom;
+                        roomInput.value = roomsArr.join(" / ");
+                    } else {
+                        roomInput.value = newRoom;
+                    }
+                    roomInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    roomInput.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+
+                if (facSelect && newFaculty) {
+                    let matchedOpt = [...facSelect.options].find(opt => sameFaculty(opt.value, newFaculty));
+                    if (!matchedOpt) {
+                        const opt = document.createElement("option");
+                        opt.value = newFaculty;
+                        opt.textContent = newFaculty;
+                        if (combinedBtn.dataset.facultyUid) opt.dataset.uid = combinedBtn.dataset.facultyUid;
+                        facSelect.appendChild(opt);
+                        matchedOpt = opt;
+                    }
+                    if (matchedOpt) {
+                        facSelect.value = matchedOpt.value;
+                        matchedOpt.selected = true;
+                    }
+                    facSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                    facSelect.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+
+                runSplitConflictCheck();
+                showToast(`Applied combined solution: ${newDay} ${newTime} in ${newRoom}`);
+            }
+            return;
+        }
+    });
+}
+
+async function openSplitScheduleModal(scheduleId, isManage = false) {
+    const schedules = getSavedSchedules();
+    const schedule = schedules.find(item => item.id === scheduleId || scheduleDocId(item) === scheduleId);
+    if (!schedule) {
+        showToast("Schedule not found.");
+        return;
+    }
+
+    let originalSection = schedule.originalSection || "";
+    if (!originalSection) {
+        const secStr = String(schedule.section || schedule.name || "").trim();
+        originalSection = secStr.replace(/\s+set\s+[ab]$/i, "").trim();
+    }
+
+    const scheduleGroupId = schedule.scheduleGroupId || ("grp_" + scheduleDocId({
+        section: originalSection,
+        semester: schedule.semester,
+        program: schedule.program,
+        major: schedule.major,
+        yearLevel: schedule.yearLevel,
+        academicYear: schedule.academicYear
+    }));
+
+    const sharedScheduleId = schedule.sharedScheduleId || ("shared_" + scheduleDocId({
+        section: originalSection,
+        semester: schedule.semester,
+        program: schedule.program,
+        major: schedule.major,
+        yearLevel: schedule.yearLevel,
+        academicYear: schedule.academicYear
+    }));
+
+    // Find sibling sets if they exist
+    let existingSetA = schedules.find(s =>
+        (s.scheduleGroupId === scheduleGroupId && s.setName === "Set A") ||
+        (s.originalSection && s.originalSection.toLowerCase() === originalSection.toLowerCase() && s.setName === "Set A") ||
+        s.section.toLowerCase() === `${originalSection} set a`.toLowerCase()
+    );
+    let existingSetB = schedules.find(s =>
+        (s.scheduleGroupId === scheduleGroupId && s.setName === "Set B") ||
+        (s.originalSection && s.originalSection.toLowerCase() === originalSection.toLowerCase() && s.setName === "Set B") ||
+        s.section.toLowerCase() === `${originalSection} set b`.toLowerCase()
+    );
+
+    const baselineEntries = schedule.entries || existingSetA?.entries || [];
+
+    // Ensure rooms are available for room assignment
+    if (!allRooms || !allRooms.length) {
+        try { await loadRooms(); } catch (e) { console.warn("Could not preload rooms for split modal:", e); }
+    }
+
+    // Query prospectus for classification definitions
+    const prospectusMap = await fetchProspectusClassifications(schedule);
+
+    // Build classifications map
+    const classifications = new Map();
+    const savedClassifications = schedule.subjectClassifications || existingSetA?.subjectClassifications || existingSetB?.subjectClassifications || {};
+
+    baselineEntries.forEach(entry => {
+        const res = resolveSubjectClassification(entry, prospectusMap, savedClassifications);
+        classifications.set(entry.code, res);
+    });
+
+    currentSplitContext = {
+        isManage,
+        scheduleId,
+        originalSchedule: schedule,
+        originalDocId: scheduleDocId(schedule),
+        originalSection,
+        scheduleGroupId,
+        sharedScheduleId,
+        entriesBaseline: JSON.parse(JSON.stringify(baselineEntries)),
+        setBEntries: existingSetB ? JSON.parse(JSON.stringify(existingSetB.entries || [])) : null,
+        classifications
+    };
+
+    // If fresh split, automatically reschedule Set B's major subjects to alternative, non-conflicting slots
+    if (!isManage || !currentSplitContext.setBEntries || !currentSplitContext.setBEntries.length) {
+        currentSplitContext.setBEntries = generateAlternativeScheduleForSetB(
+            currentSplitContext.entriesBaseline,
+            classifications,
+            schedule,
+            null
+        );
+    }
+
+    if (splitModalTitle) {
+        splitModalTitle.textContent = isManage
+            ? `Manage Sets — ${originalSection}`
+            : `Split Section into Sets — ${originalSection}`;
+    }
+
+    if (splitModalSubtitle) {
+        splitModalSubtitle.textContent = [
+            schedule.academicYear ? `A.Y. ${schedule.academicYear}` : "",
+            schedule.semester,
+            schedule.yearLevel,
+            `Original Section: ${originalSection}`
+        ].filter(Boolean).join(" • ");
+    }
+
+    if (setACardTitle) setACardTitle.textContent = `${originalSection} Set A`;
+    if (setBCardTitle) setBCardTitle.textContent = `${originalSection} Set B`;
+
+    // Check if any subjects have ambiguous/missing classification from curriculum
+    const ambiguousSubjects = [...classifications.entries()].filter(([code, info]) => info.isAmbiguous);
+    if (ambiguousSubjects.length > 0 && splitAmbiguousAlert) {
+        splitAmbiguousAlert.style.display = "block";
+        const subjectList = ambiguousSubjects.map(([code, info]) => `<strong>${escapeHtml(code)}</strong> (${info.type})`).join(", ");
+        splitAmbiguousAlert.innerHTML = `
+            <strong>⚠️ Missing Curriculum Classification Notice:</strong>
+            The following subjects could not be found in the prospectus and were assigned default classifications: ${subjectList}.
+            Major subjects have independent schedules in Set B, while Minor/Activity subjects are shared.
+        `;
+    } else if (splitAmbiguousAlert) {
+        splitAmbiguousAlert.style.display = "none";
+        splitAmbiguousAlert.innerHTML = "";
+    }
+
+    renderSplitSetsPreview();
+
+    if (splitScheduleModal) splitScheduleModal.style.display = "flex";
+}
+
+function closeSplitScheduleModal() {
+    if (splitScheduleModal) splitScheduleModal.style.display = "none";
+    currentSplitContext = null;
+    if (splitConflictsBanner) {
+        splitConflictsBanner.style.display = "none";
+        splitConflictsBanner.innerHTML = "";
+    }
+    if (splitResolutionsContainer) {
+        splitResolutionsContainer.style.display = "none";
+        splitResolutionsContainer.innerHTML = "";
+    }
+    if (splitAmbiguousAlert) {
+        splitAmbiguousAlert.style.display = "none";
+        splitAmbiguousAlert.innerHTML = "";
+    }
+}
+
+closeSplitScheduleModalBtn?.addEventListener("click", closeSplitScheduleModal);
+cancelSplitScheduleBtn?.addEventListener("click", closeSplitScheduleModal);
+splitScheduleModal?.addEventListener("click", e => {
+    if (e.target === splitScheduleModal) closeSplitScheduleModal();
+});
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && splitScheduleModal?.style.display === "flex") closeSplitScheduleModal();
+});
+
+confirmSplitScheduleBtn?.addEventListener("click", async () => {
+    if (!currentSplitContext) return;
+
+    // Validate entries
+    const setAEntries = readSplitSetEntries("Set A");
+    const setBEntries = readSplitSetEntries("Set B");
+
+    for (const entry of setAEntries) {
+        if (!entry.day || !entry.time || !entry.room) {
+            showToast(`Please complete Day, Time, and Room for Set A: ${entry.code}`);
+            return;
+        }
+    }
+
+    for (const entry of setBEntries) {
+        if (!entry.day || !entry.time || !entry.room) {
+            showToast(`Please complete Day, Time, and Room for Set B: ${entry.code}`);
+            return;
+        }
+    }
+
+    const isValid = runSplitConflictCheck();
+    if (!isValid) {
+        showToast("Please resolve all scheduling conflicts before confirming the split.");
+        return;
+    }
+
+    confirmSplitScheduleBtn.disabled = true;
+    confirmSplitScheduleBtn.innerHTML = `<span class="btn-spinner"></span> Saving Sets...`;
+
+    try {
+        const scheduleMeta = currentSplitContext.originalSchedule;
+        const originalSection = currentSplitContext.originalSection;
+        const scheduleGroupId = currentSplitContext.scheduleGroupId;
+        const sharedScheduleId = currentSplitContext.sharedScheduleId;
+
+        // Plain object for classifications
+        const subjectClassifications = {};
+        for (const [code, info] of currentSplitContext.classifications.entries()) {
+            subjectClassifications[code] = info.type;
+        }
+
+        // Helper to rebuild discrete raw entries
+        const buildRaw = (entries, secName) => {
+            const raw = [];
+            entries.forEach(entry => {
+                const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+                const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+                const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+                const maxLen = Math.max(days.length, times.length, rooms.length, 1);
+                for (let i = 0; i < maxLen; i++) {
+                    raw.push({
+                        code: entry.code,
+                        name: entry.name,
+                        units: entry.units,
+                        day: days[i] || days[0] || entry.day,
+                        time: times[i] || times[0] || entry.time,
+                        room: rooms[i] || rooms[0] || entry.room,
+                        roomCode: "",
+                        faculty: entry.faculty || "Unassigned",
+                        facultyUid: entry.facultyUid || "",
+                        facultyId: entry.facultyId || "",
+                        section: secName,
+                        scheduleGroupId,
+                        originalSection,
+                        isSplit: true,
+                        sharedScheduleId
+                    });
+                }
+            });
+            return raw;
+        };
+
+        const setASection = `${originalSection} Set A`;
+        const setBSection = `${originalSection} Set B`;
+
+        const setAData = {
+            name: setASection,
+            section: setASection,
+            originalSection: originalSection,
+            setName: "Set A",
+            scheduleGroupId: scheduleGroupId,
+            sharedScheduleId: sharedScheduleId,
+            isSplit: true,
+            subjectClassifications,
+            semester: scheduleMeta.semester,
+            program: scheduleMeta.program,
+            major: scheduleMeta.major,
+            yearLevel: scheduleMeta.yearLevel,
+            academicYear: scheduleMeta.academicYear || "",
+            entries: setAEntries,
+            rawEntries: buildRaw(setAEntries, setASection),
+            status: scheduleMeta.status || "draft",
+            createdAt: scheduleMeta.createdAt ? new Date(scheduleMeta.createdAt) : new Date(),
+            updatedAt: new Date(),
+            savedBy: auth.currentUser?.uid || null
+        };
+
+        const setBData = {
+            name: setBSection,
+            section: setBSection,
+            originalSection: originalSection,
+            setName: "Set B",
+            scheduleGroupId: scheduleGroupId,
+            sharedScheduleId: sharedScheduleId,
+            isSplit: true,
+            subjectClassifications,
+            semester: scheduleMeta.semester,
+            program: scheduleMeta.program,
+            major: scheduleMeta.major,
+            yearLevel: scheduleMeta.yearLevel,
+            academicYear: scheduleMeta.academicYear || "",
+            entries: setBEntries,
+            rawEntries: buildRaw(setBEntries, setBSection),
+            status: scheduleMeta.status || "draft",
+            createdAt: scheduleMeta.createdAt ? new Date(scheduleMeta.createdAt) : new Date(),
+            updatedAt: new Date(),
+            savedBy: auth.currentUser?.uid || null
+        };
+
+        const setADocId = scheduleDocId(setAData);
+        const setBDocId = scheduleDocId(setBData);
+
+        // Atomic write in Firestore
+        const batch = writeBatch(db);
+        batch.set(doc(db, SCHEDULES_COLLECTION, setADocId), setAData);
+        batch.set(doc(db, SCHEDULES_COLLECTION, setBDocId), setBData);
+
+        // If the original schedule had an unsplit document (different from setADocId and setBDocId), delete it atomically
+        const origDocId = currentSplitContext.originalDocId;
+        if (origDocId && origDocId !== setADocId && origDocId !== setBDocId) {
+            batch.delete(doc(db, SCHEDULES_COLLECTION, origDocId));
+            console.log("Atomic batch: unsplit parent schedule removed:", origDocId);
+        }
+
+        await batch.commit();
+        console.log(`Successfully split and saved ${setADocId} and ${setBDocId} in Firestore.`);
+
+        // Sync local storage from Firestore
+        const freshFirestoreSchedules = await loadSchedulesFromFirestore();
+        setSavedSchedules(freshFirestoreSchedules);
+        renderSavedSchedules();
+        if (typeof renderArchive === "function") renderArchive();
+
+        closeSplitScheduleModal();
+        showSuccessOverlay(`✓ Successfully split ${originalSection} into Set A and Set B!`);
+    } catch (err) {
+        console.error("Could not save split sets to Firestore:", err);
+        showToast(`Failed to save sets: ${err.message}`);
+    } finally {
+        confirmSplitScheduleBtn.disabled = false;
+        confirmSplitScheduleBtn.textContent = "Confirm & Save Sets";
+    }
+});
+
 savedSchedulesList.addEventListener("click", async event => {
+    // Split into Sets
+    const splitBtn = event.target.closest("[data-split-schedule]");
+    if (splitBtn) {
+        openSplitScheduleModal(splitBtn.dataset.splitSchedule, false);
+        return;
+    }
+
+    // Manage Sets
+    const manageBtn = event.target.closest("[data-manage-sets]");
+    if (manageBtn) {
+        openSplitScheduleModal(manageBtn.dataset.manageSets, true);
+        return;
+    }
+
     // View in Calendar
     const calendarId = event.target.closest("[data-view-calendar]")?.dataset.viewCalendar;
     if (calendarId) {
@@ -5641,6 +7432,156 @@ async function publishAllSavedClasses() {
 }
 
 document.getElementById("publishAllClassBtn")?.addEventListener("click", publishAllSavedClasses);
+
+// ===================================================
+// PDF GENERATION (SCHEDULE ARCHIVE FORMAT)
+// ===================================================
+function openPrintWindow(htmlContent) {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+        showToast("The print window was blocked by the browser. Please allow popups.");
+        return;
+    }
+
+    printWindow.document.write(htmlContent || "<p>No content available.</p>");
+    printWindow.document.close();
+    printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+    };
+    setTimeout(() => {
+        try {
+            printWindow.focus();
+            printWindow.print();
+        } catch (_) {}
+    }, 700);
+}
+
+function generateSingleClassScheduleBody(schedule, logoUrl, logoUrl1) {
+    const sectionName = escapeHtml(schedule.name || schedule.section || "Class Schedule");
+    const ay = schedule.academicYear ? `A.Y. ${escapeHtml(schedule.academicYear)}` : "";
+    const sem = escapeHtml(schedule.semester || "");
+    const yl = escapeHtml(schedule.yearLevel || "");
+    const subTitle = [ay, sem, yl].filter(Boolean).join(" • ");
+
+    const entries = Array.isArray(schedule.entries) ? schedule.entries : [];
+
+    const rowsHtml = entries.length ? entries.map(item => `
+        <tr>
+            <td style="font-weight:bold;">${escapeHtml(item.code || "—")}</td>
+            <td>${escapeHtml(item.name || "—")}</td>
+            <td style="text-align:center;">${escapeHtml(item.units || "—")}</td>
+            <td>${escapeHtml(item.day || "—")}</td>
+            <td>${escapeHtml(item.time || "—")}</td>
+            <td>${escapeHtml(item.room || "—")}</td>
+            <td>${escapeHtml(item.faculty || "Unassigned")}</td>
+        </tr>
+    `).join("") : `<tr><td colspan="7" style="text-align:center; padding:12px;">No subjects recorded.</td></tr>`;
+
+    return `
+        <div class="class-schedule-page">
+            <div class="header-section">
+                <div class="logo-left"><img src="${logoUrl1}" alt="SLSU Logo" class="logo-img"></div>
+                <div class="header-text">
+                    <div class="uni-name">SOUTHERN LUZON STATE UNIVERSITY</div>
+                    <div class="dtlc-name">Dual Training and Livelihood Center</div>
+                    <div class="campus-name">LUCENA CAMPUS</div>
+                    <div class="city-name">Lucena City</div>
+                </div>
+                <div class="logo-right"><img src="${logoUrl}" alt="SLSU Logo" class="logo-img"></div>
+            </div>
+            <div class="divider"></div>
+            <div class="title-section">CLASS SCHEDULE</div>
+            <div class="section-row">${sectionName}${subTitle ? ` &mdash; ${subTitle}` : ""}</div>
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th style="width:14%;">SUBJECT CODE</th>
+                        <th style="width:30%;">SUBJECT NAME</th>
+                        <th style="width:8%; text-align:center;">UNITS</th>
+                        <th style="width:14%;">DAY</th>
+                        <th style="width:14%;">TIME</th>
+                        <th style="width:10%;">ROOM</th>
+                        <th style="width:10%;">FACULTY</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function generateAllClassPdfHtml(schedules) {
+    const logoUrl = new URL('new slsu logo.jpg', window.location.href).href;
+    const logoUrl1 = new URL('mainlogo1.png', window.location.href).href;
+
+    const pagesHtml = schedules.map(s => generateSingleClassScheduleBody(s, logoUrl, logoUrl1)).join("");
+
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Class Schedules - SLSU Lucena</title>
+        <style>
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 0; margin: 0; }
+            .class-schedule-page {
+                page-break-after: always;
+                break-after: page;
+                padding: 10px;
+            }
+            .class-schedule-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+            .header-section { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+            .logo-img { width: 65px; height: 65px; }
+            .logo-left, .logo-right { flex-shrink: 0; }
+            .header-text { text-align: center; flex-grow: 1; }
+            .uni-name { font-size: 15px; font-weight: bold; color: #000000; }
+            .dtlc-name, .campus-name { font-size: 12px; font-weight: bold; color: #222; margin-top: 2px; }
+            .city-name { font-size: 11px; color: #555; }
+            .divider { border-top: 2px solid #1b5e20; margin: 8px 0 10px 0; }
+            .title-section { text-align: center; font-size: 14px; font-weight: bold; color: #000000; margin-bottom: 10px; text-decoration: underline; }
+            .section-row { text-align: center; font-size: 12px; font-weight: bold; color: #555; padding: 4px 10px 10px; }
+            .schedule-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 6px; }
+            .schedule-table th, .schedule-table td { border: 1px solid #888888; padding: 5px 6px; text-align: left; }
+            .schedule-table th { background: #a7c7a3; color: #1b5e20; font-weight: bold; text-align: center; }
+            .schedule-table td { vertical-align: middle; }
+            .schedule-table tbody tr:nth-child(even) { background: #f7f7f7; }
+        </style>
+    </head>
+    <body>
+        ${pagesHtml}
+    </body>
+    </html>`;
+}
+
+document.getElementById("exportAllClassPdfBtn")?.addEventListener("click", () => {
+    const allActiveSchedules = getSavedSchedules().filter(
+        schedule => (schedule.status || "draft") !== "archived"
+    );
+    if (!allActiveSchedules.length) {
+        showToast("No active saved schedules to export.");
+        return;
+    }
+
+    const query = (savedScheduleSearchInput?.value || "").trim().toLowerCase();
+    const schedulesToExport = query
+        ? allActiveSchedules.filter(s => scheduleMatchesSavedSearch(s, query))
+        : allActiveSchedules;
+
+    if (!schedulesToExport.length) {
+        showToast("No saved schedules match your search to export.");
+        return;
+    }
+
+    const html = generateAllClassPdfHtml(schedulesToExport);
+    openPrintWindow(html);
+});
 
 document.getElementById("exportPdfBtn").addEventListener("click", async () => {
     const modal = document.getElementById("exportConfirmModal");
