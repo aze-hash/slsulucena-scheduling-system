@@ -424,12 +424,12 @@ const TBA_SUBJECT_CODES = new Set([
 
 const minorSlots = [
     "7:30-9:00", "9:00-10:30", "10:30-12:00",
-    "1:00-2:30", "2:30-4:00", "4:00-5:30",
+    "1:00-2:30", "1:30-3:00", "2:30-4:00", "4:00-5:30",
     "5:00-6:30"
 ];
 
 const majorSlots = [
-    "7:30-10:00", "10:00-12:30", "1:00-3:30", "3:30-6:00",
+    "7:30-10:00", "10:00-12:30", "1:00-3:30", "1:30-4:00", "3:30-6:00",
     "4:00-6:30"
 ];
 
@@ -448,6 +448,47 @@ function escapeHtml(value) {
     }[char]));
 }
 
+/**
+ * Checks whether a subject is a Research subject based on code, name, or subjectType.
+ * (e.g. RES01, RES02, RES01a, Methods of Research, Technology Research, Project Study)
+ */
+function isResearchSubject(code, name, subjectType) {
+    const rawType = String(subjectType || "").trim().toLowerCase();
+    if (rawType === "research" || rawType.includes("research")) return true;
+    const cleanCode = String(code || "").trim();
+    if (/^RES\d|^RES/i.test(cleanCode)) return true;
+    const cleanName = String(name || "").trim().toLowerCase();
+    if (/methods of research|technology research|project study|undergraduate thesis|thesis|capstone/i.test(cleanName)) return true;
+    return false;
+}
+
+/**
+ * Detects minor/general education subjects by their subject code prefix.
+ * These subjects (Math, English, Filipino, Science, etc.) are always lecture-only
+ * even if they have multiple meeting slots — they do NOT use a laboratory.
+ */
+function isLikelyMinorSubjectByCode(code, name) {
+    const c = String(code || "").trim().toUpperCase();
+    // Common minor/general education subject code prefixes
+    if (/^(MAT|MATH|ENG|FIL|SCI|NSTP|PE\d|PED|GEN|SOC|HIS|LIT|COM|NAT|HUMN|HIST|POLI|ECON|PHILO|SOCSCI|MMW|GEC|PATH|PATHFIT|CWTS|ROTC|RIZAL|ELEC|ENTREP|RA\d|TIC|ICT)/i.test(c)) return true;
+    const n = String(name || "").trim().toLowerCase();
+    if (/mathematics|algebra|calculus|trigonometry|english|filipino|science|physics|chemistry|biology|history|social|philosophy|economics|political|literature|pathfit|fitness|wellness|pe |physical education|national service|rotc|cwts|rizal|general education|entrep|exploratory|ict|information.{0,20}communication/i.test(n)) return true;
+    return false;
+}
+
+/**
+ * Checks whether a subject type is shared when splitting sections
+ * (Minor, Activity, and Research are combined / shared between Set A and Set B).
+ */
+function isSharedSubjectType(type, code = "", name = "") {
+    const t = String(type || "").trim().toLowerCase();
+    if (t === "minor" || t === "activity" || t === "research" || t === "general") return true;
+    if (t.includes("minor") || t.includes("activity") || t.includes("research")) return true;
+    if (isResearchSubject(code, name, type)) return true;
+    if (isLikelyMinorSubjectByCode(code, name)) return true;
+    return false;
+}
+
 function getSavedSchedules() {
     try {
         return JSON.parse(localStorage.getItem(SAVED_SCHEDULES_KEY)) || [];
@@ -463,10 +504,12 @@ function setSavedSchedules(schedules) {
 let allFacultyMembers = [];
 let allRooms = [];
 let facultyAssignmentsMap = new Map();
+let facultyRoomPrefsMap = new Map(); // facultyUid / employeeId -> roomPreferences object
 let subjectGroups = [];
 let allLoadedSubjects = [];
 let currentSubjectGroupIndex = 0;
 const subjectFacultySelections = new Map();
+let currentSplitContext = null;
 
 async function loadRooms() {
     try {
@@ -522,6 +565,49 @@ function sameFaculty(f1, f2) {
 
     const stripInitial = s => s.replace(/\s+[a-z]\.?$/i, "").replace(/,\s*/g, " ").trim();
     return stripInitial(n1) === stripInitial(n2);
+}
+
+function normalizeRoomIdentifier(r) {
+    if (!r) return "";
+    return String(r).trim().toLowerCase()
+        .replace(/^room\s+/i, "")
+        .replace(/[^a-z0-9]/gi, "");
+}
+
+function sameRoom(r1, r2) {
+    if (!r1 || !r2) return false;
+    const s1 = String(r1).trim().toLowerCase();
+    const s2 = String(r2).trim().toLowerCase();
+    if (s1 === s2) return true;
+    if (s1 === "tba" || s2 === "tba") return false;
+    return normalizeRoomIdentifier(r1) === normalizeRoomIdentifier(r2);
+}
+
+/**
+ * Returns true when two section names are the Set A / Set B split of the same base section.
+ * e.g. "BTVTED-CP 1A-Set A" and "BTVTED-CP 1A-Set B" → true
+ */
+function arePairedSets(sec1, sec2) {
+    if (!sec1 || !sec2 || sec1 === sec2) return false;
+    const strip = s => String(s).replace(/[-\s]*(Set\s*[AB]|Set[AB])$/i, "").trim().toLowerCase();
+    const b1 = strip(sec1);
+    const b2 = strip(sec2);
+    return b1 && b2 && b1 === b2;
+}
+
+/**
+ * Returns true when a schedule entry represents a subject that is SHARED
+ * between Set A and Set B (minor, general, activity, research).
+ * These subjects are attended by all students together — same room, same time.
+ */
+function isSharedSubjectEntry(entry) {
+    if (!entry) return false;
+    const subType = String(entry.subjectType || "").toLowerCase();
+    const code    = entry.code || entry.subjectCode || "";
+    const name    = entry.name || entry.subjectName || "";
+    return isSharedSubjectType(subType, code, name) ||
+           isLikelyMinorSubjectByCode(code, name) ||
+           isActivityEntry(entry);
 }
 
 async function loadFacultyMembers() {
@@ -581,6 +667,49 @@ async function loadFacultySubjectAssignments() {
     } catch (err) {
         console.warn("Could not load faculty subject assignments in class.js:", err);
     }
+}
+
+/**
+ * Loads faculty room preferences from Firestore (users collection) into facultyRoomPrefsMap.
+ * Called once during page init alongside other data loaders.
+ */
+async function loadFacultyRoomPreferences() {
+    try {
+        facultyRoomPrefsMap.clear();
+        const snap = await getDocs(collection(db, "users"));
+        snap.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            if (data.roomPreferences && (data.role === "faculty" || data.role === "Faculty")) {
+                facultyRoomPrefsMap.set(docSnap.id, data.roomPreferences);
+                if (data.employeeId) facultyRoomPrefsMap.set(data.employeeId, data.roomPreferences);
+                if (data.facultyId)  facultyRoomPrefsMap.set(data.facultyId,  data.roomPreferences);
+            }
+        });
+    } catch (err) {
+        console.warn("Could not load faculty room preferences in class.js:", err);
+    }
+}
+
+/**
+ * Returns the preferred room codes list for a faculty, or [] if none.
+ * @param {string} facUid  - Faculty UID
+ * @param {string} facName - Faculty display name (used for name-based lookup fallback)
+ */
+function getFacultyRoomPrefs(facUid, facName) {
+    const pref = (facUid ? facultyRoomPrefsMap.get(facUid) : null)
+        || (facName
+            ? (() => {
+                const f = allFacultyMembers.find(m => sameFaculty(m.name, facName));
+                return f ? facultyRoomPrefsMap.get(f.uid) || facultyRoomPrefsMap.get(f.employeeId) : null;
+              })()
+            : null)
+        || null;
+    if (!pref) return { preferredRooms: [], preferredBuilding: "", restrictedRoomList: false };
+    return {
+        preferredRooms: Array.isArray(pref.preferredRooms) ? pref.preferredRooms : [],
+        preferredBuilding: pref.preferredBuilding || "",
+        restrictedRoomList: Boolean(pref.restrictedRoomList)
+    };
 }
 
 function parseHandledSubject(raw) {
@@ -1061,6 +1190,7 @@ const DAY_PAIRS = [
 ];
 
 function normalizeRoomType(roomType) {
+    if (!roomType) return "";
     const type = String(roomType || "").trim();
 
     // Gym
@@ -1092,6 +1222,149 @@ function isLabRoomType(roomType) {
         "FSM Laboratory", "CPT Laboratory"
     ];
     return labTypes.includes(roomType);
+}
+
+/**
+ * Determines the required room type for a subject meeting slot.
+ * slotIdx: 0 for Meeting 1 (Lecture Room for 2-meeting major subjects),
+ *          1 for Meeting 2 (Laboratory for 2-meeting major subjects).
+ */
+function getSubjectRequiredRoomTypeForSlot(subject, slotIdx = 0) {
+    if (!subject) return "Lecture Room";
+
+    const isAct = isActivityEntry(subject) ||
+        String(subject.meetingType || "").toLowerCase() === "activity" ||
+        String(subject.requiredRoomType || "").toLowerCase().includes("gym") ||
+        isActivityGymOrCourtRoom(subject.room);
+    if (isAct) return "Gymnasium";
+
+    let reqRoom = subject.requiredRoomType || "";
+    let meetType = subject.meetingType || "";
+    let subType = subject.subjectType || "";
+
+    // If missing from subject object, lookup in allLoadedSubjects / currentSplitContext
+    if (!reqRoom || !meetType || !subType) {
+        const subCode = String(subject.code || subject.subjectCode || "").trim().toUpperCase();
+        const found = (allLoadedSubjects || []).find(s =>
+            String(s.subjectCode || s.code || "").trim().toUpperCase() === subCode
+        );
+        if (found) {
+            reqRoom = reqRoom || found.requiredRoomType || "";
+            meetType = meetType || found.meetingType || "";
+            subType = subType || found.subjectType || "";
+        }
+    }
+
+    if (!reqRoom && typeof currentSplitContext !== "undefined" && currentSplitContext?.classifications) {
+        const classInfo = currentSplitContext.classifications.get(String(subject.code || subject.subjectCode || "").trim());
+        if (classInfo) {
+            reqRoom = classInfo.requiredRoomType || "";
+            meetType = meetType || classInfo.meetingType || "";
+            subType = subType || classInfo.type || "";
+        }
+    }
+
+    const normReq = normalizeRoomType(reqRoom);
+
+    // === TRUST EXPLICIT DATA FIRST ===
+    // If the prospectus/entry explicitly says "Lecture Room", honour that for ALL slots.
+    // Minor subjects (subjectType="Minor") with requiredRoomType="Lecture Room" must NEVER
+    // be treated as lec-lab even if their day/time/room strings contain "/".
+    const subTypeLower = String(subType).toLowerCase();
+    const isExplicitlyMinorOrLecture =
+        subTypeLower === "minor" ||
+        subTypeLower === "general" ||
+        normReq === "Lecture Room";
+
+    if (isExplicitlyMinorOrLecture && !isLabRoomType(normReq)) {
+        return "Lecture Room";
+    }
+
+    // Multi-meeting indicator: In university curriculum, major subjects are split into:
+    // Meeting 1 (Lecture) in a Lecture Room, and Meeting 2 (Laboratory) in a Laboratory facility.
+    const hasMultipleMeetings = slotIdx > 0 ||
+        (subject.totalSlots && subject.totalSlots >= 2) ||
+        String(subject.day || "").includes("/") ||
+        String(subject.time || "").includes("/") ||
+        String(subject.room || "").includes("/");
+
+    const isMajorSubject = String(subType).toLowerCase() === "major" ||
+        (!isSharedSubjectType(subType, subject.code, subject.name) &&
+         !isActivityEntry(subject) &&
+         !isLikelyMinorSubjectByCode(subject.code || subject.subjectCode, subject.name));
+
+    const isLecLab = /lecture.*lab|lab.*lecture/i.test(String(meetType).toLowerCase()) ||
+        (hasMultipleMeetings && isMajorSubject) ||
+        isLabRoomType(normReq);
+
+    if (isLecLab) {
+        // Meeting 1 (slotIdx 0) is Lecture, Meeting 2 (slotIdx 1) is Laboratory
+        if (slotIdx === 0) return "Lecture Room";
+        return isLabRoomType(normReq) ? normReq : "Laboratory";
+    }
+
+    if (isLabRoomType(normReq)) {
+        return normReq;
+    }
+
+    return "Lecture Room";
+}
+
+/**
+ * Validates if a given room is compatible with the subject and meeting slot.
+ */
+function isRoomCompatibleForSubject(roomObjOrName, subject, slotIdx = 0) {
+    if (!roomObjOrName) return false;
+    const roomName = typeof roomObjOrName === "string" ? roomObjOrName.trim() : (roomObjOrName.roomName || roomObjOrName.roomCode || "").trim();
+    if (!roomName || roomName.toUpperCase() === "TBA") return true;
+
+    const rObj = typeof roomObjOrName === "object" && roomObjOrName.roomType
+        ? roomObjOrName
+        : (allRooms || []).find(r =>
+            (r.roomName || "").trim().toLowerCase() === roomName.toLowerCase() ||
+            (r.roomCode || "").trim().toLowerCase() === roomName.toLowerCase() ||
+            sameRoom(r.roomName || r.roomCode, roomName)
+        );
+
+    // If no room record found and name has no keyword hint, skip the check (no reliable type data)
+    const rTypeRaw = rObj ? normalizeRoomType(rObj.roomType) : (
+        isActivityGymOrCourtRoom(roomName) ? "Gymnasium" :
+        /lab|shop|center/i.test(roomName) ? "Laboratory" : null
+    );
+    // null means "unknown" — only skip compatibility check for unknown rooms on lab/lecture checks
+    // (Gym check still applies if expected is Gymnasium)
+    const rType = rTypeRaw !== null ? rTypeRaw : "Lecture Room";
+
+    const expectedType = getSubjectRequiredRoomTypeForSlot(subject, slotIdx);
+
+    if (expectedType === "Gymnasium") {
+        return rType === "Gymnasium" || isActivityGymOrCourtRoom(roomName);
+    }
+
+    // If room type is unknown (not found in DB and no keyword hint), skip compatibility check
+    if (rTypeRaw === null) return true;
+
+    if (expectedType === "Lecture Room") {
+        // Lecture room cannot be a laboratory or gymnasium
+        if (isLabRoomType(rType) || rType === "Gymnasium" || isActivityGymOrCourtRoom(roomName) || /lab|shop|court|gym/i.test(roomName)) {
+            return false;
+        }
+        return rType === "Lecture Room" || rType === "Avr" || (!isLabRoomType(rType) && rType !== "Gymnasium");
+    }
+
+    // Expected is Laboratory or a specific lab type (e.g. MT Laboratory, AT Laboratory, CP Laboratory, etc.)
+    if (rType === "Laboratory" || isLabRoomType(rType) || /lab|shop|center/i.test(roomName)) {
+        if (expectedType && expectedType !== "Laboratory") {
+            // Exact match with specialized lab
+            if (rType === expectedType) return true;
+            // General multi-purpose laboratories (such as CET Shop, CET Center, Room B204) are valid technology labs
+            if (rType === "Laboratory" || /lab|shop|center/i.test(roomName)) return true;
+            return false;
+        }
+        return true;
+    }
+
+    return false;
 }
 
 function getBuildingPriority(building, prog) {
@@ -1465,7 +1738,13 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
             const isGymCourtB = isActivityGymOrCourtRoom(bRoom) || isActivityEntry(b);
             const bothGymCourt = isGymCourtA && isGymCourtB;
 
-            if (!bothGymCourt && aRoom && bRoom && aRoom === bRoom) {
+            // Paired Set A / Set B sharing the same room for a shared subject is intentional — not a conflict
+            const isPairedSetSharedRoom =
+                arePairedSets(a.section, b.section) &&
+                a.code === b.code &&
+                isSharedSubjectEntry(a);
+
+            if (!bothGymCourt && !isPairedSetSharedRoom && aRoom && bRoom && aRoom === bRoom) {
                 const key = `SELF_ROOM_${a.day}_${a.room}_${a.code}_${b.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -1548,7 +1827,13 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
             const isGymCourtExt = isActivityGymOrCourtRoom(extRoom) || isActivityEntry(ext);
             const bothGymCourtExt = isGymCourtCur && isGymCourtExt;
 
-            if (!bothGymCourtExt && curRoom && extRoom && curRoom === extRoom) {
+            // Paired Set A / Set B sharing the same room for a shared subject is intentional — not a conflict
+            const isPairedSetSharedRoomExt =
+                arePairedSets(cur.section, ext.section) &&
+                cur.code === ext.code &&
+                isSharedSubjectEntry(cur);
+
+            if (!bothGymCourtExt && !isPairedSetSharedRoomExt && curRoom && extRoom && curRoom === extRoom) {
                 const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -2601,7 +2886,32 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
 
     const output = [];
 
-    function roomIsTaken(room, day, time, allowGymSharing = false) {
+    /**
+     * Lunch break rule: if a class on this day ends at exactly 12:30 PM,
+     * the next class must start at 1:30 PM or later.
+     *
+     * 12:30 PM (end) = 750 min    →  next start blocked until 1:30 PM = 810 min
+     * Classes ending at any OTHER time (10:30, 11:00, 11:30, 12:00 etc.)
+     * do NOT trigger this restriction — normal scheduling applies.
+     */
+    function violatesLunchBreak(daySchedule, proposedTime) {
+        const HALF_NOON = 750; // 12:30 PM  (12 × 60 + 30)
+        const LUNCH_END = 810; // 1:30 PM   (13 × 60 + 30)
+
+        const range = parseTimeRange(proposedTime);
+        if (!range) return false;
+
+        // Only block slots that would start in the 12:30–1:29 PM window
+        if (range.start < HALF_NOON || range.start >= LUNCH_END) return false;
+
+        // Restriction only fires when a class on this day ends at exactly 12:30 PM
+        return daySchedule.some(item => {
+            const r = parseTimeRange(item.time);
+            return r && r.end === HALF_NOON;
+        });
+    }
+
+    function roomIsTaken(room, day, time, allowGymSharing = false, currentSubject = null) {
         const matchingBookings = savedBookings.filter(booking =>
             booking.day === day &&
             booking.section !== section &&
@@ -2611,6 +2921,13 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 booking.roomCode === room.roomCode ||
                 booking.room === room.roomCode ||
                 booking.room === room.roomName
+            ) &&
+            // Paired Set A/Set B sharing the same room for a shared subject is intentional
+            !(
+                arePairedSets(booking.section, section) &&
+                currentSubject &&
+                booking.code === (currentSubject.code || "") &&
+                isSharedSubjectEntry(currentSubject)
             )
         );
 
@@ -2628,8 +2945,35 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         return matchingBookings.length > 0;
     }
 
-    function selectBestRoom(availableRooms, requiredRoomType, prog) {
+    /**
+     * Selects the best room from available options.
+     * Priority: 1) Faculty-preferred rooms first, 2) Building priority, 3) Random.
+     * @param {Array}    availableRooms   - Rooms already filtered to be free & type-compatible
+     * @param {string}   requiredRoomType - "Lecture Room", "Laboratory", "Gymnasium", etc.
+     * @param {string}   prog             - Program code for building priority
+     * @param {string[]} facPreferredRooms - Room codes/names the faculty prefers (may be empty)
+     */
+    function selectBestRoom(availableRooms, requiredRoomType, prog, facPreferredRooms = []) {
         if (!availableRooms || availableRooms.length === 0) return null;
+
+        // Check if any available room is in the faculty's preferred list
+        const normalizeR = r => String(r || "").trim().toLowerCase().replace(/^room\s+/i, "").replace(/[^a-z0-9]/gi, "");
+        const prefSet = new Set((facPreferredRooms || []).map(normalizeR).filter(Boolean));
+
+        const preferred = prefSet.size > 0
+            ? availableRooms.filter(r =>
+                prefSet.has(normalizeR(r.roomCode)) ||
+                prefSet.has(normalizeR(r.roomName)) ||
+                prefSet.has(normalizeR(r.id))
+              )
+            : [];
+
+        if (preferred.length > 0) {
+            // Faculty preference wins — pick randomly from preferred rooms (no building priority override)
+            return preferred[Math.floor(Math.random() * preferred.length)];
+        }
+
+        // No preferred room available — fall back to building priority for lecture rooms
         if (requiredRoomType !== "Lecture Room") {
             return availableRooms[Math.floor(Math.random() * availableRooms.length)];
         }
@@ -2690,7 +3034,9 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         prog,
         facName = "",
         facUid = "",
-        mustAvoidFac = false
+        mustAvoidFac = false,
+        facPreferredRooms = [],
+        currentSubject = null
     ) {
         /* No forced 7:30 AM start - days may begin at whatever earliest slot
            is actually free, which avoids artificial deadlocks and conflicts
@@ -2713,10 +3059,13 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             const conflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
             if (conflict) continue;
 
-            // 2. Vacant gap check
+            // 2. Lunch break enforcement (non-gym slots only)
+            if (reqRoomType !== "Gymnasium" && violatesLunchBreak(timetableInstance[day], time)) continue;
+
+            // 3. Vacant gap check
             if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
-            // 3. Faculty clash check (prioritise slots where faculty is free)
+            // 4. Faculty clash check (prioritise slots where faculty is free)
             const facClash = facName && facultyIsBooked(facName, facUid, day, time, timetableInstance);
             if (mustAvoidFac && facClash) continue;
 
@@ -2737,12 +3086,12 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     !timetableInstance[day].some(item =>
                         item.roomCode === room.roomCode && timesOverlap(item.time, time)
                     ) &&
-                    !roomIsTaken(room, day, time)
+                    !roomIsTaken(room, day, time, false, currentSubject)
                 );
             });
             if (availableRooms.length === 0) continue;
 
-            const room = selectBestRoom(availableRooms, reqRoomType, prog);
+            const room = selectBestRoom(availableRooms, reqRoomType, prog, facPreferredRooms);
             if (room) {
                 return { time, room, facultyConflict: Boolean(facClash) };
             }
@@ -2766,6 +3115,10 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         const [reqRoomType1, reqRoomType2] = meetings;
         const facName = subject.faculty || "";
         const facUid = subject.facultyUid || "";
+
+        // Look up faculty room preferences for room prioritization
+        const facRoomPrefs = getFacultyRoomPrefs(facUid, facName);
+        const facPrefRooms = facRoomPrefs.preferredRooms;
 
         /* DAY PAIRING REMOVED: the two meetings may fall on ANY two
            distinct days Monday-Friday. All combinations are generated,
@@ -2792,11 +3145,16 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
 
         // Pass 1: try to schedule where faculty has NO conflict
         for (const [day1, day2] of candidateDayPairs) {
-            const m1 = findBestMeetingSlotAndRoom(day1, reqRoomType1, slots, timetableInstance, prog, facName, facUid, true);
+            const m1 = findBestMeetingSlotAndRoom(day1, reqRoomType1, slots, timetableInstance, prog, facName, facUid, true, facPrefRooms, subject);
             if (!m1) continue;
 
-            const m2 = findBestMeetingSlotAndRoom(day2, reqRoomType2, slots, timetableInstance, prog, facName, facUid, true);
+            const m2 = findBestMeetingSlotAndRoom(day2, reqRoomType2, slots, timetableInstance, prog, facName, facUid, true, facPrefRooms, subject);
             if (!m2) continue;
+
+            if (subject.needsAutoAssign) {
+                const auto = autoSelectFacultyForSubject(subject.code, [day1, day2], [m1.time, m2.time], timetableInstance);
+                if (!auto) continue;
+            }
 
             return {
                 day1,
@@ -2812,10 +3170,15 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         // Pass 2: try reversing day assignment if room types differ, still avoiding faculty conflict
         if (reqRoomType1 !== reqRoomType2) {
             for (const [day1, day2] of candidateDayPairs) {
-                const m1 = findBestMeetingSlotAndRoom(day2, reqRoomType1, slots, timetableInstance, prog, facName, facUid, true);
+                const m1 = findBestMeetingSlotAndRoom(day2, reqRoomType1, slots, timetableInstance, prog, facName, facUid, true, facPrefRooms, subject);
                 if (!m1) continue;
-                const m2 = findBestMeetingSlotAndRoom(day1, reqRoomType2, slots, timetableInstance, prog, facName, facUid, true);
+                const m2 = findBestMeetingSlotAndRoom(day1, reqRoomType2, slots, timetableInstance, prog, facName, facUid, true, facPrefRooms, subject);
                 if (!m2) continue;
+
+                if (subject.needsAutoAssign) {
+                    const auto = autoSelectFacultyForSubject(subject.code, [day2, day1], [m1.time, m2.time], timetableInstance);
+                    if (!auto) continue;
+                }
 
                 return {
                     day1: day2,
@@ -2829,28 +3192,30 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             }
         }
 
-        // Pass 3 (Fallback): schedule available rooms anyway, marking facultyConflict = true
-        // so that the conflicting faculty will be set to "Unassigned" instead of creating a clash
-        for (const [day1, day2] of candidateDayPairs) {
-            const m1 = findBestMeetingSlotAndRoom(day1, reqRoomType1, slots, timetableInstance, prog, facName, facUid, false);
-            if (!m1) continue;
+        // Pass 3 (Fallback): only used if faculty is unassigned and needs room assignment without clash
+        if (!facName || facName === "Unassigned" || facName === "TBA") {
+            for (const [day1, day2] of candidateDayPairs) {
+                const m1 = findBestMeetingSlotAndRoom(day1, reqRoomType1, slots, timetableInstance, prog, "", "", true, [], subject);
+                if (!m1) continue;
 
-            const m2 = findBestMeetingSlotAndRoom(day2, reqRoomType2, slots, timetableInstance, prog, facName, facUid, false);
-            if (!m2) continue;
+                const m2 = findBestMeetingSlotAndRoom(day2, reqRoomType2, slots, timetableInstance, prog, "", "", true, [], subject);
+                if (!m2) continue;
 
-            return {
-                day1,
-                time1: m1.time,
-                room1: m1.room,
-                facultyConflict: Boolean(m1.facultyConflict || m2.facultyConflict),
-                day2,
-                time2: m2.time,
-                room2: m2.room
-            };
+                return {
+                    day1,
+                    time1: m1.time,
+                    room1: m1.room,
+                    facultyConflict: false,
+                    day2,
+                    time2: m2.time,
+                    room2: m2.room
+                };
+            }
         }
 
         return null;
     }
+
 
     /**
      * Finds an assignment for single-meeting subjects (Research, Activity/Gymnasium).
@@ -2868,6 +3233,10 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         const facName = subject.faculty || "";
         const facUid = subject.facultyUid || "";
 
+        // Look up faculty room preferences for room prioritization
+        const facRoomPrefs = getFacultyRoomPrefs(facUid, facName);
+        const facPrefRooms = isActivity ? [] : facRoomPrefs.preferredRooms; // Don't apply prefs for gym/activity
+
         /* ACTIVITY SPREAD: activities can go on ANY day Monday-Friday.
            Days are ranked by the section's current load (fewest classes
            first, random tie-break), so each activity lands on a different,
@@ -2879,8 +3248,9 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             return loadA - loadB;
         });
 
-        // Pass 1: Try avoiding faculty conflict first. Pass 2: Allow slot, mark conflict flag
-        for (const mustAvoidFac of [true, false]) {
+        // Pass 1: Try avoiding faculty conflict first. Pass 2: Allow slot only if faculty is unassigned
+        const passes = (facName && facName !== "Unassigned" && facName !== "TBA") ? [true] : [true, false];
+        for (const mustAvoidFac of passes) {
             for (const day of candidateDays) {
                 if (isActivity && activityDays instanceof Set && activityDays.has(day)) continue;
 
@@ -2900,6 +3270,9 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 for (const time of candidateSlots) {
                     const sectionConflict = timetableInstance[day].some(item => timesOverlap(item.time, time));
                     if (sectionConflict) continue;
+
+                    // Lunch break enforcement (skip for activity/gym subjects)
+                    if (!isActivity && violatesLunchBreak(timetableInstance[day], time)) continue;
 
                     if (!isActivity && !isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
@@ -2929,8 +3302,12 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     });
 
                     if (availableRooms.length > 0) {
-                        const room = selectBestRoom(availableRooms, requiredRoomType, prog);
+                        const room = selectBestRoom(availableRooms, requiredRoomType, prog, facPrefRooms);
                         if (room) {
+                            if (subject.needsAutoAssign && mustAvoidFac) {
+                                const auto = autoSelectFacultyForSubject(subject.code, [day], [time], timetableInstance);
+                                if (!auto) continue;
+                            }
                             return { day, time, room, facultyConflict: Boolean(facClash) };
                         }
                     }
@@ -3099,7 +3476,12 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 subject.requiredRoomType === "Gymnasium";
             const isLectureLab = /lecture.*lab|lab.*lecture/.test(subject.meetingType);
             const isMajor = subject.subjectType.toLowerCase() === "major";
-            const isResearch = /^RES\d/i.test(subject.code);
+            const isResearch = isResearchSubject(subject.code, subject.name, subject.subjectType);
+            // Minor/general subjects always use Lecture Room regardless of stored requiredRoomType
+            const isMinor = !isMajor && !isActivity && !isResearch &&
+                (subject.subjectType.toLowerCase() === "minor" ||
+                 subject.subjectType.toLowerCase() === "general" ||
+                 isLikelyMinorSubjectByCode(subject.code, subject.name));
 
             const slots = isResearch
                 ? majorSlots
@@ -3111,13 +3493,15 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 ? [subject.requiredRoomType]
                 : isActivity
                     ? ["Gymnasium"]
-                    : isMajor
-                        ? ["Lecture Room", subject.requiredRoomType]
-                        : isLectureLab
+                    : isMinor
+                        ? ["Lecture Room", "Lecture Room"]
+                        : isMajor
                             ? ["Lecture Room", subject.requiredRoomType]
-                            : isLabRoomType(subject.requiredRoomType)
+                            : isLectureLab
                                 ? ["Lecture Room", subject.requiredRoomType]
-                                : [subject.requiredRoomType, subject.requiredRoomType];
+                                : isLabRoomType(subject.requiredRoomType)
+                                    ? ["Lecture Room", subject.requiredRoomType]
+                                    : [subject.requiredRoomType, subject.requiredRoomType];
 
             if (meetings.length === 2) {
                 const result = findAvailableTwoMeetingAssignment(
@@ -3179,7 +3563,10 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     roomCode: result.room1.roomCode,
                     faculty: finalFaculty,
                     facultyUid: finalFacultyUid,
-                    facultyId: finalFacultyId
+                    facultyId: finalFacultyId,
+                    subjectType: subject.subjectType || "",
+                    meetingType: subject.meetingType || "",
+                    requiredRoomType: subject.requiredRoomType || ""
                 });
                 currentOutput.push({
                     code: subject.code,
@@ -3191,7 +3578,10 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     roomCode: result.room2.roomCode,
                     faculty: finalFaculty,
                     facultyUid: finalFacultyUid,
-                    facultyId: finalFacultyId
+                    facultyId: finalFacultyId,
+                    subjectType: subject.subjectType || "",
+                    meetingType: subject.meetingType || "",
+                    requiredRoomType: subject.requiredRoomType || ""
                 });
             } else {
                 const reqRoomType = meetings[0];
@@ -3252,7 +3642,10 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     roomCode: result.room.roomCode,
                     faculty: finalFaculty,
                     facultyUid: finalFacultyUid,
-                    facultyId: finalFacultyId
+                    facultyId: finalFacultyId,
+                    subjectType: subject.subjectType || "",
+                    meetingType: subject.meetingType || "",
+                    requiredRoomType: subject.requiredRoomType || ""
                 });
             }
         }
@@ -3643,7 +4036,7 @@ async function generateSchedule() {
         let rooms;
         try {
             const roomSnapshot = await getDocs(collection(db, "rooms"));
-            rooms = roomSnapshot.docs.map(doc => doc.data());
+            rooms = roomSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
             showToast(`Could not load rooms: ${error.message}`);
             return;
@@ -4076,9 +4469,9 @@ function validateScheduleEdits(updatedEntries, schedule) {
             return;
         }
 
-        const days = String(entry.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
-        const times = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
-        const rooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+        const days = String(entry.day || "").split(/\s*\/\s*/).filter(Boolean);
+        const times = String(entry.time || "").split(/\s*\/\s*/).filter(Boolean);
+        const rooms = String(entry.room || "").split(/\s*\/\s*/).filter(Boolean);
 
         const maxLen = Math.max(days.length, times.length, rooms.length, 1);
         for (let i = 0; i < maxLen; i++) {
@@ -4098,7 +4491,10 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 faculty: entry.faculty || "",
                 facultyUid: entry.facultyUid || "",
                 section: schedule.section || schedule.name || "",
-                entry
+                entry: {
+                    ...entry,
+                    totalSlots: maxLen
+                }
             });
         }
     });
@@ -4154,11 +4550,11 @@ function validateScheduleEdits(updatedEntries, schedule) {
             const a = slots[i];
             const b = slots[j];
 
-            const aRoom = (a.room || "").trim().toLowerCase();
-            const bRoom = (b.room || "").trim().toLowerCase();
+            const aRoom = (a.room || "").trim();
+            const bRoom = (b.room || "").trim();
             const isGym = isActivityGymOrCourtRoom(aRoom);
 
-            if (!isGym && aRoom && bRoom && aRoom === bRoom && a.day.toLowerCase() === b.day.toLowerCase() && timesOverlap(a.time, b.time)) {
+            if (!isGym && aRoom && bRoom && sameRoom(aRoom, bRoom) && a.day.toLowerCase() === b.day.toLowerCase() && timesOverlap(a.time, b.time)) {
                 conflicts.push(`Room Double-Booking on <strong>${escapeHtml(a.day)}</strong>: Both <strong>${escapeHtml(a.code)}</strong> and <strong>${escapeHtml(b.code)}</strong> are assigned to <strong>${escapeHtml(a.room)}</strong> at overlapping times.`);
                 conflictRowIndices.add(a.rowIdx);
                 conflictRowIndices.add(b.rowIdx);
@@ -4211,7 +4607,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
     });
 
     slots.forEach(slot => {
-        const roomName = (slot.room || "").trim().toLowerCase();
+        const roomName = (slot.room || "").trim();
         if (!roomName) return;
         const isGym = isActivityGymOrCourtRoom(roomName);
 
@@ -4223,7 +4619,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
                                     (cleanTarget && (b.section || "").toLowerCase().includes(cleanTarget) && slot.code === b.code);
             if (isSharedSession) return false;
 
-            return (b.room || "").trim().toLowerCase() === roomName &&
+            return sameRoom(b.room, slot.room) &&
                 (b.day || "").trim().toLowerCase() === slot.day.trim().toLowerCase() &&
                 timesOverlap(b.time, slot.time);
         });
@@ -4319,7 +4715,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
     // 7. Check against any explicitly provided extra bookings (e.g. Set A major schedule baseline)
     if (Array.isArray(schedule.extraBookings) && schedule.extraBookings.length > 0) {
         slots.forEach(slot => {
-            const roomName = (slot.room || "").trim().toLowerCase();
+            const roomName = (slot.room || "").trim();
             const isGym = isActivityGymOrCourtRoom(roomName);
 
             schedule.extraBookings.forEach(b => {
@@ -4327,7 +4723,7 @@ function validateScheduleEdits(updatedEntries, schedule) {
                 if (!b.time || !timesOverlap(b.time, slot.time)) return;
 
                 // Room collision with Set A major
-                if (roomName && (b.room || "").trim().toLowerCase() === roomName) {
+                if (roomName && sameRoom(b.room, slot.room)) {
                     if (!isGym) {
                         conflicts.push(`Cross-Set Room Collision on <strong>${escapeHtml(slot.day)}</strong>: Set B <strong>${escapeHtml(slot.code)}</strong> conflicts with Set A <strong>${escapeHtml(b.code)}</strong> in room <strong>${escapeHtml(slot.room)}</strong> at ${escapeHtml(slot.time)}.`);
                         conflictRowIndices.add(slot.rowIdx);
@@ -4362,6 +4758,25 @@ function validateScheduleEdits(updatedEntries, schedule) {
             });
         });
     }
+
+    // 8. Validate room compatibility for each subject meeting slot
+    slots.forEach(slot => {
+        if (slot.room && String(slot.room).trim().toUpperCase() !== "TBA") {
+            const reqExpected = getSubjectRequiredRoomTypeForSlot(slot.entry || slot, slot.slotIdx);
+            if (!isRoomCompatibleForSubject(slot.room, slot.entry || slot, slot.slotIdx)) {
+                conflicts.push(`Room Incompatibility on <strong>${escapeHtml(slot.day)}</strong>: Room <strong>${escapeHtml(slot.room)}</strong> is incompatible with <strong>${escapeHtml(slot.code)}</strong> (requires <strong>${escapeHtml(reqExpected)}</strong>).`);
+                conflictRowIndices.add(slot.rowIdx);
+                detailedConflicts.push({
+                    type: "ROOM_INCOMPATIBLE",
+                    rowIdx: slot.rowIdx,
+                    slotIdx: slot.slotIdx,
+                    slot,
+                    room: slot.room,
+                    expectedType: reqExpected
+                });
+            }
+        }
+    });
 
     return {
         isValid: conflicts.length === 0,
@@ -4419,6 +4834,13 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
     const timeRange = parseTimeRange(pTime);
     if (!timeRange) return false;
 
+    // Check room compatibility with subject
+    if (checkRoom && pRoom && pRoom !== "TBA" && currentRows && currentRows[rowIdx]) {
+        if (!isRoomCompatibleForSubject(pRoom, currentRows[rowIdx], slotIdx)) {
+            return false;
+        }
+    }
+
     // Check against other entries in the edited schedule
     for (let r = 0; r < currentRows.length; r++) {
         const row = currentRows[r];
@@ -4441,7 +4863,7 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
 
                 // Room double-booking within this section
                 const isGym = isActivityGymOrCourtRoom(pRoom);
-                if (checkRoom && !isGym && pRoom && room && pRoom.toLowerCase() === room.toLowerCase()) {
+                if (checkRoom && !isGym && pRoom && room && sameRoom(pRoom, room)) {
                     return false;
                 }
 
@@ -4480,11 +4902,11 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
         // Room conflict
         if (checkRoom) {
             const isGym = isActivityGymOrCourtRoom(pRoom);
-            if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
+            if (pRoom && b.room && sameRoom(pRoom, b.room)) {
                 if (isGym) {
                     const count = otherBookings.filter(ob =>
                         normalizeDayName(ob.day).toLowerCase() === pDay.toLowerCase() &&
-                        (ob.room || "").toLowerCase() === pRoom.toLowerCase() &&
+                        sameRoom(ob.room, pRoom) &&
                         timesOverlap(ob.time, pTime)
                     ).length;
                     if (count >= 2) return false;
@@ -4508,7 +4930,7 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
 
             if (checkRoom) {
                 const isGym = isActivityGymOrCourtRoom(pRoom);
-                if (pRoom && b.room && pRoom.toLowerCase() === (b.room || "").toLowerCase()) {
+                if (pRoom && b.room && sameRoom(pRoom, b.room)) {
                     if (!isGym) return false;
                 }
             }
@@ -4660,30 +5082,18 @@ function generateConflictResolutions(validation, schedule, currentRows) {
     }
 
     // 3. ROOM SUGGESTIONS
-    const roomConflicts = detailedConflicts.filter(c => c.type === "ROOM_CONFLICT");
+    const roomConflicts = detailedConflicts.filter(c => c.type === "ROOM_CONFLICT" || c.type === "ROOM_INCOMPATIBLE");
     for (const rc of roomConflicts) {
         const slot = rc.slot;
         const key = `${slot.rowIdx}_${slot.slotIdx}`;
         if (handledRoomSlots.has(key)) continue;
         handledRoomSlots.add(key);
 
-        const currentRoomObj = allRooms.find(r =>
-            (r.roomName || "").trim().toLowerCase() === (slot.room || "").trim().toLowerCase() ||
-            (r.roomCode || "").trim().toLowerCase() === (slot.room || "").trim().toLowerCase()
-        );
-        const targetType = currentRoomObj?.roomType || (isActivityEntry(slot) ? "Gymnasium" : "Lecture Room");
-        const isTargetLab = isLabRoomType(targetType);
-
+        const expectedType = getSubjectRequiredRoomTypeForSlot(slot.entry || slot, slot.slotIdx);
         const candidateRooms = allRooms.filter(r => {
             const rName = (r.roomName || r.roomCode || "").trim();
-            if (rName.toLowerCase() === (slot.room || "").trim().toLowerCase()) return false;
-            if (targetType === "Gymnasium") {
-                return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(rName);
-            }
-            if (isTargetLab) {
-                return r.roomType === targetType || isLabRoomType(r.roomType);
-            }
-            return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
+            if (sameRoom(rName, slot.room)) return false;
+            return isRoomCompatibleForSubject(r, slot.entry || slot, slot.slotIdx);
         });
 
         for (const cr of candidateRooms) {
@@ -4780,17 +5190,9 @@ function generateConflictResolutions(validation, schedule, currentRows) {
                 ...eligibleFaculty
             ];
 
-            const currentRoomObj = allRooms.find(r =>
-                (r.roomName || "").trim().toLowerCase() === curRoom.trim().toLowerCase()
-            );
-            const targetType = currentRoomObj?.roomType || (isActivityEntry(targetRow) ? "Gymnasium" : "Lecture Room");
-            const suitableRooms = allRooms.filter(r => {
-                if (targetType === "Gymnasium") return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(r.roomName);
-                if (isLabRoomType(targetType)) return r.roomType === targetType || isLabRoomType(r.roomType);
-                return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
-            });
+            const suitableRooms = allRooms.filter(r => isRoomCompatibleForSubject(r, targetRow, slotIdx));
             const roomOptions = [
-                ...(curRoom ? [{ roomName: curRoom }] : []),
+                ...(curRoom && isRoomCompatibleForSubject(curRoom, targetRow, slotIdx) ? [{ roomName: curRoom }] : []),
                 ...suitableRooms
             ];
 
@@ -5055,22 +5457,28 @@ function renderConflictResolutionsUI(recommendations) {
  */
 function readCurrentEditScheduleRows() {
     if (!editScheduleTableBody) return [];
+    const schedules = getSavedSchedules();
+    const schedule = schedules.find(item => item.id === currentEditingScheduleId || scheduleDocId(item) === currentEditingScheduleId);
+    const originalEntries = schedule?.entries || [];
+
     const rows = editScheduleTableBody.querySelectorAll("tr");
     const currentRows = [];
 
     rows.forEach((row, idx) => {
-        const code = (row.querySelector(".edit-code-input")?.value || "").trim();
-        const name = (row.querySelector(".edit-name-input")?.value || "").trim();
-        const units = (row.querySelector(".edit-units-input")?.value || "").trim();
+        const orig = originalEntries[idx] || {};
+        const code = (row.querySelector(".edit-code-input")?.value || orig.code || "").trim();
+        const name = (row.querySelector(".edit-name-input")?.value || orig.name || "").trim();
+        const units = (row.querySelector(".edit-units-input")?.value || orig.units || "").trim();
         const day = (row.querySelector(".edit-day-input")?.value || "").trim();
         const time = (row.querySelector(".edit-time-input")?.value || "").trim();
         const room = (row.querySelector(".edit-room-input")?.value || "").trim();
         const facultySelect = row.querySelector(".edit-faculty-select");
         const faculty = (facultySelect?.value || "").trim();
-        const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || "").trim();
-        const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || "").trim();
+        const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || orig.facultyUid || "").trim();
+        const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || orig.facultyId || "").trim();
 
-        currentRows.push({
+        const row_entry = {
+            ...orig,
             rowIdx: idx,
             code,
             name,
@@ -5081,7 +5489,25 @@ function readCurrentEditScheduleRows() {
             faculty: faculty || "Unassigned",
             facultyUid,
             facultyId
-        });
+        };
+
+        // If the saved entry is missing subject metadata (older schedules generated before the fix),
+        // look up the prospectus data from allLoadedSubjects to fill in subjectType, meetingType,
+        // and requiredRoomType. This prevents validation from wrongly treating subjects like TIC02
+        // (a minor subject not caught by code-prefix heuristics) as major lec-lab subjects.
+        if (!row_entry.subjectType || !row_entry.requiredRoomType) {
+            const codeUpper = code.trim().toUpperCase();
+            const found = (allLoadedSubjects || []).find(s =>
+                String(s.subjectCode || s.code || "").trim().toUpperCase() === codeUpper
+            );
+            if (found) {
+                if (!row_entry.subjectType)    row_entry.subjectType    = found.subjectType    || "";
+                if (!row_entry.meetingType)    row_entry.meetingType    = found.meetingType    || "";
+                if (!row_entry.requiredRoomType) row_entry.requiredRoomType = found.requiredRoomType || "";
+            }
+        }
+
+        currentRows.push(row_entry);
     });
 
     return currentRows;
@@ -5147,6 +5573,48 @@ function openEditScheduleModal(scheduleId) {
 
     currentEditingScheduleId = scheduleId;
     clearEditScheduleConflicts();
+
+    // Ensure allLoadedSubjects contains subjects for this schedule's curriculum so
+    // validation can look up subjectType / requiredRoomType for any subject code.
+    // We merge rather than replace so the currently loaded section's data is preserved.
+    (async () => {
+        try {
+            const prog = schedule.program || schedule.programCode || "";
+            const major = schedule.major || schedule.majorCode || "";
+            const yl = schedule.yearLevel || "";
+            const sem = schedule.semester || "";
+            if (prog) {
+                const snap = await getDocs(collection(db, "prospectus"));
+                const matchingSubjects = [];
+                snap.docs.forEach(docSnap => {
+                    const d = docSnap.data();
+                    if (
+                        String(d.programCode || "").trim().toUpperCase() === prog.trim().toUpperCase() &&
+                        (!major || String(d.majorCode || "").trim().toUpperCase() === major.trim().toUpperCase()) &&
+                        (!yl || String(d.yearLevel || "").trim() === String(yl).trim()) &&
+                        (!sem || normalizeSemStr(d.semester) === normalizeSemStr(sem))
+                    ) {
+                        matchingSubjects.push(d);
+                    }
+                });
+                if (matchingSubjects.length > 0) {
+                    // Merge: add any subject codes not already in allLoadedSubjects
+                    const existingCodes = new Set((allLoadedSubjects || []).map(s =>
+                        String(s.subjectCode || s.code || "").trim().toUpperCase()
+                    ));
+                    const newSubjects = matchingSubjects.filter(s =>
+                        !existingCodes.has(String(s.subjectCode || s.code || "").trim().toUpperCase())
+                    );
+                    allLoadedSubjects = [...(allLoadedSubjects || []), ...newSubjects];
+                }
+            }
+        } catch (e) {
+            // Non-critical — validation will fall back to heuristics
+        }
+        // Re-run conflict check now that allLoadedSubjects is fully populated —
+        // this clears any false conflicts (e.g. minor subjects wrongly requiring Laboratory)
+        if (currentEditingScheduleId) runLiveEditConflictCheck();
+    })();
 
     if (editScheduleTitle) {
         editScheduleTitle.textContent = `Edit Class Schedule - ${schedule.section || schedule.name}`;
@@ -5486,17 +5954,19 @@ if (saveEditScheduleBtn) {
         const rows = editScheduleTableBody.querySelectorAll("tr");
         const updatedEntries = [];
 
-        for (const row of rows) {
-            const code = (row.querySelector(".edit-code-input")?.value || "").trim();
-            const name = (row.querySelector(".edit-name-input")?.value || "").trim();
-            const units = (row.querySelector(".edit-units-input")?.value || "").trim();
+        for (let idx = 0; idx < rows.length; idx++) {
+            const row = rows[idx];
+            const orig = (schedule.entries || [])[idx] || {};
+            const code = (row.querySelector(".edit-code-input")?.value || orig.code || "").trim();
+            const name = (row.querySelector(".edit-name-input")?.value || orig.name || "").trim();
+            const units = (row.querySelector(".edit-units-input")?.value || orig.units || "").trim();
             const day = (row.querySelector(".edit-day-input")?.value || "").trim();
             const time = (row.querySelector(".edit-time-input")?.value || "").trim();
             const room = (row.querySelector(".edit-room-input")?.value || "").trim();
             const facultySelect = row.querySelector(".edit-faculty-select");
             const faculty = (facultySelect?.value || "").trim();
-            const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || "").trim();
-            const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || "").trim();
+            const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || orig.facultyUid || "").trim();
+            const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || orig.facultyId || "").trim();
 
             if (!day || !time || !room) {
                 showToast(`Please complete Day, Time, and Room for ${code || "all subjects"}.`);
@@ -5504,6 +5974,7 @@ if (saveEditScheduleBtn) {
             }
 
             updatedEntries.push({
+                ...orig,
                 code,
                 name,
                 units: Number(units) || units,
@@ -5615,7 +6086,7 @@ if (saveEditScheduleBtn) {
 
                     updatedEntries.forEach(upEntry => {
                         const type = classifications[upEntry.code] || (isActivityEntry(upEntry) ? "Activity" : "");
-                        const isShared = (type === "Minor" || type === "Activity" || String(type).toLowerCase().includes("minor") || isActivityEntry(upEntry));
+                        const isShared = isSharedSubjectType(type, upEntry.code, upEntry.name);
 
                         if (isShared && Array.isArray(sibling.entries)) {
                             const sibEntry = sibling.entries.find(e => e.code === upEntry.code);
@@ -5756,7 +6227,7 @@ const splitConflictsBanner = document.getElementById("splitConflictsBanner");
 const splitAmbiguousAlert = document.getElementById("splitAmbiguousAlert");
 const splitResolutionsContainer = document.getElementById("splitResolutionsContainer");
 
-let currentSplitContext = null;
+// currentSplitContext declared above at line 496
 
 async function fetchProspectusClassifications(schedule) {
     const map = new Map();
@@ -5795,12 +6266,14 @@ async function fetchProspectusClassifications(schedule) {
 function resolveSubjectClassification(entry, prospectusMap, savedClassifications = {}) {
     const code = String(entry.code || "").trim();
     const codeKey = code.toUpperCase();
+    const name = String(entry.name || "").trim();
 
     if (savedClassifications && savedClassifications[code]) {
         const saved = savedClassifications[code];
+        const isRes = saved === "Research" || isResearchSubject(code, name, saved);
         const isActivity = saved === "Activity" || isActivityEntry(entry);
         return {
-            type: saved === "Major" ? "Major" : (isActivity ? "Activity" : "Minor"),
+            type: saved === "Major" ? "Major" : (isRes ? "Research" : (isActivity ? "Activity" : "Minor")),
             foundInProspectus: true,
             sourceLabel: "Saved Classification",
             needsConfirmation: false
@@ -5813,14 +6286,21 @@ function resolveSubjectClassification(entry, prospectusMap, savedClassifications
         const rawMeeting = String(p.meetingType || "").trim().toLowerCase();
         const rawRoom = String(p.requiredRoomType || "").trim().toLowerCase();
 
-        if (rawType === "major") {
+        if (rawType === "research" || isResearchSubject(code, name, rawType)) {
+            return {
+                type: "Research",
+                foundInProspectus: true,
+                sourceLabel: "Curriculum (Prospectus: Research)",
+                needsConfirmation: false
+            };
+        } else if (rawType === "major") {
             return {
                 type: "Major",
                 foundInProspectus: true,
                 sourceLabel: "Curriculum (Prospectus: Major)",
                 needsConfirmation: false
             };
-        } else if (rawType === "minor") {
+        } else if (rawType === "minor" || rawType === "general") {
             if (rawMeeting.includes("activity") || rawRoom.includes("gym") || isActivityEntry(entry)) {
                 return {
                     type: "Activity",
@@ -5832,7 +6312,7 @@ function resolveSubjectClassification(entry, prospectusMap, savedClassifications
             return {
                 type: "Minor",
                 foundInProspectus: true,
-                sourceLabel: "Curriculum (Prospectus: Minor)",
+                sourceLabel: `Curriculum (Prospectus: ${p.subjectType || 'Minor'})`,
                 needsConfirmation: false
             };
         } else if (rawMeeting.includes("activity") || isActivityEntry(entry)) {
@@ -5845,6 +6325,15 @@ function resolveSubjectClassification(entry, prospectusMap, savedClassifications
         }
     }
 
+    if (isResearchSubject(code, name, entry.subjectType)) {
+        return {
+            type: "Research",
+            foundInProspectus: Boolean(p),
+            sourceLabel: "Research Subject",
+            needsConfirmation: false
+        };
+    }
+
     if (isActivityEntry(entry) || isActivityGymOrCourtRoom(entry.room)) {
         return {
             type: "Activity",
@@ -5855,9 +6344,10 @@ function resolveSubjectClassification(entry, prospectusMap, savedClassifications
     }
 
     // Unclassified or missing from prospectus: infer sensible default and flag as ambiguous
-    const isGE = /^(GE|GEC|NSTP|FIL|ENG|MATH|SOC|HIST|CWTS|ROTC)/i.test(codeKey) || /general education|nstp|filipino|contemporary|purposive|ethics|understanding the self|readings in/i.test(entry.name || "");
+    const isGE = /^(GE|GEC|NSTP|FIL|ENG|MATH|SOC|HIST|CWTS|ROTC)/i.test(codeKey) || /general education|nstp|filipino|contemporary|purposive|ethics|understanding the self|readings in/i.test(name);
     const isAct = isActivityEntry(entry) || /^(PE|PATHFIT|PATH FIT)/i.test(codeKey);
-    const inferredType = isAct ? "Activity" : (isGE ? "Minor" : "Major");
+    const isRes = isResearchSubject(codeKey, name, "");
+    const inferredType = isRes ? "Research" : (isAct ? "Activity" : (isGE ? "Minor" : "Major"));
 
     return {
         type: inferredType,
@@ -5912,51 +6402,52 @@ function getCandidateTimeSlotsForDuration(origTimeStr) {
     return [...majorSlots, ...minorSlots];
 }
 
-function getCandidateRoomsForSubject(entry) {
-    const curRoom = String(entry.room || "").split(" / ")[0].trim();
-    const curRoomObj = allRooms.find(r =>
-        (r.roomName || "").trim().toLowerCase() === curRoom.toLowerCase() ||
-        (r.roomCode || "").trim().toLowerCase() === curRoom.toLowerCase()
-    );
-    const targetType = curRoomObj?.roomType || (isActivityEntry(entry) ? "Gymnasium" : "Lecture Room");
-    const isTargetLab = isLabRoomType(targetType);
+function getCandidateRoomsForSubject(entry, slotIdx = 0) {
+    const origRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
+    const curRoom = origRooms[slotIdx] || origRooms[0] || "";
 
-    const suitable = allRooms.filter(r => {
-        const rName = r.roomName || r.roomCode || "";
-        if (!rName) return false;
-        if (targetType === "Gymnasium") {
-            return r.roomType === "Gymnasium" || isActivityGymOrCourtRoom(rName);
-        }
-        if (isTargetLab) {
-            return r.roomType === targetType || isLabRoomType(r.roomType);
-        }
-        return r.roomType === "Lecture Room" || (!isLabRoomType(r.roomType) && r.roomType !== "Gymnasium");
+    const suitable = (allRooms || []).filter(r => {
+        return isRoomCompatibleForSubject(r, entry, slotIdx);
     }).map(r => r.roomName || r.roomCode);
 
     const list = [];
     suitable.forEach(r => {
-        if (r.toLowerCase() !== curRoom.toLowerCase()) list.push(r);
+        if (!sameRoom(r, curRoom)) list.push(r);
     });
-    if (curRoom && !list.some(r => r.toLowerCase() === curRoom.toLowerCase())) {
+    // Add current room if compatible
+    if (curRoom && isRoomCompatibleForSubject(curRoom, entry, slotIdx) && !list.some(r => sameRoom(r, curRoom))) {
         list.push(curRoom);
     }
-    return list.length ? list : (curRoom ? [curRoom] : ["Room 101"]);
+
+    if (list.length) return list;
+
+    const expectedType = getSubjectRequiredRoomTypeForSlot(entry, slotIdx);
+    if (expectedType === "Gymnasium") return ["Covered Court"];
+    if (expectedType === "Lecture Room") return [curRoom || "Room 101"];
+    return [curRoom || expectedType];
 }
 
 function isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleMeta) {
     if (!cand.day || !cand.time) return false;
     const cDay = normalizeDayName(cand.day).toLowerCase();
     const cTime = cand.time;
-    const cRoom = (cand.room || "").trim().toLowerCase();
-    const cFac = (cand.faculty || "").trim();
+    const cRoom = cand.room || "";
+    const cFac = cand.faculty || "";
     const isGym = isActivityGymOrCourtRoom(cRoom);
+
+    // 0. Room compatibility check
+    if (cand.room && String(cand.room).trim().toUpperCase() !== "TBA") {
+        if (!isRoomCompatibleForSubject(cand.room, cand.entry || cand, cand.slotIdx || 0)) {
+            return false;
+        }
+    }
 
     // 1. Check against current Set B slots
     for (const s of setBSlots) {
         if (normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime)) {
             return false; // Section time overlap
         }
-        if (!isGym && cRoom && s.room && normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime) && s.room.trim().toLowerCase() === cRoom) {
+        if (!isGym && cRoom && s.room && normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime) && sameRoom(s.room, cRoom)) {
             return false; // Internal room double-booking
         }
         if (cFac && cFac !== "Unassigned" && s.faculty && normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime) && sameFaculty(s.faculty, cFac)) {
@@ -5969,7 +6460,7 @@ function isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleM
         if (s.isShared && s.code === cand.code) continue;
 
         if (normalizeDayName(s.day).toLowerCase() === cDay && timesOverlap(s.time, cTime)) {
-            if (!isGym && cRoom && s.room && s.room.trim().toLowerCase() === cRoom) {
+            if (!isGym && cRoom && s.room && sameRoom(s.room, cRoom)) {
                 return false; // Room conflict with Set A
             }
             if (cFac && cFac !== "Unassigned" && s.faculty && sameFaculty(s.faculty, cFac)) {
@@ -5988,11 +6479,11 @@ function isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleM
         if (scheduleMeta.scheduleGroupId && b.scheduleGroupId === scheduleMeta.scheduleGroupId) continue;
 
         if (b.day && normalizeDayName(b.day).toLowerCase() === cDay && b.time && timesOverlap(b.time, cTime)) {
-            if (cRoom && b.room && (b.room || "").trim().toLowerCase() === cRoom) {
+            if (cRoom && b.room && sameRoom(b.room, cRoom)) {
                 if (isGym) {
                     const gymCount = otherBookings.filter(ob =>
                         ob.day && normalizeDayName(ob.day).toLowerCase() === cDay &&
-                        ob.room && (ob.room || "").trim().toLowerCase() === cRoom &&
+                        ob.room && sameRoom(ob.room, cRoom) &&
                         timesOverlap(ob.time, cTime)
                     ).length;
                     if (gymCount >= 2) return false;
@@ -6010,7 +6501,6 @@ function isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleM
 }
 
 function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRooms, setBSlots, setASlots, otherBookings, scheduleMeta) {
-    const candidateRooms = getCandidateRoomsForSubject(entry);
     const candFaculty = entry.faculty || "Unassigned";
     const candFacultyUid = entry.facultyUid || "";
     const candFacultyId = entry.facultyId || "";
@@ -6044,6 +6534,7 @@ function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRo
         const origTime = origTimes[0] || "7:30-10:00";
         const candidateDays = days.filter(d => d.toLowerCase() !== origDay.toLowerCase()).concat([origDay]);
         const candidateTimes = getCandidateTimeSlotsForDuration(origTime);
+        const candidateRooms = getCandidateRoomsForSubject(entry, 0);
 
         for (const fac of eligibleFaculty) {
             for (const day of candidateDays) {
@@ -6051,12 +6542,16 @@ function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRo
                     if (day.toLowerCase() === origDay.toLowerCase() && time === origTime && sameFaculty(fac.name, candFaculty)) continue;
                     for (const room of candidateRooms) {
                         const cand = {
+                            code: entry.code,
+                            name: entry.name,
                             day,
                             time,
                             room,
                             faculty: fac.name,
                             facultyUid: fac.uid,
-                            facultyId: fac.employeeId
+                            facultyId: fac.employeeId,
+                            slotIdx: 0,
+                            entry
                         };
                         if (isSlotConflictFree(cand, setBSlots, setASlots, otherBookings, scheduleMeta)) {
                             return [cand];
@@ -6095,18 +6590,56 @@ function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRo
             return overlapA - overlapB;
         });
 
-        const candidateTimes = getCandidateTimeSlotsForDuration(origTimes[0] || "7:30-9:00");
+        // Add reverse pairs so day 1 and day 2 can swap if needed
+        const allPairs = [];
+        sortedPairs.forEach(([d1, d2]) => {
+            allPairs.push([d1, d2]);
+            allPairs.push([d2, d1]);
+        });
+
+        const candidateTimes1 = getCandidateTimeSlotsForDuration(origTimes[0] || "7:30-10:00");
+        const candidateTimes2 = getCandidateTimeSlotsForDuration(origTimes[1] || origTimes[0] || "7:30-10:00");
+        const candidateRooms1 = getCandidateRoomsForSubject(entry, 0);
+        const candidateRooms2 = getCandidateRoomsForSubject(entry, 1);
 
         for (const fac of eligibleFaculty) {
-            for (const [pDay1, pDay2] of sortedPairs) {
-                for (const time of candidateTimes) {
-                    for (const room of candidateRooms) {
-                        const cand1 = { day: pDay1, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
-                        const cand2 = { day: pDay2, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
+            for (const [pDay1, pDay2] of allPairs) {
+                for (const time1 of candidateTimes1) {
+                    for (const r1 of candidateRooms1) {
+                        const cand1 = {
+                            code: entry.code,
+                            name: entry.name,
+                            day: pDay1,
+                            time: time1,
+                            room: r1,
+                            faculty: fac.name,
+                            facultyUid: fac.uid,
+                            facultyId: fac.employeeId,
+                            slotIdx: 0,
+                            entry
+                        };
 
-                        if (isSlotConflictFree(cand1, setBSlots, setASlots, otherBookings, scheduleMeta) &&
-                            isSlotConflictFree(cand2, [...setBSlots, cand1], setASlots, otherBookings, scheduleMeta)) {
-                            return [cand1, cand2];
+                        if (!isSlotConflictFree(cand1, setBSlots, setASlots, otherBookings, scheduleMeta)) continue;
+
+                        for (const time2 of candidateTimes2) {
+                            for (const r2 of candidateRooms2) {
+                                const cand2 = {
+                                    code: entry.code,
+                                    name: entry.name,
+                                    day: pDay2,
+                                    time: time2,
+                                    room: r2,
+                                    faculty: fac.name,
+                                    facultyUid: fac.uid,
+                                    facultyId: fac.employeeId,
+                                    slotIdx: 1,
+                                    entry
+                                };
+
+                                if (isSlotConflictFree(cand2, [...setBSlots, cand1], setASlots, otherBookings, scheduleMeta)) {
+                                    return [cand1, cand2];
+                                }
+                            }
                         }
                     }
                 }
@@ -6125,9 +6658,10 @@ function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRo
     const tempSetBSlots = [...setBSlots];
     for (let i = 0; i < slotCount; i++) {
         const oDay = origDays[i] || days[i % days.length];
-        const oTime = origTimes[i] || origTimes[0] || "7:30-9:00";
+        const oTime = origTimes[i] || origTimes[0] || "7:30-10:00";
         const candidateDays = days.filter(d => d.toLowerCase() !== oDay.toLowerCase()).concat([oDay]);
         const candidateTimes = getCandidateTimeSlotsForDuration(oTime);
+        const candidateRooms = getCandidateRoomsForSubject(entry, i);
 
         let placed = null;
         for (const fac of eligibleFaculty) {
@@ -6135,7 +6669,18 @@ function findAlternativeMajorSlots(entry, slotCount, origDays, origTimes, origRo
                 for (const time of candidateTimes) {
                     if (day.toLowerCase() === oDay.toLowerCase() && time === oTime && sameFaculty(fac.name, candFaculty)) continue;
                     for (const room of candidateRooms) {
-                        const cand = { day, time, room, faculty: fac.name, facultyUid: fac.uid, facultyId: fac.employeeId };
+                        const cand = {
+                            code: entry.code,
+                            name: entry.name,
+                            day,
+                            time,
+                            room,
+                            faculty: fac.name,
+                            facultyUid: fac.uid,
+                            facultyId: fac.employeeId,
+                            slotIdx: i,
+                            entry
+                        };
                         if (isSlotConflictFree(cand, tempSetBSlots, setASlots, otherBookings, scheduleMeta)) {
                             placed = cand;
                             break;
@@ -6174,7 +6719,7 @@ function generateAlternativeScheduleForSetB(entriesBaseline, classifications, sc
     const setASlots = [];
     entriesBaseline.forEach(entry => {
         const info = classifications.get(entry.code) || { type: "Major" };
-        const isShared = (info.type === "Minor" || info.type === "Activity");
+        const isShared = isSharedSubjectType(info.type, entry.code, entry.name);
         const entryDays = String(entry.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
         const entryTimes = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
         const entryRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
@@ -6197,10 +6742,10 @@ function generateAlternativeScheduleForSetB(entriesBaseline, classifications, sc
     const setBSlots = [];
     const resultEntries = [];
 
-    // Step 1: Place all shared subjects (Minor and Activity) first, as they mirror Set A exactly
+    // Step 1: Place all shared subjects (Minor, Activity, and Research) first, as they mirror Set A exactly
     entriesBaseline.forEach(entry => {
         const info = classifications.get(entry.code) || { type: "Major" };
-        if (info.type === "Minor" || info.type === "Activity") {
+        if (isSharedSubjectType(info.type, entry.code, entry.name)) {
             const entryDays = String(entry.day || "").split(" / ").map(d => normalizeDayName(d.trim())).filter(Boolean);
             const entryTimes = String(entry.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
             const entryRooms = String(entry.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
@@ -6221,10 +6766,10 @@ function generateAlternativeScheduleForSetB(entriesBaseline, classifications, sc
         }
     });
 
-    // Step 2: For each entry in baseline, if Minor/Activity, keep identical. If Major, generate alternative!
+    // Step 2: For each entry in baseline, if shared (Minor/Activity/Research), keep identical. If Major, generate alternative!
     entriesBaseline.forEach(entry => {
         const info = classifications.get(entry.code) || { type: "Major" };
-        if (info.type !== "Major") {
+        if (isSharedSubjectType(info.type, entry.code, entry.name)) {
             resultEntries.push({
                 ...entry,
                 subjectType: info.type
@@ -6349,7 +6894,7 @@ function renderSplitSetsPreview() {
     // Render Set A Table
     splitSetATableBody.innerHTML = baseline.map((entry, idx) => {
         const info = currentSplitContext.classifications.get(entry.code) || { type: "Major" };
-        const isMajor = info.type === "Major";
+        const isMajor = !isSharedSubjectType(info.type, entry.code, entry.name);
 
         return `
             <tr data-code="${escapeHtml(entry.code)}" data-idx="${idx}" data-entry-idx="${idx}" class="${isMajor ? 'row-major' : 'row-shared'}">
@@ -6375,10 +6920,10 @@ function renderSplitSetsPreview() {
 
     // Render Set B Table
     // Set B has identical list of major subjects with independent editable inputs.
-    // Shared minor subjects mirror Set A with locked display.
+    // Shared minor, activity, and research subjects mirror Set A with locked display.
     splitSetBTableBody.innerHTML = baseline.map((entry, idx) => {
         const info = currentSplitContext.classifications.get(entry.code) || { type: "Major" };
-        const isMajor = info.type === "Major";
+        const isMajor = !isSharedSubjectType(info.type, entry.code, entry.name);
 
         const existingB = (currentSplitContext.setBEntries || []).find(e => e.code === entry.code);
 
@@ -6413,13 +6958,14 @@ function renderSplitSetsPreview() {
                 </tr>
             `;
         } else {
-            // Shared Minor / Activity
+            // Shared Minor / Activity / Research
+            const typeLabel = info.type === "Research" ? "Research" : (info.type === "Activity" ? "Activity" : "Minor");
             return `
                 <tr data-code="${escapeHtml(entry.code)}" data-idx="${idx}" data-entry-idx="${idx}" class="row-shared">
                     <td>
                         <strong style="color:#2e7d32;">${escapeHtml(entry.code)}</strong>
                         <div style="font-size:11px; color:#555;">${escapeHtml(entry.name)}</div>
-                        <div style="margin-top:3px;"><span class="shared-lock-indicator">🔒 Shared from Set A</span></div>
+                        <div style="margin-top:3px;"><span class="shared-lock-indicator">🔒 Shared from Set A (${escapeHtml(typeLabel)})</span></div>
                     </td>
                     <td>
                         <input type="text" class="set-b-day-input shared-mirror" data-code="${escapeHtml(entry.code)}" value="${escapeHtml(dayVal)}" disabled style="background:#f9f9f9; color:#666;">
@@ -6476,7 +7022,7 @@ function readSplitSetEntries(setName) {
     baseline.forEach((base, idx) => {
         const row = container?.querySelector(`tr[data-code="${base.code}"]`);
         const info = currentSplitContext.classifications.get(base.code) || { type: "Major" };
-        const isMajor = info.type === "Major";
+        const isMajor = !isSharedSubjectType(info.type, base.code, base.name);
 
         if (isMajor) {
             const day = (row?.querySelector(".set-b-day-input")?.value || "").trim();
@@ -6548,7 +7094,7 @@ function runSplitConflictCheck() {
     const setAExtraBookings = [];
     setAEntries.forEach(a => {
         const info = currentSplitContext.classifications.get(a.code);
-        if (info?.type === "Major") {
+        if (info && !isSharedSubjectType(info.type, a.code, a.name)) {
             const days = String(a.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
             const times = String(a.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
             const rooms = String(a.room || "").split(" / ").map(r => r.trim()).filter(Boolean);
@@ -6595,7 +7141,7 @@ function runSplitConflictCheck() {
     // 4. Identify any unassigned/incomplete major subjects in Set B
     for (const b of setBEntries) {
         const info = currentSplitContext.classifications.get(b.code);
-        if (info?.type === "Major") {
+        if (info && !isSharedSubjectType(info.type, b.code, b.name)) {
             if (!b.day || !b.time || !b.room || b.day === "TBA" || b.time === "TBA" || b.room === "TBA") {
                 if (!TBA_SUBJECT_CODES.has(b.code)) {
                     conflicts.push(`<strong>Set B:</strong> Major subject <strong>${escapeHtml(b.code)}</strong> has no valid schedule assigned. Please manually assign Day, Time, and Room.`);
@@ -6941,7 +7487,7 @@ async function openSplitScheduleModal(scheduleId, isManage = false) {
         splitAmbiguousAlert.innerHTML = `
             <strong>⚠️ Missing Curriculum Classification Notice:</strong>
             The following subjects could not be found in the prospectus and were assigned default classifications: ${subjectList}.
-            Major subjects have independent schedules in Set B, while Minor/Activity subjects are shared.
+            Major subjects have independent schedules in Set B, while Minor, Activity, and Research subjects are shared.
         `;
     } else if (splitAmbiguousAlert) {
         splitAmbiguousAlert.style.display = "none";
@@ -7266,6 +7812,7 @@ savedSchedulesList.addEventListener("click", async event => {
     await Promise.all([
         loadFacultyMembers(),
         loadFacultySubjectAssignments(),
+        loadFacultyRoomPreferences(),
         loadSectionsFromFirestore(),
         loadRooms()
     ]);

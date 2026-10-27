@@ -280,6 +280,160 @@ function isGymOrCourtRoom(r) {
     return str.includes("court") || str.includes("gym") || str.includes("covered");
 }
 
+function normalizeRoomType(roomType) {
+    if (!roomType) return "";
+    const type = String(roomType || "").trim();
+    if (type.toLowerCase().includes("gym")) return "Gymnasium";
+    if (type === "Laboratory") return "Laboratory";
+    if (type === "MT Laboratory") return "MT Laboratory";
+    if (type === "AT Laboratory") return "AT Laboratory";
+    if (type === "CP Laboratory") return "CP Laboratory";
+    if (type === "CT Laboratory") return "CT Laboratory";
+    if (type === "ELT Laboratory") return "ELT Laboratory";
+    if (type === "ELX Laboratory") return "ELX Laboratory";
+    if (type === "FSM Laboratory") return "FSM Laboratory";
+    if (type === "CPT Laboratory") return "CPT Laboratory";
+    return "Lecture Room";
+}
+
+function isLabRoomType(roomType) {
+    const labTypes = [
+        "Laboratory",
+        "MT Laboratory", "AT Laboratory", "CP Laboratory",
+        "CT Laboratory", "ELT Laboratory", "ELX Laboratory",
+        "FSM Laboratory", "CPT Laboratory"
+    ];
+    return labTypes.includes(roomType);
+}
+
+function isActivityEntry(entry) {
+    if (!entry) return false;
+    const name = String(entry.name || "").toLowerCase();
+    const code = String(entry.code || "").toLowerCase();
+    return code.startsWith("pe") || code.startsWith("pathfit") ||
+        name.includes("physical education") || name.includes("pathfit") ||
+        name.includes("movement") || name.includes("fitness") || name.includes("gymnastics");
+}
+
+/**
+ * Detects minor/general education subjects by their subject code prefix.
+ * These subjects (Math, English, Filipino, Science, etc.) are always lecture-only
+ * even if they have multiple meeting slots — they do NOT use a laboratory.
+ */
+function isLikelyMinorSubjectByCode(code, name) {
+    const c = String(code || "").trim().toUpperCase();
+    if (/^(MAT|MATH|ENG|FIL|SCI|NSTP|PE\d|PED|GEN|SOC|HIS|LIT|COM|NAT|HUMN|HIST|POLI|ECON|PHILO|SOCSCI|MMW|GEC|PATH|PATHFIT|CWTS|ROTC|RIZAL|ELEC|ENTREP|RA\d|TIC|ICT)/i.test(c)) return true;
+    const n = String(name || "").trim().toLowerCase();
+    if (/mathematics|algebra|calculus|trigonometry|english|filipino|science|physics|chemistry|biology|history|social|philosophy|economics|political|literature|pathfit|fitness|wellness|pe |physical education|national service|rotc|cwts|rizal|general education|entrep|exploratory|ict|information.{0,20}communication/i.test(n)) return true;
+    return false;
+}
+
+function getSubjectRequiredRoomTypeForSlot(subject, slotIdx = 0) {
+    if (!subject) return "Lecture Room";
+
+    const isAct = isActivityEntry(subject) ||
+        String(subject.meetingType || "").toLowerCase() === "activity" ||
+        String(subject.requiredRoomType || "").toLowerCase().includes("gym") ||
+        isGymOrCourtRoom(subject.room);
+    if (isAct) return "Gymnasium";
+
+    let reqRoom = subject.requiredRoomType || "";
+    let meetType = subject.meetingType || "";
+    let subType = subject.subjectType || "";
+
+    const normReq = normalizeRoomType(reqRoom);
+
+    // === TRUST EXPLICIT DATA FIRST ===
+    // If the prospectus/entry explicitly says "Lecture Room", honour that for ALL slots.
+    // Minor subjects (subjectType="Minor"/"General") must NEVER be treated as lec-lab
+    // even if their day/time/room strings contain "/".
+    const subTypeLower = String(subType).toLowerCase();
+    const isExplicitlyMinorOrLecture =
+        subTypeLower === "minor" ||
+        subTypeLower === "general" ||
+        normReq === "Lecture Room";
+
+    if (isExplicitlyMinorOrLecture && !isLabRoomType(normReq)) {
+        return "Lecture Room";
+    }
+
+    const hasMultipleMeetings = slotIdx > 0 ||
+        (subject.totalSlots && subject.totalSlots >= 2) ||
+        String(subject.day || "").includes("/") ||
+        String(subject.time || "").includes("/") ||
+        String(subject.room || "").includes("/");
+
+    const isMajorSubject = String(subType).toLowerCase() === "major" ||
+        (!isActivityEntry(subject) &&
+         !/minor|activity|general/i.test(String(subType)) &&
+         !isLikelyMinorSubjectByCode(subject.code || subject.subjectCode, subject.name));
+
+    const isLecLab = /lecture.*lab|lab.*lecture/i.test(String(meetType).toLowerCase()) ||
+        (hasMultipleMeetings && isMajorSubject) ||
+        isLabRoomType(normReq);
+
+    if (isLecLab) {
+        if (slotIdx === 0) return "Lecture Room";
+        return isLabRoomType(normReq) ? normReq : "Laboratory";
+    }
+
+    if (isLabRoomType(normReq)) {
+        return normReq;
+    }
+
+    return "Lecture Room";
+}
+
+function isRoomCompatibleForSubject(roomObjOrName, subject, slotIdx = 0) {
+    if (!roomObjOrName) return false;
+    const roomName = typeof roomObjOrName === "string" ? roomObjOrName.trim() : (roomObjOrName.roomName || roomObjOrName.roomCode || "").trim();
+    if (!roomName || roomName.toUpperCase() === "TBA") return true;
+
+    const rObj = typeof roomObjOrName === "object" && roomObjOrName.roomType
+        ? roomObjOrName
+        : (allRooms || []).find(r =>
+            (r.roomName || "").trim().toLowerCase() === roomName.toLowerCase() ||
+            (r.roomCode || "").trim().toLowerCase() === roomName.toLowerCase() ||
+            sameRoom(r.roomName || r.roomCode, roomName)
+        );
+
+    // If no room record found and name has no keyword hint, skip the check (no reliable type data)
+    const rTypeRaw = rObj ? normalizeRoomType(rObj.roomType) : (
+        isGymOrCourtRoom(roomName) ? "Gymnasium" :
+        /lab|shop|center/i.test(roomName) ? "Laboratory" : null
+    );
+    const rType = rTypeRaw !== null ? rTypeRaw : "Lecture Room";
+
+    const expectedType = getSubjectRequiredRoomTypeForSlot(subject, slotIdx);
+
+    if (expectedType === "Gymnasium") {
+        return rType === "Gymnasium" || isGymOrCourtRoom(roomName);
+    }
+
+    // If room type is unknown (not found in DB and no keyword hint), skip compatibility check
+    if (rTypeRaw === null) return true;
+
+    if (expectedType === "Lecture Room") {
+        if (isLabRoomType(rType) || rType === "Gymnasium" || isGymOrCourtRoom(roomName) || /lab|shop|court|gym/i.test(roomName)) {
+            return false;
+        }
+        return rType === "Lecture Room" || rType === "Avr" || (!isLabRoomType(rType) && rType !== "Gymnasium");
+    }
+
+    // Expected is Laboratory or a specific lab type
+    if (rType === "Laboratory" || isLabRoomType(rType) || /lab|shop|center/i.test(roomName)) {
+        if (expectedType && expectedType !== "Laboratory") {
+            if (rType === expectedType) return true;
+            if (rType === "Laboratory" || /lab|shop|center/i.test(roomName)) return true;
+            return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+
 function getDefaultRooms() {
     return [
         { id: "ADM204", roomCode: "ADM204", roomName: "Room 204", roomType: "Lecture Room", building: "Admin Building", floor: 2, capacity: 50, status: "AVAILABLE" },
@@ -1706,6 +1860,15 @@ function runEditScheduleDetailValidation() {
         }
     }
 
+    // 6. Room Compatibility Check (Subject type, Lecture vs Lab vs Gym)
+    if (pRoom && currentEditContext.entry) {
+        const isCompat = isRoomCompatibleForSubject(pRoom, currentEditContext.entry, currentMultiIdx);
+        if (!isCompat) {
+            const reqType = getSubjectRequiredRoomTypeForSlot(currentEditContext.entry, currentMultiIdx);
+            conflicts.push(`Room Incompatible: Subject <strong>${escapeHtml(currentEditContext.entry.code || '')}</strong> requires a <strong>${escapeHtml(reqType)}</strong> for meeting ${currentMultiIdx + 1}, but room <strong>${escapeHtml(pRoom)}</strong> is not compatible.`);
+        }
+    }
+
     if (conflicts.length > 0) {
         if (editDetailConflictPanel) editDetailConflictPanel.style.display = "block";
         if (editDetailConflictSummary) {
@@ -1859,6 +2022,7 @@ function generateAndRenderRoomResolutions(pDay, pTime, pRoom, occupyingConflict)
     const candidatePreferredRooms = allRooms.filter(r => {
         if (sameRoom(r.roomCode, pRoom)) return false;
         if (r.status === "MAINTENANCE" || r.status === "UNAVAILABLE") return false;
+        if (!isRoomCompatibleForSubject(r, currentEditContext.entry, currentMultiIdx)) return false;
         if (prefRooms.length > 0 && prefRooms.some(pr => sameRoom(pr, r.roomCode))) return true;
         if (prefBuilding && r.building === prefBuilding) return true;
         return false;
@@ -1886,8 +2050,9 @@ function generateAndRenderRoomResolutions(pDay, pTime, pRoom, occupyingConflict)
     // ─────────────────────────────────────────────────────────────
     // Priority B: Alternative Time Slots
     // ─────────────────────────────────────────────────────────────
-    const altTimeRooms = freePreferredRooms.length > 0 ? freePreferredRooms : (candidatePreferredRooms.length > 0 ? candidatePreferredRooms : allRooms.filter(r => sameRoom(r.roomCode, pRoom)));
-    const targetRoomForTime = altTimeRooms[0] || allRooms.find(r => sameRoom(r.roomCode, pRoom));
+    const compatibleRooms = allRooms.filter(r => isRoomCompatibleForSubject(r, currentEditContext.entry, currentMultiIdx));
+    const altTimeRooms = freePreferredRooms.length > 0 ? freePreferredRooms : (candidatePreferredRooms.length > 0 ? candidatePreferredRooms : compatibleRooms.filter(r => sameRoom(r.roomCode, pRoom)));
+    const targetRoomForTime = altTimeRooms[0] || compatibleRooms[0] || allRooms.find(r => sameRoom(r.roomCode, pRoom));
 
     const standardTimeSlots = [
         "7:30 AM - 9:00 AM",
@@ -1951,6 +2116,7 @@ function generateAndRenderRoomResolutions(pDay, pTime, pRoom, occupyingConflict)
             if (sameRoom(r2.roomCode, pRoom)) return false;
             if (r2.status === "MAINTENANCE" || r2.status === "UNAVAILABLE") return false;
             if (r2.capacity < 40) return false;
+            if (!isRoomCompatibleForSubject(r2, occClass.entry, occClass.multiIdx)) return false;
             return isRoomFree(r2.roomCode, occClass.day, occClass.time);
         });
 
@@ -2167,6 +2333,16 @@ async function saveScheduleDetailChanges() {
     if (!pRoom) {
         showToast("Please select a room assignment.");
         return;
+    }
+
+    // Enforce room compatibility check before saving
+    if (currentEditContext.entry) {
+        const isCompat = isRoomCompatibleForSubject(pRoom, currentEditContext.entry, currentEditContext.multiIdx);
+        if (!isCompat) {
+            const reqType = getSubjectRequiredRoomTypeForSlot(currentEditContext.entry, currentEditContext.multiIdx);
+            showToast(`Room Incompatible: Subject ${currentEditContext.entry.code || ''} requires a ${reqType} for meeting ${currentEditContext.multiIdx + 1}.`);
+            return;
+        }
     }
 
     // Check restricted room override confirmation if needed
