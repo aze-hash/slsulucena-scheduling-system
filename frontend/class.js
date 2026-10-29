@@ -537,6 +537,26 @@ function normalizeSemStr(sem) {
     return s;
 }
 
+function isPlaceholderRoomName(roomStr) {
+    const n = String(roomStr || "").trim().replace(/\s+/g, " ").toLowerCase();
+    return !n || n === "unassigned" || n === "tba";
+}
+
+/**
+ * Detects "no schedule" placeholder values used for Day / Time / Room fields.
+ * Subjects whose faculty is unassigned are stored with placeholders instead of a
+ * real schedule: blank, "-", "--", "- / -", "TBA", "N/A", etc. These must never
+ * participate in conflict detection.
+ */
+function isUnscheduledValue(value) {
+    const v = String(value || "").trim().toLowerCase();
+    if (!v) return true;
+    if (v === "tba" || v === "unassigned" || v === "n/a" || v === "na" || v === "none") return true;
+    // Strings composed only of dashes, slashes, dots and whitespace (e.g. "-", "- / -", "-- / --")
+    return /^[\/\-\s._]*$/.test(v);
+}
+
+
 function sameFaculty(f1, f2) {
     if (!f1 || !f2) return false;
     const n1 = String(f1).trim().replace(/\s+/g, " ").toLowerCase();
@@ -1224,6 +1244,35 @@ function isLabRoomType(roomType) {
     return labTypes.includes(roomType);
 }
 
+function specialistMajorForRoomType(roomType) {
+    const type = normalizeRoomType(roomType);
+    const match = type.match(/^(MT|AT|CP|CT|ELT|ELX|FSM|CPT) Laboratory$/);
+    return match ? match[1] : "";
+}
+
+/* Major classes may use a free lecture/AVR room. Specialist laboratories are
+   reserved for their matching major, preventing BIT/BINDTECH from being put
+   in a BTVTED-major laboratory. */
+function isRoomUsableForRequirement(room, requiredRoomType) {
+    const type = normalizeRoomType(room?.roomType);
+    const expected = normalizeRoomType(requiredRoomType);
+    const roomName = room?.roomName || room?.roomCode || "";
+
+    if (expected === "Gymnasium") return type === "Gymnasium" || isActivityGymOrCourtRoom(roomName);
+    if (expected === "Lecture Room") {
+        return !isLabRoomType(type) && type !== "Gymnasium" && !isActivityGymOrCourtRoom(roomName);
+    }
+    if (!isLabRoomType(expected)) return false;
+    if (!isLabRoomType(type)) return type !== "Gymnasium" && !isActivityGymOrCourtRoom(roomName);
+    const specialist = specialistMajorForRoomType(type);
+    return !specialist || specialist === specialistMajorForRoomType(expected);
+}
+
+function isRoomAvailableForScheduling(room) {
+    const status = String(room?.status || "AVAILABLE").trim().toUpperCase();
+    return status !== "MAINTENANCE" && status !== "UNAVAILABLE" && status !== "INACTIVE";
+}
+
 /**
  * Determines the required room type for a subject meeting slot.
  * slotIdx: 0 for Meeting 1 (Lecture Room for 2-meeting major subjects),
@@ -1245,9 +1294,27 @@ function getSubjectRequiredRoomTypeForSlot(subject, slotIdx = 0) {
     // If missing from subject object, lookup in allLoadedSubjects / currentSplitContext
     if (!reqRoom || !meetType || !subType) {
         const subCode = String(subject.code || subject.subjectCode || "").trim().toUpperCase();
-        const found = (allLoadedSubjects || []).find(s =>
+        const matches = (allLoadedSubjects || []).filter(s =>
             String(s.subjectCode || s.code || "").trim().toUpperCase() === subCode
         );
+        /* Course codes are reused by different programs (for example, CPT12).
+           Prefer the matching subject title and curriculum identifiers before
+           falling back to a code-only match, otherwise an old BINDTECH entry
+           can inherit BIT's Minor/Lecture classification. */
+        const subjectName = String(subject.name || subject.subjectName || "").trim().toLowerCase();
+        const subjectProgram = String(subject.programCode || subject.program || "").trim().toUpperCase();
+        const subjectMajor = String(subject.majorCode || subject.major || "").trim().toUpperCase();
+        const found = matches.find(s =>
+            subjectName && String(s.subjectName || s.name || "").trim().toLowerCase() === subjectName &&
+            (!subjectProgram || String(s.programCode || s.program || "").trim().toUpperCase() === subjectProgram) &&
+            (!subjectMajor || String(s.majorCode || s.major || "").trim().toUpperCase() === subjectMajor)
+        ) || matches.find(s =>
+            subjectProgram && subjectMajor &&
+            String(s.programCode || s.program || "").trim().toUpperCase() === subjectProgram &&
+            String(s.majorCode || s.major || "").trim().toUpperCase() === subjectMajor
+        ) || matches.find(s =>
+            subjectName && String(s.subjectName || s.name || "").trim().toLowerCase() === subjectName
+        ) || matches[0];
         if (found) {
             reqRoom = reqRoom || found.requiredRoomType || "";
             meetType = meetType || found.meetingType || "";
@@ -1274,9 +1341,13 @@ function getSubjectRequiredRoomTypeForSlot(subject, slotIdx = 0) {
     const isExplicitlyMinorOrLecture =
         subTypeLower === "minor" ||
         subTypeLower === "general" ||
+        (!subTypeLower && isLikelyMinorSubjectByCode(subject.code || subject.subjectCode, subject.name)) ||
         normReq === "Lecture Room";
 
-    if (isExplicitlyMinorOrLecture && !isLabRoomType(normReq)) {
+    /* A minor/general subject never acquires a laboratory requirement merely
+       because it has a second meeting.  Its curriculum data may be incomplete
+       in old schedules, so the subject classification is authoritative here. */
+    if (isExplicitlyMinorOrLecture) {
         return "Lecture Room";
     }
 
@@ -1288,10 +1359,7 @@ function getSubjectRequiredRoomTypeForSlot(subject, slotIdx = 0) {
         String(subject.time || "").includes("/") ||
         String(subject.room || "").includes("/");
 
-    const isMajorSubject = String(subType).toLowerCase() === "major" ||
-        (!isSharedSubjectType(subType, subject.code, subject.name) &&
-         !isActivityEntry(subject) &&
-         !isLikelyMinorSubjectByCode(subject.code || subject.subjectCode, subject.name));
+    const isMajorSubject = String(subType).toLowerCase() === "major";
 
     const isLecLab = /lecture.*lab|lab.*lecture/i.test(String(meetType).toLowerCase()) ||
         (hasMultipleMeetings && isMajorSubject) ||
@@ -1353,6 +1421,11 @@ function isRoomCompatibleForSubject(roomObjOrName, subject, slotIdx = 0) {
     }
 
     // Expected is Laboratory or a specific lab type (e.g. MT Laboratory, AT Laboratory, CP Laboratory, etc.)
+    // A lecture/AVR room is a valid placement for a major laboratory meeting.
+    // It must not be reported as an incompatibility.
+    if (!isLabRoomType(rType) && rType !== "Gymnasium" && !isActivityGymOrCourtRoom(roomName)) {
+        return true;
+    }
     if (rType === "Laboratory" || isLabRoomType(rType) || /lab|shop|center/i.test(roomName)) {
         if (expectedType && expectedType !== "Laboratory") {
             // Exact match with specialized lab
@@ -1365,6 +1438,83 @@ function isRoomCompatibleForSubject(roomObjOrName, subject, slotIdx = 0) {
     }
 
     return false;
+}
+/**
+ * Determines whether a Lecture Room may be accepted for a subject meeting that
+ * normally requires a Laboratory.
+ *
+ * Rule: a major subject's Laboratory meeting may be held in a Lecture Room as a
+ * fallback ONLY when every laboratory compatible with the subject is already
+ * fully booked by other subjects (or under maintenance/unavailable) at that
+ * day and time — i.e. there is no available laboratory to move the class to.
+ * If at least one compatible laboratory is still free, the strict rule applies
+ * and the Lecture Room assignment remains a blocking conflict.
+ *
+ * @param {string} roomName - the assigned room (a Lecture Room in the fallback case)
+ * @param {string} expectedType - required room type from getSubjectRequiredRoomTypeForSlot()
+ * @param {string} day - slot day
+ * @param {string} time - slot time range (e.g. "1:30-3:00")
+ * @param {Array<{room:string, day:string, time:string}>} bookedSlots - room bookings
+ *        from other saved schedules (and the schedule's own other slots)
+ * @returns {boolean} true when the lecture-room fallback is allowed
+ */
+function canUseLectureRoomForLabSubject(roomName, expectedType, day, time, bookedSlots) {
+    if (!roomName || String(roomName).trim().toUpperCase() === "TBA") return false;
+    if (!day || !time) return false;
+
+    // Only applies when the subject requires a Laboratory (general or specialized)
+    if (!expectedType || !isLabRoomType(expectedType)) return false;
+
+    const cleanRoomName = String(roomName).trim();
+
+    // The assigned room must be a Lecture-type room (not a lab, not a gym/court venue)
+    const roomObj = (allRooms || []).find(r =>
+        (r.roomName || "").trim().toLowerCase() === cleanRoomName.toLowerCase() ||
+        (r.roomCode || "").trim().toLowerCase() === cleanRoomName.toLowerCase() ||
+        sameRoom(r.roomName || r.roomCode, cleanRoomName)
+    );
+    const rType = roomObj ? normalizeRoomType(roomObj.roomType) : (
+        isActivityGymOrCourtRoom(cleanRoomName) ? "Gymnasium" :
+        /lab|shop|center/i.test(cleanRoomName) ? "Laboratory" : "Lecture Room"
+    );
+    if (isLabRoomType(rType) || rType === "Gymnasium" || isActivityGymOrCourtRoom(cleanRoomName)) return false;
+
+    const range = parseTimeRange(time);
+    if (!range) return false;
+    const dNorm = normalizeDayName(day).toLowerCase();
+
+    // Collect every laboratory compatible with the expected type, mirroring
+    // isRoomCompatibleForSubject(): specialized labs, general "Laboratory" rooms,
+    // and rooms whose name suggests a lab/shop/center all qualify.
+    const labs = (allRooms || []).filter(r => {
+        const nm = (r.roomName || r.roomCode || "").trim();
+        if (!nm) return false;
+        // Rooms under maintenance or explicitly unavailable are NOT usable options
+        if (r.status === "MAINTENANCE" || r.status === "UNAVAILABLE") return false;
+        const rt = normalizeRoomType(r.roomType);
+        const isLab = isLabRoomType(rt) || /lab|shop|center/i.test(nm);
+        if (!isLab) return false;
+        // Specialized requirement (e.g. "CPT Laboratory") is still satisfied by
+        // general-purpose laboratories / lab-keyword rooms (same as compatibility check)
+        if (expectedType !== "Laboratory" && rt !== expectedType && rt !== "Laboratory" && !/lab|shop|center/i.test(nm)) return false;
+        return true;
+    });
+
+    // No usable laboratory exists in the system at all — allow the fallback
+    if (!labs.length) return true;
+
+    // A lab is "available" if it is not booked by any booking at this day/time
+    const isLabFree = (lab) => {
+        const labName = lab.roomName || lab.roomCode || "";
+        return !(bookedSlots || []).some(b =>
+            b.room && sameRoom(b.room, labName) &&
+            normalizeDayName(b.day).toLowerCase() === dNorm &&
+            timesOverlap(b.time, time)
+        );
+    };
+
+    // Allow the Lecture Room fallback only when NO compatible laboratory is free
+    return !labs.some(isLabFree);
 }
 
 function getBuildingPriority(building, prog) {
@@ -1613,7 +1763,7 @@ function expandScheduleEntries(schedule) {
             const time = times[i] || times[0] || "";
             const room = rooms[i] || rooms[0] || "";
 
-            if (day && time) {
+            if (day && time && !isUnscheduledValue(day) && !isUnscheduledValue(time)) {
                 discrete.push({
                     uniqueKey: `${schedule.id || 'curr'}_${entry.code || entryIdx}_${day}_${time}_${i}`,
                     scheduleId: schedule.id || null,
@@ -1744,7 +1894,8 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
                 a.code === b.code &&
                 isSharedSubjectEntry(a);
 
-            if (!bothGymCourt && !isPairedSetSharedRoom && aRoom && bRoom && aRoom === bRoom) {
+            if (!bothGymCourt && !isPairedSetSharedRoom && aRoom && bRoom && aRoom === bRoom &&
+                !isPlaceholderRoomName(aRoom) && !isPlaceholderRoomName(bRoom)) {
                 const key = `SELF_ROOM_${a.day}_${a.room}_${a.code}_${b.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -1833,7 +1984,8 @@ function analyzeClassScheduleConflicts(generatedSchedule, existingSchedules) {
                 cur.code === ext.code &&
                 isSharedSubjectEntry(cur);
 
-            if (!bothGymCourtExt && !isPairedSetSharedRoomExt && curRoom && extRoom && curRoom === extRoom) {
+            if (!bothGymCourtExt && !isPairedSetSharedRoomExt && curRoom && extRoom && curRoom === extRoom &&
+                !isPlaceholderRoomName(curRoom) && !isPlaceholderRoomName(extRoom)) {
                 const key = `EXT_ROOM_${cur.day}_${cur.room}_${cur.code}_${ext.code}_${overlapTime}`;
                 if (!seenConflictKeys.has(key)) {
                     seenConflictKeys.add(key);
@@ -3036,7 +3188,8 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         facUid = "",
         mustAvoidFac = false,
         facPreferredRooms = [],
-        currentSubject = null
+        currentSubject = null,
+        allowLabFallback = false
     ) {
         /* No forced 7:30 AM start - days may begin at whatever earliest slot
            is actually free, which avoids artificial deadlocks and conflicts
@@ -3070,17 +3223,11 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             if (mustAvoidFac && facClash) continue;
 
             // 4. Room availability check
-            /* FALLBACK: if no room of the exact required type is free,
-               any non-laboratory, non-gym room in the Admin Building or
-               Building B may host a lecture class instead. */
+            // Lecture rooms are valid for major laboratory meetings.  The
+            // helper still excludes a specialist lab of the wrong major.
             const availableRooms = rooms.filter(room => {
-                const typeMatches =
-                    room.roomType === reqRoomType ||
-                    (reqRoomType === "Lecture Room" &&
-                        !isLabRoomType(room.roomType) &&
-                        room.roomType !== "Gymnasium" &&
-                        (room.building === "Admin Building" ||
-                            room.building === "Building B"));
+                if (!isRoomAvailableForScheduling(room)) return false;
+                const typeMatches = isRoomUsableForRequirement(room, reqRoomType);
                 if (!typeMatches) return false;
                 return (
                     !timetableInstance[day].some(item =>
@@ -3089,6 +3236,36 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     !roomIsTaken(room, day, time, false, currentSubject)
                 );
             });
+
+            if (availableRooms.length === 0 && allowLabFallback && isLabRoomType(reqRoomType)) {
+                /* Major meeting #2 remains a laboratory class by default.
+                   A lecture room is considered only after every compatible
+                   laboratory is occupied at this exact day/time, including
+                   rooms reserved earlier in the schedule currently being built. */
+                const inProgressBookings = (timetableInstance[day] || []).map(item => ({
+                    room: item.roomCode,
+                    day,
+                    time: item.time
+                }));
+                const allLabsBooked = canUseLectureRoomForLabSubject(
+                    "Lecture Room",
+                    reqRoomType,
+                    day,
+                    time,
+                    [...savedBookings, ...inProgressBookings]
+                );
+
+                if (allLabsBooked) {
+                    availableRooms.push(...rooms.filter(room =>
+                        isRoomAvailableForScheduling(room) &&
+                        normalizeRoomType(room.roomType) === "Lecture Room" &&
+                        !timetableInstance[day].some(item =>
+                            item.roomCode === room.roomCode && timesOverlap(item.time, time)
+                        ) &&
+                        !roomIsTaken(room, day, time, false, currentSubject)
+                    ));
+                }
+            }
             if (availableRooms.length === 0) continue;
 
             const room = selectBestRoom(availableRooms, reqRoomType, prog, facPreferredRooms);
@@ -3097,6 +3274,14 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             }
         }
 
+        /* First exhaust every usable laboratory slot. Only then retry with
+           the lecture-room contingency for a major's laboratory meeting. */
+        if (isLabRoomType(reqRoomType) && !allowLabFallback) {
+            return findBestMeetingSlotAndRoom(
+                day, reqRoomType, slots, timetableInstance, prog, facName, facUid,
+                mustAvoidFac, facPreferredRooms, currentSubject, true
+            );
+        }
         return null;
     }
 
@@ -3284,14 +3469,8 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                        Sharing is enabled by default for activities on ALL days,
                        Monday-Friday. */
                     const availableRooms = rooms.filter(room => {
-                        const typeMatches =
-                            room.roomType === requiredRoomType ||
-                            (!isActivity &&
-                                requiredRoomType === "Lecture Room" &&
-                                !isLabRoomType(room.roomType) &&
-                                room.roomType !== "Gymnasium" &&
-                                (room.building === "Admin Building" ||
-                                    room.building === "Building B"));
+                        if (!isRoomAvailableForScheduling(room)) return false;
+                        const typeMatches = isRoomUsableForRequirement(room, requiredRoomType);
                         if (!typeMatches) return false;
                         return (
                             !timetableInstance[day].some(item =>
@@ -3329,7 +3508,7 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     if (sectionConflict) continue;
                     if (!isVacantGapAcceptable(timetableInstance[day], time)) continue;
 
-                    const gym = rooms.find(r => r.roomType === "Gymnasium");
+                    const gym = rooms.find(r => r.roomType === "Gymnasium" && isRoomAvailableForScheduling(r));
                     if (gym && !roomIsTaken(gym, day, time, true)) {
                         return { day, time, room: gym };
                     }
@@ -3341,7 +3520,7 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
            section even when saved bookings from other semesters/years exist.
            Only blocks a slot once TWO other sections already occupy it. */
         if (isActivity) {
-            const gym = rooms.find(r => r.roomType === "Gymnasium");
+            const gym = rooms.find(r => r.roomType === "Gymnasium" && isRoomAvailableForScheduling(r));
             if (gym) {
                 for (const day of shuffle([...days])) {
                     if (activityDays instanceof Set && activityDays.has(day)) continue;
@@ -3744,6 +3923,33 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                 }
                 if (attemptFailed) break;
             }
+
+            // 4. Faculty may not be confirmed for overlapping classes.  This
+            // is deliberately checked after faculty selection and room choice,
+            // and covers both this generated section and already-saved sections.
+            if (!attemptFailed) {
+                for (let i = 0; i < currentOutput.length; i++) {
+                    const entry = currentOutput[i];
+                    if (!entry.faculty || entry.faculty === "Unassigned" || entry.faculty === "TBA") continue;
+
+                    const internalClash = currentOutput.some((other, j) =>
+                        j !== i && other.day === entry.day && timesOverlap(other.time, entry.time) &&
+                        ((entry.facultyUid && other.facultyUid && entry.facultyUid === other.facultyUid) ||
+                            sameFaculty(entry.faculty, other.faculty))
+                    );
+                    const savedClash = savedBookings.some(booking =>
+                        booking.section !== section && booking.day === entry.day && booking.time &&
+                        timesOverlap(booking.time, entry.time) &&
+                        ((entry.facultyUid && booking.facultyUid && entry.facultyUid === booking.facultyUid) ||
+                            sameFaculty(entry.faculty, booking.faculty))
+                    );
+                    if (internalClash || savedClash) {
+                        attemptFailed = true;
+                        lastFailureReason = `Faculty conflict: ${entry.faculty} is unavailable on ${entry.day} at ${entry.time}.`;
+                        break;
+                    }
+                }
+            }
         }
 
         if (!attemptFailed && currentOutput.length > 0) {
@@ -3804,6 +4010,11 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
                     code: item.code,
                     name: item.name,
                     units: item.units,
+                    programCode: prog,
+                    majorCode: major,
+                    subjectType: item.subjectType || "",
+                    meetingType: item.meetingType || "",
+                    requiredRoomType: item.requiredRoomType || "",
                     days: [],
                     times: [],
                     rooms: [],
@@ -3821,6 +4032,12 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
             entry.faculty = item.faculty || entry.faculty || "Unassigned";
             entry.facultyUid = item.facultyUid || entry.facultyUid || "";
             entry.facultyId = item.facultyId || entry.facultyId || "";
+            // Keep curriculum metadata on the display/saved row.  Without it,
+            // later validation can mistake a minor's second lecture session for
+            // the laboratory half of a major subject with the same code.
+            entry.subjectType = item.subjectType || entry.subjectType || "";
+            entry.meetingType = item.meetingType || entry.meetingType || "";
+            entry.requiredRoomType = item.requiredRoomType || entry.requiredRoomType || "";
 
             return map;
         }, new Map()).values()
@@ -3828,6 +4045,11 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
         code: item.code,
         name: item.name,
         units: item.units,
+        programCode: item.programCode || prog,
+        majorCode: item.majorCode || major,
+        subjectType: item.subjectType || "",
+        meetingType: item.meetingType || "",
+        requiredRoomType: item.requiredRoomType || "",
         day: item.days.join(" / "),
         time: item.times.join(" / "),
         room: item.rooms.join(" / "),
@@ -3837,7 +4059,9 @@ function generateForSection(section, secMeta, allSubjectRows, rooms, savedBookin
     }));
 
     finalOutput.forEach(item => {
-        if (item.day && item.day !== "TBA" && item.day !== "MTWThF" && item.time && item.time !== "TBA" && (item.room || "").toUpperCase() !== "TBA" && !TBA_SUBJECT_CODES.has(item.code)) {
+        // Exclude TBA / placeholder rows ("-", "- / -", blank...) — subjects without an
+        // assigned schedule (e.g. unassigned faculty) must not reserve rooms or blocks.
+        if (!isUnscheduledValue(item.day) && !isUnscheduledValue(item.time) && !isUnscheduledValue(item.room) && item.day !== "MTWThF" && !TBA_SUBJECT_CODES.has(item.code)) {
             savedBookings.push({
                 section,
                 academicYear: currentAcademicYear,
@@ -4464,8 +4688,21 @@ function validateScheduleEdits(updatedEntries, schedule) {
     const slots = [];
     updatedEntries.forEach((entry, rowIdx) => {
         if (!entry) return;
+        const entryDay = String(entry.day || "").trim();
+        const entryTime = String(entry.time || "").trim();
+        const entryRoom = String(entry.room || "").trim();
+
         // Ignore TBA subjects that have no physical room/time (e.g. OJT, Practicum, SIP, Internship)
-        if (TBA_SUBJECT_CODES.has(entry.code) || (entry.room || "").trim().toUpperCase() === "TBA" || (entry.day || "").trim().toUpperCase() === "TBA" || (entry.day || "").trim().toUpperCase() === "MTWTHF") {
+        if (TBA_SUBJECT_CODES.has(entry.code) || entryRoom.toUpperCase() === "TBA" || entryDay.toUpperCase() === "TBA" || entryDay.toUpperCase() === "MTWTHF") {
+            return;
+        }
+
+        // Ignore fully unscheduled entries — placeholder Day/Time/Room such as
+        // blank, "-", "- / -", or "TBA". These are subjects whose faculty is
+        // unassigned, so they were never given a class schedule. Without a real
+        // day/time/room there is nothing to conflict-check, and flagging them
+        // (e.g. "Invalid Time Format: '- / -'") is a false positive.
+        if (isUnscheduledValue(entryDay) && isUnscheduledValue(entryTime) && isUnscheduledValue(entryRoom)) {
             return;
         }
 
@@ -4764,6 +5001,17 @@ function validateScheduleEdits(updatedEntries, schedule) {
         if (slot.room && String(slot.room).trim().toUpperCase() !== "TBA") {
             const reqExpected = getSubjectRequiredRoomTypeForSlot(slot.entry || slot, slot.slotIdx);
             if (!isRoomCompatibleForSubject(slot.room, slot.entry || slot, slot.slotIdx)) {
+                /* FALLBACK ALLOWANCE:
+                   A major subject's Laboratory meeting may be held in a Lecture Room
+                   when every compatible laboratory is already fully booked by other
+                   subjects at this day/time (no available laboratory to move to).
+                   In that case the room mismatch is NOT a blocking conflict. */
+                const internalBookings = slots
+                    .filter(s2 => !(s2.rowIdx === slot.rowIdx && s2.slotIdx === slot.slotIdx))
+                    .map(s2 => ({ room: s2.room, day: s2.day, time: s2.time }));
+                if (canUseLectureRoomForLabSubject(slot.room, reqExpected, slot.day, slot.time, [...otherBookings, ...internalBookings])) {
+                    return; // Lecture-room fallback accepted — no blocking conflict
+                }
                 conflicts.push(`Room Incompatibility on <strong>${escapeHtml(slot.day)}</strong>: Room <strong>${escapeHtml(slot.room)}</strong> is incompatible with <strong>${escapeHtml(slot.code)}</strong> (requires <strong>${escapeHtml(reqExpected)}</strong>).`);
                 conflictRowIndices.add(slot.rowIdx);
                 detailedConflicts.push({
@@ -4834,10 +5082,56 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
     const timeRange = parseTimeRange(pTime);
     if (!timeRange) return false;
 
+    // Bookings from other active schedules in the same AY & Semester
+    // (computed up-front so the room-compatibility fallback can consult them)
+    const targetSection = (schedule.section || "").trim().toLowerCase();
+    const origSection = (schedule.originalSection || "").trim().toLowerCase();
+    const cleanTarget = targetSection.replace(/\s+set\s+[ab]$/i, "").trim();
+    const schedId = schedule.id || "";
+    const schedGroupId = schedule.scheduleGroupId || "";
+
+    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(b => {
+        const bSec = (b.section || "").trim().toLowerCase();
+        const bOrig = (b.originalSection || "").trim().toLowerCase();
+        const cleanB = bSec.replace(/\s+set\s+[ab]$/i, "").trim();
+
+        if (bSec === targetSection) return false;
+        if (origSection && (bSec === origSection || bOrig === origSection || cleanB === origSection)) return false;
+        if (cleanTarget && (cleanB === cleanTarget || bSec === cleanTarget)) return false;
+        if (schedId && (b.scheduleId === schedId || b.id === schedId)) return false;
+        if (schedGroupId && b.scheduleGroupId && schedGroupId === b.scheduleGroupId) return false;
+        return true;
+    });
+
     // Check room compatibility with subject
     if (checkRoom && pRoom && pRoom !== "TBA" && currentRows && currentRows[rowIdx]) {
         if (!isRoomCompatibleForSubject(pRoom, currentRows[rowIdx], slotIdx)) {
-            return false;
+            /* FALLBACK ALLOWANCE:
+               A major subject's Laboratory meeting may be held in a Lecture Room
+               when every compatible laboratory is already fully booked by other
+               subjects at this day/time (no available laboratory to move to). */
+            const reqExpected = getSubjectRequiredRoomTypeForSlot(currentRows[rowIdx], slotIdx);
+            const internalBookings = [];
+            for (let r = 0; r < currentRows.length; r++) {
+                const row = currentRows[r];
+                const rDays = String(row.day || "").split(" / ").map(d => d.trim()).filter(Boolean);
+                const rTimes = String(row.time || "").split(" / ").map(t => t.trim()).filter(Boolean);
+                const rRooms = String(row.room || "").split(" / ").map(rm => rm.trim()).filter(Boolean);
+                const maxLen = Math.max(rDays.length, rTimes.length, rRooms.length, 1);
+                for (let s = 0; s < maxLen; s++) {
+                    if (r === rowIdx && s === slotIdx) continue; // Skip itself
+                    internalBookings.push({
+                        room: rRooms[s] || rRooms[0] || row.room,
+                        day: rDays[s] || rDays[0] || row.day,
+                        time: rTimes[s] || rTimes[0] || row.time
+                    });
+                }
+            }
+            if (!canUseLectureRoomForLabSubject(pRoom, reqExpected, pDay, pTime, [...otherBookings, ...internalBookings])) {
+                return false;
+            }
+            // Lecture-room fallback accepted — continue with the remaining checks
+            // (the lecture room itself must still be free, validated below)
         }
     }
 
@@ -4876,24 +5170,7 @@ function testProposedSlotValidity(proposedDay, proposedTime, proposedRoom, propo
     }
 
     // Check against other active schedules in the same AY & Semester
-    const targetSection = (schedule.section || "").trim().toLowerCase();
-    const origSection = (schedule.originalSection || "").trim().toLowerCase();
-    const cleanTarget = targetSection.replace(/\s+set\s+[ab]$/i, "").trim();
-    const schedId = schedule.id || "";
-    const schedGroupId = schedule.scheduleGroupId || "";
-
-    const otherBookings = getSavedBookings(schedule.academicYear, schedule.semester).filter(b => {
-        const bSec = (b.section || "").trim().toLowerCase();
-        const bOrig = (b.originalSection || "").trim().toLowerCase();
-        const cleanB = bSec.replace(/\s+set\s+[ab]$/i, "").trim();
-
-        if (bSec === targetSection) return false;
-        if (origSection && (bSec === origSection || bOrig === origSection || cleanB === origSection)) return false;
-        if (cleanTarget && (cleanB === cleanTarget || bSec === cleanTarget)) return false;
-        if (schedId && (b.scheduleId === schedId || b.id === schedId)) return false;
-        if (schedGroupId && b.scheduleGroupId && schedGroupId === b.scheduleGroupId) return false;
-        return true;
-    });
+    // (otherBookings was computed up-front above for the room-compatibility fallback)
 
     for (const b of otherBookings) {
         if (!b.day || normalizeDayName(b.day).toLowerCase() !== pDay.toLowerCase()) continue;
@@ -5401,7 +5678,7 @@ function renderConflictResolutionsUI(recommendations) {
                     `).join("")}
                 </div>
             ` : `
-                <div class="suggestion-empty-state">No other suitable rooms of matching capacity and type are vacant on this day and time.</div>
+                <div class="suggestion-empty-state">No other suitable rooms type are vacant on this day and time.</div>
             `}
         </div>
     `;
@@ -5968,19 +6245,34 @@ if (saveEditScheduleBtn) {
             const facultyUid = (facultySelect?.selectedOptions[0]?.dataset?.uid || orig.facultyUid || "").trim();
             const facultyId = (facultySelect?.selectedOptions[0]?.dataset?.employeeId || orig.facultyId || "").trim();
 
-            if (!day || !time || !room) {
+            const dayIsUnscheduled = isUnscheduledValue(day);
+            const timeIsUnscheduled = isUnscheduledValue(time);
+            const roomIsUnscheduled = isUnscheduledValue(room);
+            const isFullyUnscheduled = dayIsUnscheduled && timeIsUnscheduled && roomIsUnscheduled;
+            const hasFullSchedule = !dayIsUnscheduled && !timeIsUnscheduled && !roomIsUnscheduled;
+
+            // Fully unscheduled rows are allowed — the subject has no faculty assigned
+            // yet, so it has no Day/Time/Room schedule (stored as "-", "- / -", "TBA"...).
+            // Only partially filled rows are blocked.
+            if (!hasFullSchedule && !isFullyUnscheduled) {
                 showToast(`Please complete Day, Time, and Room for ${code || "all subjects"}.`);
                 return;
             }
+
+            // Normalize "no schedule" placeholders to TBA so conflict checks, saved
+            // bookings, and display filters treat them consistently everywhere.
+            const normDay = isFullyUnscheduled ? "TBA" : day;
+            const normTime = isFullyUnscheduled ? "TBA" : time;
+            const normRoom = isFullyUnscheduled ? "TBA" : room;
 
             updatedEntries.push({
                 ...orig,
                 code,
                 name,
                 units: Number(units) || units,
-                day,
-                time,
-                room,
+                day: normDay,
+                time: normTime,
+                room: normRoom,
                 faculty: faculty || "Unassigned",
                 facultyUid,
                 facultyId
@@ -7142,7 +7434,11 @@ function runSplitConflictCheck() {
     for (const b of setBEntries) {
         const info = currentSplitContext.classifications.get(b.code);
         if (info && !isSharedSubjectType(info.type, b.code, b.name)) {
-            if (!b.day || !b.time || !b.room || b.day === "TBA" || b.time === "TBA" || b.room === "TBA") {
+            // Fully unscheduled entries (placeholder/TBA Day, Time AND Room — e.g. an
+            // unassigned-faculty subject) are intentionally left without a schedule
+            // and must not be reported as a conflict here.
+            const bFullyUnscheduled = isUnscheduledValue(b.day) && isUnscheduledValue(b.time) && isUnscheduledValue(b.room);
+            if (!bFullyUnscheduled && (!b.day || !b.time || !b.room || b.day === "TBA" || b.time === "TBA" || b.room === "TBA")) {
                 if (!TBA_SUBJECT_CODES.has(b.code)) {
                     conflicts.push(`<strong>Set B:</strong> Major subject <strong>${escapeHtml(b.code)}</strong> has no valid schedule assigned. Please manually assign Day, Time, and Room.`);
                 }

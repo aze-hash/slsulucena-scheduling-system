@@ -1,0 +1,28 @@
+Mode: DRY RUN (no writes)
+
+Loaded 52 class schedule(s) and 35 room(s).
+
+Room types: Lecture Room, FSM Laboratory, AT Laboratory, Avr, Laboratory, CT Laboratory, Gymnasium, ELT Laboratory, ELX Laboratory, MT Laboratory
+
+Total bookings (expanded per day): 604
+
+WARNING: rawEntries of "BINDTECH-CPT_2B_Set_B_2nd_Semester_BINDTECH_CPT_2nd_Year_2026-2027" could not be mapped 1:1 to entries; rawEntries for it will be left untouched.
+WARNING: rawEntries of "BTVTED-AT_1A_2nd_Semester_BTVTED_AT_1st_Year_2026-2027" could not be mapped 1:1 to entries; rawEntries for it will be left untouched.
+--- Pass 1: 11 conflict(s) found ---
+
+=== RESOLUTION PLAN (11 move(s)) ===
+  1. BINDTECH-CPT 1A Set B | CPT04 Computer Fundamentals and System Hardware | Thursday 7:30-10:00 @ CET Center  ->  Thursday 12:30-3:00 @ CET Center
+  2. BINDTECH-CPT 1A Set B | CPT04 Computer Fundamentals and System Hardware | Tuesday 7:30-10:00 @ Room B301  ->  Tuesday 12:30-3:00 @ Room B301
+  3. BINDTECH-CPT 1A Set B | IIT01 Introduction to Information Technology | Tuesday 10:00-12:30 @ Room B304  ->  Tuesday 3:00-5:30 @ Room B304
+  4. BINDTECH-CPT 1B Set B | CPT04 Computer Fundamentals and System Hardware | Monday 7:30-10:00 @ Room B301  ->  Monday 12:30-3:00 @ Room B301
+  5. BINDTECH-CPT 1B Set B | CPT05 Logic and Switching Theory | Wednesday 10:00-12:30 @ Room B101  ->  Wednesday 12:30-3:00 @ Room B101
+  6. BINDTECH-CPT 1B Set B | IIT01 Introduction to Information Technology | Monday 10:00-12:30 @ Room B102  ->  Monday 3:00-5:30 @ Room B102
+  7. BINDTECH-CPT 1B Set B | CPT05 Logic and Switching Theory | Friday 10:00-12:30 @ Room B204  ->  Friday 12:30-3:00 @ Room B204
+  8. BINDTECH-CPT 1B Set B | CPT04 Computer Fundamentals and System Hardware | Wednesday 1:00-3:30 @ CET Shop  ->  Wednesday 3:00-5:30 @ CET Shop
+  9. BINDTECH-CPT 1C Set B | CPT07 Computer Numerically Controlled Machines | Thursday 7:30-10:00 @ CET Shop  ->  Thursday 12:30-3:00 @ CET Shop
+  10. BINDTECH-CPT 1C Set B | CPT05 Logic and Switching Theory | Wednesday 1:00-3:30 @ Room B204  ->  Wednesday 3:00-5:30 @ Room B204
+  11. BIT-CPT 3C Set B | CPT15 Specialized Technology 2 | Monday 4:00-6:30 @ Room 207  ->  Monday 12:30-3:00 @ Room 207
+
+✓ All conflicts resolved. Re-verification found 0 conflicts.
+
+Dry run complete. Re-run with --apply to write changes to Firestore.
