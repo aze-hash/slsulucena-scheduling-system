@@ -1,8 +1,7 @@
 roomCode,roomName,roomType,capacity,building,floor,status
 A101,Room A101,Lecture Room,50,Building A,1,AVAILABLE
 A102,Room A102,Lecture Room,50,Building A,1,AVAILABLE
-A103,Room A103,Special Room,50,Building A,1,AVAILABLE
-A104,Room A104,Special Room,50,Building A,1,AVAILABLE
+FSMLAB,FSM Lab,FSM Laboratory,100,Building A,1,AVAILABLE
 A201,Room A201,Lecture Room,50,Building A,2,AVAILABLE
 A202,Room A202,Lecture Room,50,Building A,2,AVAILABLE
 A203,Room A203,Lecture Room,50,Building A,2,AVAILABLE
