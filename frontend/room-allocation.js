@@ -292,12 +292,13 @@ function expandClassSchedule(schedule) {
     if (!schedule) return discrete;
     if (String(schedule.status || "").toLowerCase() === "archived") return discrete;
 
-    const sourceEntries = Array.isArray(schedule.rawEntries) && schedule.rawEntries.length > 0
-        ? schedule.rawEntries
-        : (schedule.entries || []);
+    const sourceEntries = Array.isArray(schedule.entries) && schedule.entries.length > 0
+        ? schedule.entries
+        : (schedule.rawEntries || []);
 
     const scheduleSection = schedule.section || schedule.name || "";
     const scheduleStatus = (schedule.status || "draft").toLowerCase();
+    const seenKeys = new Set();
 
     sourceEntries.forEach((entry, entryIdx) => {
         if (!entry) return;
@@ -317,6 +318,12 @@ function expandClassSchedule(schedule) {
             const room = rooms[i] || rooms[0] || "";
 
             if (day && time) {
+                const section = String(entry.section || scheduleSection).trim();
+                const code = String(entry.code || "").trim();
+                const dedupeKey = `${day.toLowerCase()}::${time.replace(/\s+/g, "")}::${normaliseRoom(room)}::${code.toUpperCase()}::${section.toLowerCase()}`;
+                if (seenKeys.has(dedupeKey)) continue;
+                seenKeys.add(dedupeKey);
+
                 discrete.push({
                     scheduleId: schedule.id || null,
                     academicYear: String(schedule.academicYear || "").trim(),
@@ -324,9 +331,9 @@ function expandClassSchedule(schedule) {
                     semesterNorm: normaliseSemester(schedule.semester),
                     program: String(schedule.program || "").trim(),
                     major: String(schedule.major || "").trim(),
-                    section: String(entry.section || scheduleSection).trim(),
+                    section: section,
                     status: scheduleStatus,
-                    code: String(entry.code || "").trim(),
+                    code: code,
                     name: String(entry.name || "").trim(),
                     units: entry.units || 0,
                     day: day.trim(),
